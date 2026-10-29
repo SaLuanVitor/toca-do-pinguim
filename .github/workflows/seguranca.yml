@@ -1,0 +1,79 @@
+name: Segurança
+
+# Dependências com vulnerabilidade, licenças e origem, segredos no histórico e, em PR, o
+# que a mudança acrescenta. Roda também toda segunda-feira: uma falha nova pode ser
+# publicada sem que o código mude.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seguranca-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Base RustSec, licenças, crates proibidas e origem só do crates.io (deny.toml). O app
+  # é conferido no alvo Windows e o agente no Linux, os binários que de fato saem.
+  dependencias-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: App, alvo Windows
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          arguments: --target x86_64-pc-windows-msvc
+      - name: Agente, alvo Linux
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: crates/agente/Cargo.toml
+          command: check
+          arguments: --target x86_64-unknown-linux-musl
+
+  # O que vai para o app não pode ter nenhuma vulnerabilidade; nas ferramentas de build,
+  # barra a partir de severidade alta.
+  dependencias-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - name: Dependências do app
+        run: npm audit --omit=dev --audit-level=low
+      - name: Ferramentas de build
+        run: npm audit --audit-level=high
+
+  segredos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Em PR, recusa dependência nova com vulnerabilidade conhecida ou licença fora da lista.
+  revisao-de-dependencias:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low

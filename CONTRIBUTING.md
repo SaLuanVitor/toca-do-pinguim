@@ -32,10 +32,15 @@ simulados: serve para mexer na tela sem WSL.
 | Agente (`crates/agente`, `crates/protocolo`) | `cargo test -p agente -p protocolo`, em Linux; no Windows o CI roda |
 | Interface (`src/`) | `npm run check` |
 
-O workflow **Verificar** roda os três a cada push e PR.
+O workflow **Verificar** roda os três a cada push e PR. O **Segurança** confere as
+dependências (RustSec, `npm audit`, licenças e origem), procura segredos e, em PR, revisa as
+dependências novas; o **CodeQL** analisa o código. Os três precisam passar para o PR entrar.
 
 ## Commits e PRs
 
+- Crie a branch a partir de `develop`, com o prefixo `feat/`, `fix/`, `docs/`, `ci/` ou
+  `chore/`, e abra o PR para `develop`. A `main` só recebe PR de `develop`, na hora de uma
+  versão.
 - Mensagens no padrão [Conventional Commits](https://www.conventionalcommits.org/pt-br/), em
   português: `feat:`, `fix:`, `docs:`, `ci:`, `build:`, `chore:`.
 - Um PR por assunto. Diga no PR o que mudou para quem usa e como você conferiu.

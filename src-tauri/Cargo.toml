@@ -2,6 +2,7 @@
 name = "toca-do-pinguim"
 version.workspace = true
 license.workspace = true
+publish = false
 description = "Gerenciador de tarefas do WSL"
 edition = "2024"
 

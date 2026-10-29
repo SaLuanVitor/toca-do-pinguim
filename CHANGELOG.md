@@ -5,6 +5,19 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Segurança
+
+- O agente passa a morar em `/var/lib/toca-do-pinguim/`, numa pasta 700 do root, com o
+  arquivo temporário criado pelo `mktemp`. Em `/tmp`, um usuário comum da distro podia criar
+  a pasta antes do app e plantar um binário que o app executaria como root.
+- A chave que assina as atualizações sai do build: o instalador é montado sem ela, e um job
+  separado, no ambiente protegido `publicacao`, só assina. Todas as Actions são fixadas por
+  commit, e a tag de versão precisa estar na `main`.
+- Workflow **Segurança**, a cada push, PR e toda segunda-feira: `cargo-deny` (base RustSec,
+  licenças, crates e origem) para o app no alvo Windows e o agente no Linux, `npm audit`,
+  `gitleaks` no histórico e revisão das dependências novas em PR. Workflow **CodeQL** para
+  Rust, TypeScript e os próprios workflows.
+
 ### Adicionado
 
 - Arquivos de projeto aberto: `SECURITY.md` (relato privado de falha e onde o app tem

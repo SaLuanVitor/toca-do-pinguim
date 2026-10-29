@@ -2,6 +2,7 @@
 name = "protocolo"
 version.workspace = true
 license.workspace = true
+publish = false
 edition = "2021"
 
 [dependencies]

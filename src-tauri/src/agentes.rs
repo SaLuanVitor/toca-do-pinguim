@@ -300,15 +300,19 @@ fn escrever(entrada: &mut ChildStdin, cmd: &Comando) -> Result<(), String> {
         .map_err(|e| format!("agente não respondeu: {e}"))
 }
 
-/// O nome do arquivo carrega o hash do binário: um app atualizado nunca roda o agente
-/// de uma versão anterior que tenha ficado no `/tmp` da distro.
+/// O agente roda como root, então mora onde só o root escreve: em `/var/lib` nenhum
+/// usuário comum cria a pasta antes do app nem troca o binário entre a cópia e a execução,
+/// o que o `/tmp` permitia. O nome carrega o hash do binário, e um app atualizado nunca
+/// roda o agente de uma versão anterior.
+const PASTA_REMOTA: &str = "/var/lib/toca-do-pinguim";
+
 fn caminho_remoto() -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in AGENTE {
         h ^= *b as u64;
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("/tmp/toca-do-pinguim/agente-{h:016x}")
+    format!("{PASTA_REMOTA}/agente-{h:016x}")
 }
 
 /// Copia o agente para dentro da distro pelo stdin do `wsl.exe`, sem depender de onde
@@ -324,7 +328,8 @@ fn instalar(distro: &str) -> Result<String, String> {
         return Ok(caminho);
     }
 
-    let script = r#"d="${1%/*}"; mkdir -p "$d" && rm -f "$d"/agente-* && cat > "$1.tmp" && chmod 755 "$1.tmp" && mv -f "$1.tmp" "$1""#;
+    // Pasta 700 de root, e o arquivo temporário sai do mktemp, com nome imprevisível.
+    let script = r#"set -e; d="${1%/*}"; mkdir -p "$d"; chown root:root "$d"; chmod 700 "$d"; rm -f "$d"/agente-* "$d"/.agente.*; t=$(mktemp "$d/.agente.XXXXXX"); cat > "$t"; chmod 700 "$t"; mv -f "$t" "$1""#;
     let mut filho = wsl::wsl()
         .args(["-d", distro, "-u", "root", "--exec", "sh", "-c", script, "sh", &caminho])
         .stdin(Stdio::piped())

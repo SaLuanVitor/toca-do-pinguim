@@ -52,6 +52,7 @@
       "endpoints": [
         "https://github.com/SaLuanVitor/toca-do-pinguim/releases/latest/download/latest.json"
       ],
+      "requireSignedVersion": true,
       "windows": { "installMode": "passive" }
     }
   }

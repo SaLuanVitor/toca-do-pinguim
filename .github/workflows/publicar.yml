@@ -1,73 +1,144 @@
 name: Publicar
 
-# Uma tag v* gera os pacotes e abre uma release em rascunho com eles e as notas do
-# CHANGELOG.md. Rodado à mão, sem tag, só gera os pacotes como artefato, para conferir.
+# Uma tag v* na main gera os pacotes e abre uma release em rascunho com eles e as notas do
+# CHANGELOG.md. Rodado à mão, sem tag, só gera os pacotes sem assinatura, para conferir.
+#
+# A chave que assina as atualizações só existe no job `assinar`, que recebe o instalador
+# pronto e roda o assinador do Tauri numa versão fixa. O build, com o Vite, os scripts npm e
+# o código de build das crates, nunca vê a chave.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  windows-x64:
+  construir:
     runs-on: windows-latest
+    outputs:
+      versao: ${{ steps.versao.outputs.versao }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Conferir que a tag está na main
+        if: github.ref_type == 'tag'
+        run: git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: x86_64-unknown-linux-musl
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: npm ci
       - name: Conferir versão
-        run: node scripts/sincronizar-versao.mjs --conferir ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-      # A chave assina o instalador para a atualização automática; o app confere com a
-      # chave pública do tauri.conf.json. Ela foi gerada sem senha.
-      - run: npm run tauri build
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        id: versao
+        shell: pwsh
+        run: |
+          node scripts/sincronizar-versao.mjs --conferir ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          "versao=$((Get-Content package.json -Raw | ConvertFrom-Json).version)" >> $env:GITHUB_OUTPUT
+      - run: npm run tauri build -- --config src-tauri/tauri.sem-assinatura.conf.json
       # As licenças das dependências pedem que o aviso delas acompanhe o binário distribuído.
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
-          tool: cargo-about
+          tool: cargo-about@0.9.3
       - name: Avisos de licença de terceiros
         run: |
           cargo about generate about.hbs -o licencas-rust.md
           node scripts/avisos-de-licenca.mjs licencas-rust.md THIRD-PARTY-NOTICES.md
+      - name: Separar os binários
+        shell: pwsh
+        run: |
+          $base = "toca-do-pinguim_${{ steps.versao.outputs.versao }}_x64"
+          New-Item -ItemType Directory construido | Out-Null
+          $instalador = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Copy-Item $instalador.FullName "construido/$base-setup.exe"
+          Copy-Item target/release/toca-do-pinguim.exe, LICENSE, THIRD-PARTY-NOTICES.md construido/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: construido
+          path: construido/
+
+  assinar:
+    if: github.ref_type == 'tag'
+    needs: construir
+    runs-on: ubuntu-latest
+    # O secret mora no ambiente "publicacao", que só aceita tags v*.
+    environment: publicacao
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: construido
+          path: construido
+      - name: Assinar o instalador para a atualização automática
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: |
+          # --app-version grava a versão no comentário assinado; o app recusa um latest.json que
+          # anuncie outra (requireSignedVersion), o que impede servir um instalador antigo como novo.
+          npx --yes @tauri-apps/cli@2.12.4 signer sign --app-version "${{ needs.construir.outputs.versao }}" "construido/toca-do-pinguim_${{ needs.construir.outputs.versao }}_x64-setup.exe"
+          mkdir assinatura
+          mv construido/*.sig assinatura/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: assinatura
+          path: assinatura/
+
+  publicar:
+    needs: [construir, assinar]
+    # Sem tag, o job de assinatura é pulado e este só monta os pacotes para conferência.
+    if: always() && needs.construir.result == 'success' && (needs.assinar.result == 'success' || needs.assinar.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: construido
+          path: construido
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: needs.assinar.result == 'success'
+        with:
+          name: assinatura
+          path: assinatura
       - name: Montar pacotes
         shell: pwsh
         run: |
-          $versao = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $versao = '${{ needs.construir.outputs.versao }}'
           $base = "toca-do-pinguim_${versao}_x64"
           New-Item -ItemType Directory dist | Out-Null
-          $instalador = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Copy-Item $instalador.FullName "dist/$base-setup.exe"
-          Copy-Item THIRD-PARTY-NOTICES.md dist/
-          Compress-Archive -Path target/release/toca-do-pinguim.exe, LICENSE, THIRD-PARTY-NOTICES.md -DestinationPath "dist/$base-portable.zip"
+          Copy-Item "construido/$base-setup.exe", construido/THIRD-PARTY-NOTICES.md dist/
+          Compress-Archive -Path construido/toca-do-pinguim.exe, construido/LICENSE, construido/THIRD-PARTY-NOTICES.md -DestinationPath "dist/$base-portable.zip"
           # O app instalado lê este arquivo em releases/latest e baixa o instalador indicado.
-          $releases = "https://github.com/${{ github.repository }}/releases"
-          @{
-            version   = $versao
-            notes     = "O que mudou: $releases/tag/v$versao"
-            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-            platforms = @{
-              'windows-x86_64' = @{
-                signature = (Get-Content "$($instalador.FullName).sig" -Raw).Trim()
-                url       = "$releases/download/v$versao/$base-setup.exe"
+          $sig = "assinatura/$base-setup.exe.sig"
+          if (Test-Path $sig) {
+            $releases = "https://github.com/${{ github.repository }}/releases"
+            @{
+              version   = $versao
+              notes     = "O que mudou: $releases/tag/v$versao"
+              pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+              platforms = @{
+                'windows-x86_64' = @{
+                  signature = (Get-Content $sig -Raw).Trim()
+                  url       = "$releases/download/v$versao/$base-setup.exe"
+                }
               }
-            }
-          } | ConvertTo-Json -Depth 4 | ForEach-Object { [IO.File]::WriteAllText("$PWD/dist/latest.json", $_) }
+            } | ConvertTo-Json -Depth 4 | ForEach-Object { [IO.File]::WriteAllText("$PWD/dist/latest.json", $_) }
+          }
           $somas = Get-ChildItem dist | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLower(), $_.Name }
           # Fim de linha LF: com CRLF, o `sha256sum -c` do Linux e do WSL não acha os arquivos.
           [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", ($somas -join "`n") + "`n")
           Get-Content dist/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pacotes-windows-x64
           path: dist/

@@ -20,14 +20,20 @@ numa versão nova, que o app instalado oferece pelo aviso de atualização.
 Para avaliar o impacto de uma falha, vale saber onde o app tem acesso:
 
 - **Agente dentro das distros.** Um binário próprio é copiado para
-  `/tmp/toca-do-pinguim/` de cada distro ligada e roda como `root`, porque lê o `/proc` de
-  todos os processos e envia sinais a pedido. Ele recusa sinal ao PID 1 e a si mesmo e só
-  recebe comandos pelo stdin do `wsl.exe` aberto pelo app.
+  `/var/lib/toca-do-pinguim/` de cada distro ligada, numa pasta 700 do root, e roda como
+  `root`, porque lê o `/proc` de todos os processos e envia sinais a pedido. Ele recusa sinal
+  ao PID 1 e a si mesmo e só recebe comandos pelo stdin do `wsl.exe` aberto pelo app. Até a
+  0.5.1 a pasta ficava em `/tmp`, onde um usuário comum podia criá-la antes do app e plantar
+  um binário executado como root.
 - **Arquivos de configuração.** O app grava `%UserProfile%\.wslconfig` e o `/etc/wsl.conf` de
   cada distro, como `root`, guardando a versão anterior ao lado. Valores com quebra de linha
   e seções fora das documentadas são recusados.
 - **Atualização automática.** O instalador baixado só roda se a assinatura dele bater com a
-  chave pública embutida no app. A chave privada fica fora do repositório, em um secret do
-  GitHub Actions.
+  chave pública embutida no app. A chave privada fica fora do repositório, num secret do
+  ambiente `publicacao` do GitHub, e só o job que assina a recebe, depois do build.
+- **Cadeia de suprimentos.** As Actions são fixadas por commit. O workflow Segurança confere
+  as dependências contra a base RustSec e o `npm audit`, as licenças e a origem das crates,
+  procura segredos no histórico e, em PR, revisa as dependências novas; o CodeQL analisa o
+  código. O Dependabot propõe as atualizações.
 - **Instalação.** É por usuário, em `%LOCALAPPDATA%\Toca do Pinguim`, sem pedir
   administrador. O instalador ainda não tem assinatura digital do Windows.
