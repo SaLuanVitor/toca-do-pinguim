@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.5.1] - 2026-10-29
+
 ### Corrigido
 
 - Gravar a tecla de atalho deixava o atalho do menu Iniciar sem ícone, porque regravar o
@@ -90,7 +92,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.2.0...v0.3.0
