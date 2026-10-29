@@ -33,6 +33,15 @@ static AGENTE: &[u8] = include_bytes!(concat!(
 
 const PAUSA_SUPERVISOR: Duration = Duration::from_secs(2);
 const ESPERA_APOS_FALHA: Duration = Duration::from_secs(30);
+const ESPERA_MAXIMA_APOS_FALHA: Duration = Duration::from_secs(5 * 60);
+
+/// Com o WSL travado (`Wsl/Service/0x8007274c`), cada tentativa ocupa o serviço pelos 30 s
+/// do prazo, e as sessões de outros programas esperam atrás dela. A espera dobra a cada
+/// falha seguida, para o app não ser o que mantém o serviço ocupado.
+fn espera_apos_falhas(seguidas: u32) -> Duration {
+    let fator = 1u32 << seguidas.saturating_sub(1).min(8);
+    (ESPERA_APOS_FALHA * fator).min(ESPERA_MAXIMA_APOS_FALHA)
+}
 
 /// Com a janela minimizada ninguém lê a tela, mas o WebView2 continua processando o
 /// que chega. Os agentes desaceleram e as amostras param de ir ao front.
@@ -68,7 +77,8 @@ enum Slot {
 
 pub struct Agentes {
     slots: Mutex<HashMap<String, Slot>>,
-    falhas: Mutex<HashMap<String, Instant>>,
+    /// Última falha ao subir o agente e quantas vieram seguidas.
+    falhas: Mutex<HashMap<String, (Instant, u32)>>,
     /// Distros cujo agente saiu por ociosidade, com o instante da saída.
     ociosas: Mutex<HashMap<String, Instant>>,
     /// Sinais enviados e ainda sem resposta, por distro, na ordem de envio: o agente
@@ -169,8 +179,8 @@ impl Agentes {
     /// Sobe o agente de `distro` se ainda não houver um. Não espera: a instalação e a
     /// partida rodam numa thread, e o resultado chega por evento.
     pub fn garantir(self: &Arc<Self>, app: &AppHandle, distro: &str) {
-        if let Some(quando) = self.falhas.lock().unwrap().get(distro) {
-            if quando.elapsed() < ESPERA_APOS_FALHA {
+        if let Some((quando, seguidas)) = self.falhas.lock().unwrap().get(distro) {
+            if quando.elapsed() < espera_apos_falhas(*seguidas) {
                 return;
             }
         }
@@ -214,9 +224,17 @@ impl Agentes {
                 thread::spawn(move || self.ler(app, distro, id, saida));
             }
             Err(mensagem) => {
-                error!("[{distro}] agente não subiu; nova tentativa em {} s: {mensagem}", ESPERA_APOS_FALHA.as_secs());
                 self.slots.lock().unwrap().remove(&distro);
-                self.falhas.lock().unwrap().insert(distro.clone(), Instant::now());
+                let seguidas = {
+                    let mut falhas = self.falhas.lock().unwrap();
+                    let seguidas = falhas.get(&distro).map_or(0, |(_, n)| *n) + 1;
+                    falhas.insert(distro.clone(), (Instant::now(), seguidas));
+                    seguidas
+                };
+                error!(
+                    "[{distro}] agente não subiu ({seguidas}ª falha seguida); nova tentativa em {} s: {mensagem}",
+                    espera_apos_falhas(seguidas).as_secs()
+                );
                 let _ = app.emit("erro", Erro { distro: Some(distro), mensagem });
             }
         }
@@ -318,8 +336,15 @@ fn instalar(distro: &str) -> Result<String, String> {
     // abaixo mata o `wsl.exe`, o que destrava a escrita com erro. O EOF ao soltar o stdin
     // é o que encerra o `cat`.
     let mut entrada = filho.stdin.take().expect("stdin pedido como piped");
+    let quem = distro.to_string();
+    let inicio = Instant::now();
     thread::spawn(move || {
-        let _ = entrada.write_all(AGENTE);
+        // Distingue, quando a cópia trava, a distro que não lê o stdin da que leu tudo e
+        // não viu o fim dele.
+        match entrada.write_all(AGENTE) {
+            Ok(()) => info!("[{quem}] agente enviado pelo stdin: {} bytes em {} ms", AGENTE.len(), inicio.elapsed().as_millis()),
+            Err(e) => warn!("[{quem}] envio do agente interrompido após {} ms: {e}", inicio.elapsed().as_millis()),
+        }
     });
     let rotulo = format!("instalar o agente em {distro}");
     let saida = wsl::esperar(filho, wsl::PRAZO, &rotulo, Some(distro)).map_err(|e| format!("{distro}: {e}"))?;
@@ -414,4 +439,16 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
             thread::sleep(PAUSA_SUPERVISOR);
         }
     });
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn espera_dobra_a_cada_falha_ate_cinco_minutos() {
+        let s = |n| espera_apos_falhas(n).as_secs();
+        assert_eq!([s(1), s(2), s(3), s(4), s(5), s(6)], [30, 60, 120, 240, 300, 300]);
+        assert_eq!(s(1000), 300);
+    }
 }

@@ -15,11 +15,16 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .clear_targets()
         .target(Target::new(TargetKind::LogDir { file_name: Some(ARQUIVO.into()) }))
         .target(Target::new(TargetKind::Stdout))
-        .level(log::LevelFilter::Info)
+        .level(nivel())
         .max_file_size(1_000_000)
         .rotation_strategy(RotationStrategy::KeepSome(5))
         .timezone_strategy(TimezoneStrategy::UseLocal)
         .build()
+}
+
+/// `TOCA_LOG=debug` grava também as chamadas que deram certo, com o tempo de cada uma.
+fn nivel() -> log::LevelFilter {
+    std::env::var("TOCA_LOG").ok().and_then(|v| v.parse().ok()).unwrap_or(log::LevelFilter::Info)
 }
 
 fn pasta(app: &AppHandle) -> Result<PathBuf, String> {

@@ -14,6 +14,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   pelo app e a versão do WSL ao abrir.
 - A Atividade registra quando o WSL deixa de responder e quando volta, com quanto tempo
   ficou fora e quantas chamadas falharam, e ganhou o filtro **WSL**.
+- `TOCA_LOG=debug` grava no log também as chamadas que deram certo, com o tempo de cada uma.
+
+### Corrigido
+
+- Com o WSL travado (`Wsl/Service/0x8007274c`), o app tentava subir o agente a cada 30 s, e
+  cada tentativa ocupava o serviço pelos 30 s do prazo. Agora a espera dobra a cada falha
+  seguida, até 5 minutos.
 
 ## [0.2.0] - 2026-10-29
 
