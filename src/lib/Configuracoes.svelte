@@ -6,22 +6,25 @@
   import { CATALOGO, GRUPOS } from './catalogoWslconfig';
   import { CATALOGO_WSLCONF, GRUPOS_WSLCONF } from './catalogoWslconf';
   import EditorChaves from './EditorChaves.svelte';
+  import PreferenciasApp from './PreferenciasApp.svelte';
   import { estado } from './estado.svelte';
   import type { MudancaWslconfig } from './tipos';
 
   const TODAS = '';
+  // Nome de distro não começa com dois-pontos, então não colide.
+  const APP = ':app';
 
   let escopo = $state(TODAS);
   let filtro = $state('');
   let liberadas = $state<string[]>([]);
 
   const distro = $derived(estado.distros.find((d) => d.nome === escopo));
-  const legivel = $derived(escopo === TODAS || !!distro?.rodando || liberadas.includes(escopo));
+  const legivel = $derived(escopo === TODAS || escopo === APP || !!distro?.rodando || liberadas.includes(escopo));
 
   // Uma vez lido, o editor da distro fica aberto mesmo que ela desligue (por ociosidade ou
   // por "Salvar e reiniciar"): remontá-lo releria o arquivo e ligaria a distro de novo.
   $effect(() => {
-    if (escopo !== TODAS && legivel && !liberadas.includes(escopo)) liberadas = [...liberadas, escopo];
+    if (escopo !== TODAS && escopo !== APP && legivel && !liberadas.includes(escopo)) liberadas = [...liberadas, escopo];
   });
 
   async function atualizarDistros() {
@@ -66,20 +69,25 @@
       {#each estado.distros as d (d.nome)}
         <option value={d.nome}>{d.nome} (wsl.conf){d.rodando ? '' : ', desligada'}</option>
       {/each}
+      <option value={APP}>Este app (Toca do Pinguim)</option>
     </select>
   </label>
-  <input
-    class="busca"
-    type="search"
-    placeholder="Filtrar configurações"
-    aria-label="Filtrar configurações"
-    data-filtro
-    bind:value={filtro}
-    onkeydown={(e) => e.key === 'Escape' && (filtro = '')}
-  />
+  {#if escopo !== APP}
+    <input
+      class="busca"
+      type="search"
+      placeholder="Filtrar configurações"
+      aria-label="Filtrar configurações"
+      data-filtro
+      bind:value={filtro}
+      onkeydown={(e) => e.key === 'Escape' && (filtro = '')}
+    />
+  {/if}
 </header>
 
-{#if escopo === TODAS}
+{#if escopo === APP}
+  <PreferenciasApp />
+{:else if escopo === TODAS}
   {#key escopo}
     <EditorChaves
       catalogo={CATALOGO}

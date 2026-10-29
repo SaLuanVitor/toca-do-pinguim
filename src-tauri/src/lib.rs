@@ -1,4 +1,5 @@
 mod agentes;
+mod atalho;
 mod atividade;
 mod atualizacao;
 mod config;
@@ -192,7 +193,16 @@ fn trazer_dados_antigos(dados: &Path) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // Primeiro, para o log já pegar o que os outros plugins e o setup registram.
+        // Uma segunda abertura (pela tecla de atalho, pelo menu) só traz esta janela para
+        // frente: duas instâncias subiriam dois agentes em cada distro.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(janela) = app.get_webview_window("main") {
+                let _ = janela.unminimize();
+                let _ = janela.show();
+                let _ = janela.set_focus();
+            }
+        }))
+        // Logo depois, para o log já pegar o que os outros plugins e o setup registram.
         .plugin(registro::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -237,6 +247,8 @@ pub fn run() {
             atualizacao::abrir_pagina_da_versao,
             registro::ler_log,
             registro::abrir_pasta_de_logs,
+            atalho::ler_atalho_teclado,
+            atalho::definir_atalho_teclado,
         ])
         .build(tauri::generate_context!())
         .expect("falha ao montar o app")

@@ -91,3 +91,10 @@ export interface MudancaWslconfig {
   /** null tira a chave e volta ao padrão do WSL. */
   valor: string | null;
 }
+
+export interface AtalhoTeclado {
+  /** No formato do Windows, como Alt+Ctrl+P; vazio sem tecla. */
+  tecla: string;
+  caminho: string;
+  existe: boolean;
+}

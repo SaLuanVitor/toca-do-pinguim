@@ -29,6 +29,20 @@ Instalado pelo instalador, o app avisa quando sai versão nova e se atualiza com
 Ele procura ao abrir e a cada 6 horas, e não baixa nada sem você pedir. O instalador baixado
 é conferido contra uma assinatura própria do projeto antes de rodar.
 
+A instalação é só para o seu usuário e não pede administrador. Pelo PowerShell:
+
+| Para | Comando |
+|---|---|
+| Instalar a versão mais recente (confere o SHA256 antes) | `irm https://raw.githubusercontent.com/SaLuanVitor/toca-do-pinguim/main/scripts/instalar.ps1 \| iex` |
+| Abrir | `start toca-do-pinguim`, ou `toca-do-pinguim` no Win+R |
+| Remover (mantém histórico e log) | `irm https://raw.githubusercontent.com/SaLuanVitor/toca-do-pinguim/main/scripts/desinstalar.ps1 \| iex` |
+| Remover e apagar os dados | `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/SaLuanVitor/toca-do-pinguim/main/scripts/desinstalar.ps1))) -ApagarDados` |
+| Instalar ou remover sem perguntas, com o arquivo já baixado | `toca-do-pinguim_X.Y.Z_x64-setup.exe /S` e `"%LOCALAPPDATA%\Toca do Pinguim\uninstall.exe" /S` |
+
+Também dá para remover por Configurações > Aplicativos > Aplicativos instalados. A versão
+portátil não instala nada: é abrir o `toca-do-pinguim.exe`. Se o app já estiver aberto, abri-lo
+de novo só traz a janela para frente.
+
 ## Como funciona
 
 O Windows enxerga todas as distros como um processo só (`vmmemWSL`). Os processos só

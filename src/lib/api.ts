@@ -1,4 +1,4 @@
-import type { Amostra, Atualizacao, ConteudoWslconfig, Distro, Evento, MudancaWslconfig, ResumoMemoria } from './tipos';
+import type { Amostra, AtalhoTeclado, Atualizacao, ConteudoWslconfig, Distro, Evento, MudancaWslconfig, ResumoMemoria } from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
 
@@ -20,6 +20,8 @@ export interface Api {
   lerWslconfig(): Promise<ConteudoWslconfig>;
   gravarWslconfig(mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   lerWslconf(distro: string): Promise<ConteudoWslconfig>;
+  lerAtalhoTeclado(): Promise<AtalhoTeclado>;
+  definirAtalhoTeclado(tecla: string): Promise<void>;
   gravarWslconf(distro: string, mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   abrirPastaDeLogs(): Promise<void>;
 }
@@ -64,6 +66,8 @@ async function conectarTauri(): Promise<Api> {
     lerWslconfig: () => invoke('ler_wslconfig'),
     gravarWslconfig: (mudancas, reiniciar) => invoke('gravar_wslconfig', { mudancas, reiniciar }),
     lerWslconf: (distro) => invoke('ler_wslconf', { distro }),
+    lerAtalhoTeclado: () => invoke('ler_atalho_teclado'),
+    definirAtalhoTeclado: (tecla) => invoke('definir_atalho_teclado', { tecla }),
     gravarWslconf: (distro, mudancas, reiniciar) => invoke('gravar_wslconf', { distro, mudancas, reiniciar }),
     abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
   };

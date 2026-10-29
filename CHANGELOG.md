@@ -5,6 +5,18 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Instalar e remover pelo terminal: `scripts/instalar.ps1` baixa a versão mais recente,
+  confere o SHA256 e instala sem perguntas; `scripts/desinstalar.ps1` fecha o app, remove e,
+  com `-ApagarDados`, apaga histórico e log. Os dois rodam com `irm ... | iex`.
+- O instalador registra o app em App Paths: `start toca-do-pinguim` e o Win+R o abrem. Grava
+  também o comando de remoção silenciosa, e o editor aparece como SaLuanVitor.
+- Instância única: abrir o app com ele já aberto só traz a janela para frente, em vez de subir
+  uma segunda cópia com outro agente em cada distro.
+- Em Configurações > Este app, a tecla de atalho do Windows que abre o app, gravada no atalho
+  do menu Iniciar (criado se não existir, como na versão portátil).
+
 ## [0.4.0] - 2026-10-29
 
 ### Adicionado

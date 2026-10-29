@@ -134,6 +134,7 @@ export function criarDemonstracao(): Api {
   };
 
   let limiteGb = 12;
+  let teclaAtalho = '';
   const wslconfig: [string, string, string][] = [
     ['wsl2', 'memory', '12GB'],
     ['wsl2', 'networkingMode', 'mirrored'],
@@ -251,6 +252,11 @@ export function criarDemonstracao(): Api {
         for (const d of distros) d.rodando = false;
         publicar();
       }
+    },
+    lerAtalhoTeclado: async () => ({ tecla: teclaAtalho, caminho: 'C:\Users\voce\...\Toca do Pinguim.lnk', existe: teclaAtalho !== '' }),
+    definirAtalhoTeclado: async (tecla) => {
+      await esperar(300);
+      teclaAtalho = tecla;
     },
     lerWslconf: async (nome) => {
       const d = achar(nome);
