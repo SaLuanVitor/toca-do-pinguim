@@ -82,6 +82,34 @@ impl WslConfig {
         }
     }
 
+    /// Tira a chave da seção, o que devolve o valor padrão do WSL. O cabeçalho da seção
+    /// fica, mesmo vazio.
+    pub fn remover(&mut self, secao: &str, chave: &str) {
+        let mut atual = String::new();
+        self.linhas.retain(|linha| {
+            if let Some(s) = cabecalho(linha) {
+                atual = s;
+                return true;
+            }
+            !(atual.eq_ignore_ascii_case(secao) && par(linha).is_some_and(|(k, _)| k.eq_ignore_ascii_case(chave)))
+        });
+    }
+
+    /// Todas as chaves do arquivo, na ordem em que aparecem, inclusive as que o app não
+    /// conhece.
+    pub fn todas(&self) -> Vec<(String, String, String)> {
+        let mut atual = String::new();
+        let mut saida = Vec::new();
+        for linha in &self.linhas {
+            if let Some(s) = cabecalho(linha) {
+                atual = s;
+            } else if let Some((k, v)) = par(linha) {
+                saida.push((atual.clone(), k, v));
+            }
+        }
+        saida
+    }
+
     /// Grava por arquivo temporário e troca, guardando a versão anterior ao lado: um
     /// `.wslconfig` corrompido não impede o WSL de subir, mas faz ele ignorar o arquivo
     /// inteiro sem avisar.
@@ -167,6 +195,20 @@ mod testes {
             "[wsl2]\nprocessors=8\nmemory=6GB\n\n[experimental]\nsparseVhd=true\n\n[general]\ninstanceIdleTimeout=30000"
         );
         assert_eq!(c.espera_ociosidade_ms(), 30000);
+    }
+
+    #[test]
+    fn remove_so_a_chave_da_secao_certa() {
+        let mut c = de("[wsl2]\nswap=0\nmemory=8GB\n\n[experimental]\nswap=1");
+        c.remover("WSL2", "SWAP");
+        assert_eq!(c.linhas.join("\n"), "[wsl2]\nmemory=8GB\n\n[experimental]\nswap=1");
+        assert_eq!(
+            c.todas(),
+            vec![
+                ("wsl2".into(), "memory".into(), "8GB".into()),
+                ("experimental".into(), "swap".into(), "1".into())
+            ]
+        );
     }
 
     #[test]

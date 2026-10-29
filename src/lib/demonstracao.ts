@@ -134,6 +134,12 @@ export function criarDemonstracao(): Api {
   };
 
   let limiteGb = 12;
+  const wslconfig: [string, string, string][] = [
+    ['wsl2', 'memory', '12GB'],
+    ['wsl2', 'networkingMode', 'mirrored'],
+    ['experimental', 'sparseVhd', 'true'],
+    ['wsl2', 'algoQueOAppNaoConhece', '1'],
+  ];
   const agora = Date.now();
   const eventosIniciais: Evento[] = [
     { quando_ms: agora - 3 * 3600_000, tipo: 'distro', distro: 'Ubuntu', texto: 'Ubuntu foi ligada' },
@@ -220,5 +226,25 @@ export function criarDemonstracao(): Api {
       '[2026-10-29][11:45:42][INFO][toca_do_pinguim_lib::wsl] WSL voltou a responder (Ubuntu) depois de 543 s e 12 falha(s); a última: Wsl/Service/0x8007274c',
     ],
     abrirPastaDeLogs: async () => {},
+    lerWslconfig: async () => ({
+      caminho: 'C:\Users\voce\.wslconfig',
+      existe: true,
+      valores: wslconfig.map((v) => [...v] as [string, string, string]),
+    }),
+    gravarWslconfig: async (mudancas, reiniciar) => {
+      await esperar(400);
+      for (const m of mudancas) {
+        const i = wslconfig.findIndex(([s, k]) => s === m.secao && k.toLowerCase() === m.chave.toLowerCase());
+        if (m.valor === null) {
+          if (i >= 0) wslconfig.splice(i, 1);
+        } else if (i >= 0) wslconfig[i][2] = m.valor;
+        else wslconfig.push([m.secao, m.chave, m.valor]);
+      }
+      registrar('config', null, `.wslconfig: ${mudancas.map((m) => `${m.chave} para ${m.valor ?? 'padrão'}`).join('; ')}`);
+      if (reiniciar) {
+        for (const d of distros) d.rodando = false;
+        publicar();
+      }
+    },
   };
 }

@@ -66,7 +66,7 @@ export interface Pedido {
   executar: () => void;
 }
 
-export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros' | 'log';
+export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;
@@ -76,4 +76,18 @@ export interface Atualizacao {
   notas: string | null;
   /** Falso na versão portátil, que não se substitui sozinha. */
   instalavel: boolean;
+}
+
+export interface ConteudoWslconfig {
+  caminho: string;
+  existe: boolean;
+  /** [seção, chave, valor], na ordem do arquivo. */
+  valores: [string, string, string][];
+}
+
+export interface MudancaWslconfig {
+  secao: string;
+  chave: string;
+  /** null tira a chave e volta ao padrão do WSL. */
+  valor: string | null;
 }

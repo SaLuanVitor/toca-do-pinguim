@@ -4,6 +4,7 @@
   import { api, conectar, dentroDoApp } from '$lib/api';
   import Atividade from '$lib/Atividade.svelte';
   import AvisoAtualizacao from '$lib/AvisoAtualizacao.svelte';
+  import Configuracoes from '$lib/Configuracoes.svelte';
   import Confirmar from '$lib/Confirmar.svelte';
   import Desempenho from '$lib/Desempenho.svelte';
   import Distros from '$lib/Distros.svelte';
@@ -21,6 +22,7 @@
     { id: 'portas', titulo: 'Portas' },
     { id: 'atividade', titulo: 'Atividade' },
     { id: 'distros', titulo: 'Distros' },
+    { id: 'configuracoes', titulo: 'Configurações' },
     { id: 'log', titulo: 'Log' },
   ];
 
@@ -124,6 +126,8 @@
         <Portas />
       {:else if estado.pagina === 'atividade'}
         <Atividade />
+      {:else if estado.pagina === 'configuracoes'}
+        <Configuracoes />
       {:else if estado.pagina === 'log'}
         <Log />
       {:else}

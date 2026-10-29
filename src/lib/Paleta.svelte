@@ -19,6 +19,7 @@
     ['desempenho', 'Desempenho'],
     ['portas', 'Portas'],
     ['atividade', 'Atividade'],
+    ['configuracoes', 'Configurações'],
     ['log', 'Log'],
     ['distros', 'Distros'],
   ];

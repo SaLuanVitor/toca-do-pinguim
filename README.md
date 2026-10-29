@@ -9,8 +9,10 @@ do app.
 | Processos | processos de cada distro com CPU e memória; encerramento por SIGTERM ou SIGKILL |
 | Desempenho | gráficos de CPU e memória da VM; limite de memória com pico medido e sugestão |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
-| Atividade | distros que ligaram e desligaram, processos encerrados, falta de memória, configuração |
+| Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, configuração |
 | Distros | iniciar, terminar, reiniciar e desligar o WSL |
+| Configurações | as 42 chaves documentadas do `.wslconfig`, em grupos, com o padrão de cada uma e validação |
+| Log | o log técnico, por padrão só avisos e erros |
 
 Ctrl+K abre uma busca única por processo, porta, distro ou ação.
 

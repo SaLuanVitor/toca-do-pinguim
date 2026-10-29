@@ -5,6 +5,15 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Página **Configurações** com as 42 chaves documentadas do `.wslconfig`, em sete grupos
+  (Recursos, Disco, Rede, Desligamento, Memória, Kernel e Avançado). Cada chave mostra o
+  padrão do WSL e marca as que só existem no Windows 11; campo vazio tira a chave do arquivo
+  e volta ao padrão. Valores são conferidos antes de gravar, caminhos vão com as barras
+  invertidas dobradas que o WSL pede, e chaves que o app não conhece aparecem e são
+  mantidas. Salva só no arquivo ou salva e reinicia o WSL, com confirmação.
+
 ## [0.3.0] - 2026-10-29
 
 ### Adicionado

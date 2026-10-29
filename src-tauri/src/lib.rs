@@ -170,6 +170,89 @@ async fn definir_limite_memoria(
     .await
 }
 
+#[derive(Serialize)]
+struct ConteudoWslconfig {
+    caminho: String,
+    existe: bool,
+    /// (seção, chave, valor), na ordem do arquivo.
+    valores: Vec<(String, String, String)>,
+}
+
+#[tauri::command]
+fn ler_wslconfig() -> ConteudoWslconfig {
+    let caminho = config::caminho();
+    ConteudoWslconfig {
+        existe: caminho.is_file(),
+        caminho: caminho.display().to_string(),
+        valores: WslConfig::ler().todas(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct MudancaWslconfig {
+    secao: String,
+    chave: String,
+    /// `None` tira a chave, e o WSL volta ao padrão dele.
+    valor: Option<String>,
+}
+
+/// Seções que o `.wslconfig` documenta. Gravar fora delas não teria efeito e poderia
+/// esconder um erro de digitação.
+const SECOES_WSLCONFIG: [&str; 3] = ["wsl2", "experimental", "general"];
+
+fn validar(m: &MudancaWslconfig) -> Result<(), String> {
+    if !SECOES_WSLCONFIG.iter().any(|s| s.eq_ignore_ascii_case(&m.secao)) {
+        return Err(format!("seção desconhecida: [{}]", m.secao));
+    }
+    if m.chave.is_empty() || !m.chave.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("nome de chave inválido: {}", m.chave));
+    }
+    // Uma quebra de linha no valor viraria outra chave, ou outra seção, no arquivo.
+    if m.valor.as_deref().is_some_and(|v| v.contains(['\n', '\r'])) {
+        return Err(format!("{}: o valor não pode ter quebra de linha", m.chave));
+    }
+    Ok(())
+}
+
+/// Aplica as mudanças de uma vez e grava. Como no limite de memória, a mudança só vale
+/// quando a VM reinicia; com `reiniciar`, o app desliga o WSL na hora.
+#[tauri::command]
+async fn gravar_wslconfig(
+    app: tauri::AppHandle,
+    estado: Estado<'_>,
+    mudancas: Vec<MudancaWslconfig>,
+    reiniciar: bool,
+) -> Result<(), String> {
+    mudancas.iter().try_for_each(validar)?;
+    if mudancas.is_empty() {
+        return Ok(());
+    }
+    let agentes = Arc::clone(&estado);
+    bloqueante(move || {
+        let mut cfg = WslConfig::ler();
+        let mut resumo = Vec::new();
+        for m in &mudancas {
+            let antes = cfg.obter(&m.secao, &m.chave).unwrap_or_else(|| "padrão".into());
+            match &m.valor {
+                Some(v) => cfg.definir(&m.secao, &m.chave, v),
+                None => cfg.remover(&m.secao, &m.chave),
+            }
+            resumo.push(format!("{}: {antes} para {}", m.chave, m.valor.as_deref().unwrap_or("padrão")));
+        }
+        cfg.gravar().map_err(|e| format!("não foi possível gravar o .wslconfig: {e}"))?;
+        let resumo = resumo.join("; ");
+        info!(".wslconfig alterado (reiniciar: {reiniciar}): {resumo}");
+        agentes.registrar(&app, "config", None, format!(".wslconfig: {resumo}"));
+        if reiniciar {
+            agentes.parar_todos();
+            wsl::desligar()?;
+            agentes.registrar(&app, "wsl", None, "O app desligou o WSL para aplicar a configuração".to_string());
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// Identificador de quando o app se chamava Gerenciador de WSL; a pasta de dados vem dele.
 const IDENTIFICADOR_ANTIGO: &str = "com.luan.wsltm";
 const ARQUIVOS_DE_DADOS: [&str; 2] = ["memoria.csv", "atividade.jsonl"];
@@ -227,6 +310,8 @@ pub fn run() {
             listar_atividade,
             resumo_memoria,
             definir_limite_memoria,
+            ler_wslconfig,
+            gravar_wslconfig,
             atualizacao::procurar_atualizacao,
             atualizacao::instalar_atualizacao,
             atualizacao::abrir_pagina_da_versao,

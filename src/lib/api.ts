@@ -1,4 +1,4 @@
-import type { Amostra, Atualizacao, Distro, Evento, ResumoMemoria } from './tipos';
+import type { Amostra, Atualizacao, ConteudoWslconfig, Distro, Evento, MudancaWslconfig, ResumoMemoria } from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
 
@@ -17,6 +17,8 @@ export interface Api {
   instalarAtualizacao(): Promise<void>;
   abrirPaginaDaVersao(versao: string): Promise<void>;
   lerLog(linhas: number): Promise<string[]>;
+  lerWslconfig(): Promise<ConteudoWslconfig>;
+  gravarWslconfig(mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   abrirPastaDeLogs(): Promise<void>;
 }
 
@@ -57,6 +59,8 @@ async function conectarTauri(): Promise<Api> {
     instalarAtualizacao: () => invoke('instalar_atualizacao'),
     abrirPaginaDaVersao: (versao) => invoke('abrir_pagina_da_versao', { versao }),
     lerLog: (linhas) => invoke('ler_log', { linhas }),
+    lerWslconfig: () => invoke('ler_wslconfig'),
+    gravarWslconfig: (mudancas, reiniciar) => invoke('gravar_wslconfig', { mudancas, reiniciar }),
     abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
   };
 }
