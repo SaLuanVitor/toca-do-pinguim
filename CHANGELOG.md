@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.6.0] - 2026-10-29
+
 ### Segurança
 
 - O agente passa a morar em `/var/lib/toca-do-pinguim/`, numa pasta 700 do root, com o
@@ -121,7 +123,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.3.0...v0.4.0
