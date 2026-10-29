@@ -14,6 +14,13 @@ do app.
 
 Ctrl+K abre uma busca única por processo, porta, distro ou ação.
 
+## Instalar
+
+O instalador para Windows 10 e 11 fica em
+[Releases](https://github.com/SaLuanVitor/toca-do-pinguim/releases). Ele ainda não tem
+assinatura digital, então o SmartScreen avisa na primeira execução: "Mais informações" e
+depois "Executar assim mesmo".
+
 ## Como funciona
 
 O Windows enxerga todas as distros como um processo só (`vmmemWSL`). Os processos só
@@ -87,3 +94,7 @@ com 162), executável de release:
 | App aberto, Debian com uma sessão de 40 s | agente ficou durante a sessão e saiu quando ela fechou; desligou 16 s depois |
 
 Medições únicas, numa máquina; não são dado de campo.
+
+## Licença
+
+[MIT](LICENSE).

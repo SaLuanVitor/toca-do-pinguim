@@ -1,0 +1,32 @@
+name: Publicar
+
+# Uma tag v* gera o instalador e abre uma release em rascunho com ele anexado.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  instalador:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Toca do Pinguim ${{ github.ref_name }}
+          releaseBody: Instalador para Windows 10 e 11. Ainda sem assinatura digital, então o SmartScreen avisa na primeira execução.
+          releaseDraft: true

@@ -1,0 +1,37 @@
+name: Verificar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Os testes do agente leem formatos do /proc e só compilam em Linux.
+  agente:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p agente -p protocolo
+
+  app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run check
+      # O build do app embute o binário do agente, então ele precisa existir antes dos testes.
+      - run: npm run agente
+      - run: cargo test -p toca-do-pinguim
