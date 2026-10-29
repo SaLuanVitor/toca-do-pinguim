@@ -4,7 +4,9 @@ mod atividade;
 mod atualizacao;
 mod config;
 mod configuracao;
+mod docker;
 mod historico;
+mod recursos;
 mod registro;
 mod wsl;
 
@@ -15,6 +17,7 @@ use agentes::Agentes;
 use log::{info, warn};
 use atividade::Evento;
 use config::WslConfig;
+use recursos::Recursos;
 use serde::Serialize;
 use tauri::{Manager, RunEvent, State, WindowEvent};
 use wsl::Distro;
@@ -118,6 +121,68 @@ fn definir_intervalo(estado: Estado<'_>, ms: u64) {
     estado.definir_intervalo(ms.max(250));
 }
 
+#[derive(Serialize)]
+struct EstadoRecursos {
+    memoria: recursos::MemoriaWindows,
+    docker: recursos::Docker,
+    saude: Option<wsl::saude::Situacao>,
+}
+
+/// O que as threads de fundo já sabem, para a tela que abre depois do último evento.
+#[tauri::command]
+fn estado_recursos(recursos: State<'_, Arc<Recursos>>) -> EstadoRecursos {
+    EstadoRecursos {
+        memoria: recursos.memoria.lock().unwrap().clone(),
+        docker: recursos.docker.lock().unwrap().clone(),
+        saude: wsl::saude::atual(),
+    }
+}
+
+async fn agir_em_conteineres(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    ids: Vec<String>,
+    rotulo: String,
+    parar: bool,
+) -> Result<(), String> {
+    recursos.conferir_ids(&ids)?;
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        let verbo = if parar { "parar" } else { "ligar" };
+        info!("pedido: {verbo} {rotulo} ({} container(s))", ids.len());
+        let resultado = if parar { docker::parar(&ids) } else { docker::iniciar(&ids) };
+        recursos.pedir_atualizacao();
+        resultado?;
+        let feito = if parar { "parou" } else { "ligou" };
+        agentes.registrar(&app, "docker", Some("docker-desktop"), format!("O app {feito} {rotulo} ({} container(s))", ids.len()));
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn parar_conteineres(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    ids: Vec<String>,
+    rotulo: String,
+) -> Result<(), String> {
+    agir_em_conteineres(app, agentes, recursos, ids, rotulo, true).await
+}
+
+#[tauri::command]
+async fn iniciar_conteineres(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    ids: Vec<String>,
+    rotulo: String,
+) -> Result<(), String> {
+    agir_em_conteineres(app, agentes, recursos, ids, rotulo, false).await
+}
+
 #[tauri::command]
 fn listar_atividade(estado: Estado<'_>) -> Vec<Evento> {
     estado.atividade.lock().unwrap().listar()
@@ -205,6 +270,7 @@ pub fn run() {
         // Logo depois, para o log já pegar o que os outros plugins e o setup registram.
         .plugin(registro::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             info!("Toca do Pinguim {} iniciado", app.package_info().version);
             // Versão do WSL e do kernel, para o log servir de diagnóstico sem perguntar.
@@ -217,6 +283,9 @@ pub fn run() {
             trazer_dados_antigos(&dados);
             let agentes = Agentes::novo(&dados);
             app.manage(Arc::clone(&agentes));
+            let recursos = Arc::new(Recursos::default());
+            app.manage(Arc::clone(&recursos));
+            recursos::vigiar(app.handle().clone(), Arc::clone(&agentes), recursos);
             agentes::supervisionar(app.handle().clone(), agentes);
             Ok(())
         })
@@ -237,6 +306,9 @@ pub fn run() {
             definir_intervalo,
             listar_atividade,
             resumo_memoria,
+            estado_recursos,
+            parar_conteineres,
+            iniciar_conteineres,
             definir_limite_memoria,
             configuracao::ler_wslconfig,
             configuracao::gravar_wslconfig,

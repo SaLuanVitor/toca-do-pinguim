@@ -3,6 +3,7 @@
 
 import { api } from './api';
 import { estado } from './estado.svelte';
+import { ativo, type Projeto } from './projetos';
 import type { Distro } from './tipos';
 
 export const ocupadas = $state<Record<string, string>>({});
@@ -58,4 +59,24 @@ export async function encerrarProcesso(distro: string, pid: number, nome: string
   } catch (e) {
     estado.avisar(String(e));
   }
+}
+
+function descrever(p: Projeto): string {
+  return p.avulso ? `o container ${p.nome}` : `o projeto ${p.nome}`;
+}
+
+export function pararProjeto(p: Projeto) {
+  const ids = p.conteineres.filter(ativo).map((c) => c.id);
+  const quantos = ids.length === 1 ? '1 container para e fica parado' : `${ids.length} containers param e ficam parados`;
+  estado.pedido = {
+    titulo: `Parar ${p.nome}?`,
+    texto: `${quantos} até você ligar de novo, aqui ou pelo Docker; os que usam restart: always também voltam quando o Docker reinicia. Nada é apagado: imagens, volumes e dados continuam lá. A memória que eles usavam fica livre na VM do WSL.`,
+    acao: 'Parar',
+    executar: () => executar(`docker:${p.chave}`, 'Parando', () => api.pararConteineres(ids, descrever(p))),
+  };
+}
+
+export function ligarProjeto(p: Projeto) {
+  const ids = p.conteineres.map((c) => c.id);
+  executar(`docker:${p.chave}`, 'Ligando', () => api.iniciarConteineres(ids, descrever(p)));
 }

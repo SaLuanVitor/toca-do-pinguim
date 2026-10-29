@@ -22,9 +22,9 @@ As capturas são do modo demonstração, com dados simulados.
 | Aba | O que tem |
 |---|---|
 | Processos | processos de cada distro com CPU e memória; encerramento por SIGTERM ou SIGKILL |
-| Desempenho | gráficos de CPU e memória da VM; limite de memória com pico medido e sugestão |
+| Desempenho | gráficos de CPU e memória da VM; para onde vai a memória do Windows; Docker por projeto, com parar e ligar; limite de memória com pico medido e sugestão |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
-| Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, configuração |
+| Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
 | Distros | iniciar, terminar, reiniciar e desligar o WSL |
 | Configurações | as 42 chaves do `.wslconfig` e as 19 do `/etc/wsl.conf` de cada distro, em grupos, com o padrão de cada uma e validação |
 | Log | o log técnico, por padrão só avisos e erros |
@@ -89,6 +89,14 @@ Não foi medido se um processo solto da sessão (`setsid`) segura uma distro sem
 
 Com a janela minimizada, as amostras param de ir ao front e os agentes passam a ler a
 cada 5 s.
+
+**Memória do Windows e Docker.** A cada 5 s o app lê a memória do Windows e quanto o processo
+`vmmemWSL` ocupa nele, sem precisar de administrador. Abaixo de 10% de memória disponível ele
+avisa na tela e por notificação do Windows, e o aviso some acima de 15%. Com a distro
+`docker-desktop` ligada, a CLI `docker` do Windows é lida a cada 15 s (`ps`, `inspect` e
+`stats`; medido, de 4 a 5 s juntos com 19 containers), e com a janela minimizada só quando
+o aviso de memória está aceso. Parar um projeto é um `docker stop` dos containers dele: nada
+é apagado.
 
 **Dados.** Em `%APPDATA%\com.luan.tocadopinguim`: `memoria.csv` (pico de memória usada por
 minuto, 30 dias) e `atividade.jsonl` (últimos 1000 eventos). Na primeira abertura, os dois
