@@ -120,7 +120,7 @@
     <section class="cartao largo" aria-labelledby="titulo-distros">
       <div class="cabeca">
         <h2 id="titulo-distros">Por distro</h2>
-        <span>Soma dos processos de cada uma; o agente aparece separado</span>
+        <span>Soma dos processos de cada uma; memória compartilhada entra uma vez por processo, e o total pode passar do uso real da VM</span>
       </div>
       <table>
         <thead>
@@ -128,7 +128,7 @@
             <th scope="col">Distro</th>
             <th scope="col" class="numero">Processos</th>
             <th scope="col" class="numero">CPU</th>
-            <th scope="col" class="numero">Memória</th>
+            <th scope="col" class="numero">Memória (soma do RSS)</th>
             <th scope="col" class="numero">Agente: memória</th>
             <th scope="col" class="numero">Agente: leitura</th>
           </tr>

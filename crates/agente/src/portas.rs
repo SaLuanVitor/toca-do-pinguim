@@ -93,3 +93,33 @@ fn endereco_local(campo: &str) -> Option<(String, u16)> {
     };
     Some((endereco, porta))
 }
+
+#[cfg(test)]
+mod testes {
+    use super::endereco_local;
+
+    #[test]
+    fn ipv4_vem_com_os_bytes_invertidos() {
+        assert_eq!(endereco_local("0100007F:1F90"), Some(("127.0.0.1".into(), 8080)));
+        assert_eq!(endereco_local("00000000:0050"), Some(("0.0.0.0".into(), 80)));
+        // 10.255.255.254:53, o DNS interno do WSL visto na medição.
+        assert_eq!(endereco_local("FEFFFF0A:0035"), Some(("10.255.255.254".into(), 53)));
+    }
+
+    #[test]
+    fn ipv6_inverte_cada_palavra_de_32_bits() {
+        assert_eq!(endereco_local("00000000000000000000000000000000:0BB9"), Some(("::".into(), 3001)));
+        assert_eq!(endereco_local("00000000000000000000000001000000:1538"), Some(("::1".into(), 5432)));
+        assert_eq!(
+            endereco_local("B80D0120000000000000000001000000:0016"),
+            Some(("2001:db8::1".into(), 22))
+        );
+    }
+
+    #[test]
+    fn campo_estranho_nao_vira_porta() {
+        assert_eq!(endereco_local("lixo"), None);
+        assert_eq!(endereco_local("0100007F:ZZZZ"), None);
+        assert_eq!(endereco_local("0100:0050"), None);
+    }
+}

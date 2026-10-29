@@ -294,8 +294,7 @@ fn enviar_sinal(pid: i32, sinal: i32) -> Result<(), String> {
 ///
 /// A sessão do próprio agente fica de fora: é o `SessionLeader` acima do `Relay` que o
 /// lançou.
-fn sem_outras_sessoes(amostra: &Amostra) -> bool {
-    let eu = std::process::id() as i32;
+fn sem_outras_sessoes(amostra: &Amostra, eu: i32) -> bool {
     let pai = |pid: i32| amostra.processos.iter().find(|p| p.pid == pid).map(|p| p.ppid);
     let minha_sessao = pai(eu).and_then(pai);
     !amostra
@@ -354,7 +353,11 @@ fn main() {
     let mut ociosas = 0;
     loop {
         let amostra = coletor.coletar();
-        ociosas = if sair_se_ocioso && sem_outras_sessoes(&amostra) { ociosas + 1 } else { 0 };
+        ociosas = if sair_se_ocioso && sem_outras_sessoes(&amostra, std::process::id() as i32) {
+            ociosas + 1
+        } else {
+            0
+        };
         if escrever(&mut saida, &Mensagem::Amostra(amostra)).is_err() {
             return;
         }
@@ -378,5 +381,85 @@ fn main() {
                 Err(RecvTimeoutError::Timeout) => break,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn processo(pid: i32, ppid: i32, nome: &str) -> Processo {
+        Processo {
+            pid,
+            ppid,
+            usuario: "root".into(),
+            estado: 'S',
+            nome: nome.into(),
+            cmdline: String::new(),
+            cpu_pct: 0.0,
+            rss: 0,
+        }
+    }
+
+    fn amostra(processos: Vec<Processo>) -> Amostra {
+        Amostra {
+            seq: 1,
+            uptime_s: 0.0,
+            cpus: 1,
+            cpu_vm_pct: 0.0,
+            mem_total: 0,
+            mem_disponivel: 0,
+            swap_total: 0,
+            swap_livre: 0,
+            processos,
+            portas: None,
+            kernel: Vec::new(),
+            agente: CustoAgente::default(),
+        }
+    }
+
+    /// Árvore copiada da Debian com systemd medida em 2026-10-28, com o agente no lugar
+    /// do `ps` e os serviços do systemd, que não seguram a distro.
+    fn debian(com_sessao_do_usuario: bool) -> Vec<Processo> {
+        let mut p = vec![
+            processo(1, 0, "systemd"),
+            processo(2, 1, "init-systemd(ws"),
+            processo(8, 2, "init"),
+            processo(179, 2, "login"),
+            processo(198, 179, "bash"),
+            processo(38, 1, "systemd-journal"),
+            processo(130, 1, "cron"),
+            processo(220, 2, "SessionLeader"),
+            processo(221, 220, "Relay(222)"),
+            processo(222, 221, "agente-47e80e40"),
+        ];
+        if com_sessao_do_usuario {
+            p.push(processo(217, 2, "SessionLeader"));
+            p.push(processo(218, 217, "Relay(219)"));
+            p.push(processo(219, 218, "sleep"));
+        }
+        p
+    }
+
+    #[test]
+    fn servicos_e_a_propria_sessao_nao_contam() {
+        assert!(sem_outras_sessoes(&amostra(debian(false)), 222));
+    }
+
+    #[test]
+    fn sessao_do_usuario_conta() {
+        assert!(!sem_outras_sessoes(&amostra(debian(true)), 222));
+    }
+
+    #[test]
+    fn sem_systemd_a_regra_e_a_mesma() {
+        let alpine = vec![
+            processo(1, 0, "init(wsl-tm-tes"),
+            processo(6, 1, "init"),
+            processo(9, 1, "SessionLeader"),
+            processo(10, 9, "Relay(11)"),
+            processo(11, 10, "agente"),
+        ];
+        assert!(sem_outras_sessoes(&amostra(alpine), 11));
     }
 }

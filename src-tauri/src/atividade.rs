@@ -119,3 +119,21 @@ fn traduzir_oom(texto: &str) -> String {
         None => "Faltou memória na VM e o kernel encerrou um processo".to_string(),
     }
 }
+
+#[cfg(test)]
+mod testes {
+    use super::traduzir_oom;
+
+    #[test]
+    fn nomeia_o_processo_encerrado() {
+        assert_eq!(
+            traduzir_oom("Out of memory: Killed process 4821 (node) total-vm:4120332kB"),
+            "Faltou memória na VM e o kernel encerrou node"
+        );
+    }
+
+    #[test]
+    fn sem_nome_fica_generico() {
+        assert_eq!(traduzir_oom("Killed process 4821"), "Faltou memória na VM e o kernel encerrou um processo");
+    }
+}

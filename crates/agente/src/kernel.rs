@@ -61,3 +61,29 @@ fn interpretar(registro: &str) -> Option<EventoKernel> {
     let seq = cabecalho.split(',').nth(1)?.parse().ok()?;
     Some(EventoKernel { seq, texto: mensagem.to_string() })
 }
+
+#[cfg(test)]
+mod testes {
+    use super::interpretar;
+
+    #[test]
+    fn morte_por_falta_de_memoria_vira_evento() {
+        let r = "3,1234,987654321,-;Out of memory: Killed process 4821 (node) total-vm:4120332kB, anon-rss:3912000kB\n SUBSYSTEM=memory\n";
+        let e = interpretar(r).expect("evento");
+        assert_eq!(e.seq, 1234);
+        assert_eq!(e.texto, "Out of memory: Killed process 4821 (node) total-vm:4120332kB, anon-rss:3912000kB");
+    }
+
+    #[test]
+    fn variante_de_cgroup_tambem_conta() {
+        let r = "3,77,1,-;Memory cgroup out of memory: Killed process 99 (php-fpm) total-vm:1kB";
+        assert_eq!(interpretar(r).map(|e| e.seq), Some(77));
+    }
+
+    #[test]
+    fn o_resto_do_log_fica_de_fora() {
+        assert!(interpretar("6,667,53301612,-;eth0: renamed from veth0f32a4c").is_none());
+        assert!(interpretar("4,12,5,-;node invoked oom-killer: gfp_mask=0x140cca").is_none());
+        assert!(interpretar("sem cabeçalho").is_none());
+    }
+}

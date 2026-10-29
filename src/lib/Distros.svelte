@@ -49,7 +49,7 @@
           <th scope="col" class="numero">Versão</th>
           <th scope="col" class="numero">Processos</th>
           <th scope="col" class="numero">CPU</th>
-          <th scope="col" class="numero">Memória</th>
+          <th scope="col" class="numero" title="Memória compartilhada entra uma vez por processo; o total pode passar do uso real da VM">Memória (soma do RSS)</th>
           <th scope="col"><span class="visualmente-oculto">Ações</span></th>
         </tr>
       </thead>

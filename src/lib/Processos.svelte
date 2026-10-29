@@ -305,7 +305,7 @@
                 </button>
               </th>
               <td class="numero">{g.conectado ? pct(g.cpu) : ''}</td>
-              <td class="numero">{g.conectado ? bytes(g.mem) : ''}</td>
+              <td class="numero" title="Soma do RSS dos processos: memória compartilhada entra uma vez por processo">{g.conectado ? bytes(g.mem) : ''}</td>
               <td></td>
             </tr>
           {:else}

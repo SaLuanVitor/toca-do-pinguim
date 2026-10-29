@@ -104,3 +104,55 @@ impl Historico {
         Resumo { minutos_de_dados: janela.len(), pico_bytes: pico, sugestao_bytes: sugestao }
     }
 }
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn com_pontos(pontos: Vec<(u64, f64)>) -> Historico {
+        let agora = minuto_agora();
+        Historico {
+            arquivo: PathBuf::new(),
+            pontos: pontos
+                .into_iter()
+                .map(|(atras, gib)| Ponto { minuto: agora - atras, usado: (gib * GIB as f64) as u64 })
+                .collect(),
+            minuto_atual: 0,
+            pico_atual: 0,
+        }
+    }
+
+    fn uma_hora_com_pico(pico_gib: f64) -> Vec<(u64, f64)> {
+        (1..=60).map(|m| (m, if m == 30 { pico_gib } else { 1.0 })).collect()
+    }
+
+    #[test]
+    fn sem_uma_hora_nao_sugere() {
+        let r = com_pontos((1..60).map(|m| (m, 3.0)).collect()).resumo(32 * GIB);
+        assert_eq!(r.minutos_de_dados, 59);
+        assert_eq!(r.pico_bytes, 3 * GIB);
+        assert_eq!(r.sugestao_bytes, None);
+    }
+
+    #[test]
+    fn sugere_pico_com_folga_arredondado_para_cima() {
+        // 7 GiB * 1,25 = 8,75 GiB, que vira 9.
+        let r = com_pontos(uma_hora_com_pico(7.0)).resumo(32 * GIB);
+        assert_eq!(r.sugestao_bytes, Some(9 * GIB));
+    }
+
+    #[test]
+    fn respeita_piso_e_teto() {
+        assert_eq!(com_pontos(uma_hora_com_pico(0.5)).resumo(32 * GIB).sugestao_bytes, Some(2 * GIB));
+        assert_eq!(com_pontos(uma_hora_com_pico(30.0)).resumo(16 * GIB).sugestao_bytes, Some(16 * GIB));
+    }
+
+    #[test]
+    fn pico_de_mais_de_sete_dias_nao_entra() {
+        let mut pontos = uma_hora_com_pico(4.0);
+        pontos.push((8 * 24 * 60, 20.0));
+        let r = com_pontos(pontos).resumo(32 * GIB);
+        assert_eq!(r.pico_bytes, 4 * GIB);
+        assert_eq!(r.sugestao_bytes, Some(5 * GIB));
+    }
+}
