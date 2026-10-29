@@ -1,6 +1,6 @@
 {
   "name": "toca-do-pinguim",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Gerenciador de tarefas do WSL",
   "type": "module",
   "scripts": {
