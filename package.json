@@ -1,8 +1,11 @@
 {
   "name": "toca-do-pinguim",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Gerenciador de tarefas do WSL",
   "type": "module",
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  },
   "scripts": {
     "agente": "cargo build -p agente --release --target x86_64-unknown-linux-musl",
     "dev": "vite dev",
@@ -18,8 +21,8 @@
     "@tauri-apps/api": "^2"
   },
   "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.65.1",
+    "@sveltejs/adapter-static": "^4.0.0",
+    "@sveltejs/kit": "^3.1.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tauri-apps/cli": "^2",
     "svelte": "^5.56.3",

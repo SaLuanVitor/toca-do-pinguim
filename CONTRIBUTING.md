@@ -24,6 +24,10 @@ npm run tauri dev
 `npm run dev` sozinho abre a interface no navegador, em modo demonstração, com dados
 simulados: serve para mexer na tela sem WSL.
 
+A primeira página depois de subir o servidor de desenvolvimento demora mais que as outras,
+porque o SvelteKit 3 passa o runtime dele pelo Vite nessa hora. Com a máquina ocupada, isso
+passou de 60 s e a página voltou com erro 500; recarregar resolve.
+
 ## Testes
 
 | O que mudou | Rode |

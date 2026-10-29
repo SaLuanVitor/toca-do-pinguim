@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.6.0] - 2026-10-29
+
 ### Segurança
 
 - O agente passa a morar em `/var/lib/toca-do-pinguim/`, numa pasta 700 do root, com o
@@ -17,12 +19,17 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   licenças, crates e origem) para o app no alvo Windows e o agente no Linux, `npm audit`,
   `gitleaks` no histórico e revisão das dependências novas em PR. Workflow **CodeQL** para
   Rust, TypeScript e os próprios workflows.
+- SvelteKit 3 e `@sveltejs/adapter-static` 4, que fecham os alertas de gravidade baixa do
+  SvelteKit (redirecionamento, XSS e cookie). Nenhum deles alcançava o app, que é estático e
+  não tem servidor. Fica o alerta do `deepmerge`, sem versão corrigida: ele só roda no build,
+  para juntar a configuração do próprio projeto.
+- O Dependabot só alerta, na aba Security: não abre PR. Toda mudança entra por commit e PR
+  de quem mantém o projeto.
 
 ### Adicionado
 
 - Arquivos de projeto aberto: `SECURITY.md` (relato privado de falha e onde o app tem
-  privilégio), `CONTRIBUTING.md`, código de conduta, modelos de issue e de PR e Dependabot
-  para Cargo, npm e Actions.
+  privilégio), `CONTRIBUTING.md`, código de conduta e modelos de issue e de PR.
 - Cada release e o zip portátil trazem o `THIRD-PARTY-NOTICES.md`, com a licença de cada
   biblioteca de terceiros incluída no app, gerado pelo `cargo-about` e por
   `scripts/avisos-de-licenca.mjs`.
@@ -116,7 +123,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.3.0...v0.4.0

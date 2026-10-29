@@ -34,6 +34,7 @@ Para avaliar o impacto de uma falha, vale saber onde o app tem acesso:
 - **Cadeia de suprimentos.** As Actions são fixadas por commit. O workflow Segurança confere
   as dependências contra a base RustSec e o `npm audit`, as licenças e a origem das crates,
   procura segredos no histórico e, em PR, revisa as dependências novas; o CodeQL analisa o
-  código. O Dependabot propõe as atualizações.
+  código. O Dependabot só alerta, na aba Security; atualizações entram por commit e PR de
+  quem mantém o projeto.
 - **Instalação.** É por usuário, em `%LOCALAPPDATA%\Toca do Pinguim`, sem pedir
   administrador. O instalador ainda não tem assinatura digital do Windows.

@@ -120,7 +120,7 @@ dados simulados e um aviso na tela.
 | Branch | Recebe | Por |
 |---|---|---|
 | `main` | só versões prontas; é dela que saem as tags `vX.Y.Z` | PR de `develop` |
-| `develop` | o trabalho do dia a dia | PR de `feat/...`, `fix/...`, `release/...` e do Dependabot |
+| `develop` | o trabalho do dia a dia | PR de `feat/...`, `fix/...`, `ci/...` e `release/...` |
 
 As duas são protegidas: nada entra sem PR, os workflows Verificar e Segurança precisam
 passar, e não se apaga nem se reescreve a história delas. As tags `v*` também não podem ser
