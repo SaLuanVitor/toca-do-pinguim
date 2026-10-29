@@ -5,6 +5,16 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Página **Log**, com o log técnico gravado em `%LOCALAPPDATA%\com.luan.tocadopinguim\logs`
+  (até 1 MB por arquivo, 5 rotações). Por padrão mostra só avisos e erros; copia o trecho
+  visível e abre a pasta. Ficam registradas as falhas e a lentidão do `wsl.exe`, com o
+  código de erro do WSL, os agentes que subiram, pararam ou não subiram, os pedidos feitos
+  pelo app e a versão do WSL ao abrir.
+- A Atividade registra quando o WSL deixa de responder e quando volta, com quanto tempo
+  ficou fora e quantas chamadas falharam, e ganhou o filtro **WSL**.
+
 ## [0.2.0] - 2026-10-29
 
 ### Adicionado

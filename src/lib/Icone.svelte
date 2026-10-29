@@ -14,6 +14,8 @@
     reiniciar: 'M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5',
     energia: 'M8 2v6M4.8 4.2a5 5 0 1 0 6.4 0',
     fechar: 'M4 4l8 8M12 4l-8 8',
+    log: 'M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 10.5h4.5M6 13h2.5',
+    pasta: 'M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z',
   } as const;
 
   let { nome, tamanho = 16 }: { nome: keyof typeof CAMINHOS; tamanho?: number } = $props();

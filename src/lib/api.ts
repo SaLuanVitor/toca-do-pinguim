@@ -16,6 +16,8 @@ export interface Api {
   procurarAtualizacao(): Promise<Atualizacao | null>;
   instalarAtualizacao(): Promise<void>;
   abrirPaginaDaVersao(versao: string): Promise<void>;
+  lerLog(linhas: number): Promise<string[]>;
+  abrirPastaDeLogs(): Promise<void>;
 }
 
 export const dentroDoApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -54,6 +56,8 @@ async function conectarTauri(): Promise<Api> {
     procurarAtualizacao: () => invoke('procurar_atualizacao'),
     instalarAtualizacao: () => invoke('instalar_atualizacao'),
     abrirPaginaDaVersao: (versao) => invoke('abrir_pagina_da_versao', { versao }),
+    lerLog: (linhas) => invoke('ler_log', { linhas }),
+    abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
   };
 }
 

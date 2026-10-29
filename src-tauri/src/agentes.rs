@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use log::{error, info, warn};
 use protocolo::{Amostra, Comando, Mensagem};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -203,6 +204,7 @@ impl Agentes {
         let sair_se_ocioso = self.espera_ociosidade_ms.load(Ordering::Relaxed) >= 0;
         match instalar(&distro).and_then(|caminho| lancar(&distro, &caminho, intervalo, sair_se_ocioso)) {
             Ok((filho, entrada, saida)) => {
+                info!("[{distro}] agente iniciado (wsl.exe PID {}, {intervalo} ms)", filho.id());
                 let id = self.proximo_id.fetch_add(1, Ordering::Relaxed);
                 self.slots
                     .lock()
@@ -212,6 +214,7 @@ impl Agentes {
                 thread::spawn(move || self.ler(app, distro, id, saida));
             }
             Err(mensagem) => {
+                error!("[{distro}] agente não subiu; nova tentativa em {} s: {mensagem}", ESPERA_APOS_FALHA.as_secs());
                 self.slots.lock().unwrap().remove(&distro);
                 self.falhas.lock().unwrap().insert(distro.clone(), Instant::now());
                 let _ = app.emit("erro", Erro { distro: Some(distro), mensagem });
@@ -244,6 +247,7 @@ impl Agentes {
                     let _ = app.emit("resposta", RespostaDistro { distro: &distro, ok, erro });
                 }
                 Ok(Mensagem::Ocioso) => {
+                    info!("[{distro}] agente saiu: a sessão dele era a única");
                     self.ociosas.lock().unwrap().insert(distro.clone(), Instant::now());
                     let espera = self.espera_ociosidade_ms.load(Ordering::Relaxed) / 1000;
                     self.registrar(
@@ -254,9 +258,10 @@ impl Agentes {
                     );
                     let _ = app.emit("distro_ociosa", &distro);
                 }
-                Err(e) => eprintln!("[{distro}] linha inválida do agente: {e}"),
+                Err(e) => warn!("[{distro}] linha inválida do agente: {e}"),
             }
         }
+        info!("[{distro}] saída do agente encerrada");
         // Um reinício rápido pode já ter posto outro agente no lugar; só sai o slot deste.
         let mut slots = self.slots.lock().unwrap();
         if matches!(slots.get(&distro), Some(Slot::Vivo { id: atual, .. }) if *atual == id) {
@@ -316,8 +321,10 @@ fn instalar(distro: &str) -> Result<String, String> {
     thread::spawn(move || {
         let _ = entrada.write_all(AGENTE);
     });
-    let saida = wsl::esperar(filho, wsl::PRAZO).map_err(|e| format!("{distro}: {e}"))?;
+    let rotulo = format!("instalar o agente em {distro}");
+    let saida = wsl::esperar(filho, wsl::PRAZO, &rotulo, Some(distro)).map_err(|e| format!("{distro}: {e}"))?;
     if saida.status.success() {
+        info!("[{distro}] agente copiado para {caminho}");
         Ok(caminho)
     } else {
         Err(format!(
@@ -387,8 +394,22 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                     }
                 }
                 Err(mensagem) => {
+                    warn!("lista de distros indisponível: {mensagem}");
                     let _ = app.emit("erro", Erro { distro: None, mensagem });
                 }
+            }
+            for mudanca in wsl::saude::mudancas() {
+                let (alvo, texto) = match mudanca {
+                    wsl::saude::Mudanca::Caiu { alvo, motivo } => {
+                        let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();
+                        (alvo, format!("O WSL deixou de responder{onde}: {motivo}"))
+                    }
+                    wsl::saude::Mudanca::Voltou { alvo, segundos, falhas } => {
+                        let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();
+                        (alvo, format!("O WSL voltou a responder{onde} depois de {segundos} s e {falhas} falha(s)"))
+                    }
+                };
+                agentes.registrar(&app, "wsl", alvo.as_deref(), texto);
             }
             thread::sleep(PAUSA_SUPERVISOR);
         }

@@ -19,6 +19,7 @@
     ['desempenho', 'Desempenho'],
     ['portas', 'Portas'],
     ['atividade', 'Atividade'],
+    ['log', 'Log'],
     ['distros', 'Distros'],
   ];
   const MAXIMO = 12;

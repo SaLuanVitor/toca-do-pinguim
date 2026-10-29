@@ -5,6 +5,7 @@
   const FILTROS: { id: TipoEvento | 'todos'; titulo: string }[] = [
     { id: 'todos', titulo: 'Tudo' },
     { id: 'distro', titulo: 'Distros' },
+    { id: 'wsl', titulo: 'WSL' },
     { id: 'processo', titulo: 'Processos' },
     { id: 'memoria', titulo: 'Falta de memória' },
     { id: 'config', titulo: 'Configuração' },
@@ -34,7 +35,7 @@
 
   const grupos = $derived.by(() => {
     const lista = estado.eventos
-      .filter((e) => filtro === 'todos' || e.tipo === filtro || (filtro === 'distro' && e.tipo === 'wsl'))
+      .filter((e) => filtro === 'todos' || e.tipo === filtro)
       .toReversed();
     const saida: { dia: string; eventos: Evento[] }[] = [];
     for (const e of lista) {
@@ -59,7 +60,7 @@
   {#if grupos.length === 0}
     <div class="vazio">
       <strong>Nada registrado {filtro === 'todos' ? 'ainda' : 'neste filtro'}</strong>
-      <span>Distros que ligam e desligam, processos encerrados pelo app, falta de memória e mudanças de configuração aparecem aqui.</span>
+      <span>Distros que ligam e desligam, quedas do WSL, processos encerrados pelo app, falta de memória e mudanças de configuração aparecem aqui.</span>
     </div>
   {/if}
   {#each grupos as g (g.dia)}
@@ -67,7 +68,7 @@
       <h2 id="dia-{g.dia}">{g.dia}</h2>
       <ol>
         {#each g.eventos as e (`${e.quando_ms}|${e.texto}`)}
-          <li class:alerta={e.tipo === 'memoria'}>
+          <li class:alerta={e.tipo === 'memoria' || (e.tipo === 'wsl' && e.texto.includes('deixou de responder'))}>
             <time datetime={new Date(e.quando_ms).toISOString()}>{hora.format(e.quando_ms)}</time>
             <span class="tipo">{ROTULOS[e.tipo] ?? e.tipo}</span>
             <div class="texto">

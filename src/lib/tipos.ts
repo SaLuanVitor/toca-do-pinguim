@@ -66,7 +66,7 @@ export interface Pedido {
   executar: () => void;
 }
 
-export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros';
+export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros' | 'log';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;

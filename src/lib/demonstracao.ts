@@ -211,5 +211,14 @@ export function criarDemonstracao(): Api {
       throw new Error('Modo demonstração: nada foi instalado.');
     },
     abrirPaginaDaVersao: async () => {},
+    lerLog: async () => [
+      '[2026-10-29][09:12:00][INFO][toca_do_pinguim_lib] Toca do Pinguim 0.2.0 iniciado',
+      '[2026-10-29][09:12:01][INFO][toca_do_pinguim_lib] wsl --version: Versão do WSL: 2.6.1.0 Versão do kernel: 6.6.87.2-1',
+      '[2026-10-29][09:12:02][INFO][toca_do_pinguim_lib::agentes] [Ubuntu] agente iniciado (wsl.exe PID 4120, 1000 ms)',
+      '[2026-10-29][11:36:39][ERROR][toca_do_pinguim_lib::wsl] wsl.exe -d Ubuntu -u root --exec test -x /tmp/toca-do-pinguim/agente-4c1d: falhou em 30112 ms com Wsl/Service/0x8007274c: Uma tentativa de conexão falhou porque o componente conectado não respondeu.',
+      '[2026-10-29][11:36:39][WARN][toca_do_pinguim_lib::wsl] WSL deixou de responder (Ubuntu): Wsl/Service/0x8007274c',
+      '[2026-10-29][11:45:42][INFO][toca_do_pinguim_lib::wsl] WSL voltou a responder (Ubuntu) depois de 543 s e 12 falha(s); a última: Wsl/Service/0x8007274c',
+    ],
+    abrirPastaDeLogs: async () => {},
   };
 }

@@ -3,12 +3,14 @@ mod atividade;
 mod atualizacao;
 mod config;
 mod historico;
+mod registro;
 mod wsl;
 
 use std::path::Path;
 use std::sync::Arc;
 
 use agentes::Agentes;
+use log::{info, warn};
 use atividade::Evento;
 use config::WslConfig;
 use serde::Serialize;
@@ -57,6 +59,7 @@ async fn listar_distros() -> Result<Vec<Distro>, String> {
 async fn iniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: String) -> Result<(), String> {
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
+        info!("pedido: iniciar {nome}");
         wsl::iniciar(&nome)?;
         agentes.garantir(&app, &nome);
         Ok(())
@@ -68,6 +71,7 @@ async fn iniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: String)
 async fn terminar_distro(estado: Estado<'_>, nome: String) -> Result<(), String> {
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
+        info!("pedido: terminar {nome}");
         agentes.parar(&nome);
         wsl::terminar(&nome)
     })
@@ -78,6 +82,7 @@ async fn terminar_distro(estado: Estado<'_>, nome: String) -> Result<(), String>
 async fn reiniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: String) -> Result<(), String> {
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
+        info!("pedido: reiniciar {nome}");
         agentes.parar(&nome);
         wsl::terminar(&nome)?;
         wsl::iniciar(&nome)?;
@@ -91,6 +96,7 @@ async fn reiniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: Strin
 async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), String> {
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
+        info!("pedido: desligar o WSL");
         agentes.parar_todos();
         wsl::desligar()?;
         agentes.registrar(&app, "wsl", None, "O app desligou o WSL".to_string());
@@ -101,6 +107,7 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), S
 
 #[tauri::command]
 fn enviar_sinal(estado: Estado<'_>, distro: String, pid: i32, sinal: i32, nome: String) -> Result<(), String> {
+    info!("pedido: sinal {sinal} para {nome} (PID {pid}) em {distro}");
     estado.enviar_sinal(&distro, pid, sinal, nome)
 }
 
@@ -151,6 +158,7 @@ async fn definir_limite_memoria(
         let antes = cfg.obter("wsl2", "memory").unwrap_or_else(|| "padrão (metade da RAM)".to_string());
         cfg.definir("wsl2", "memory", &format!("{gb}GB"));
         cfg.gravar().map_err(|e| format!("não foi possível gravar o .wslconfig: {e}"))?;
+        info!("limite de memória do WSL: {antes} para {gb}GB (reiniciar: {reiniciar})");
         agentes.registrar(&app, "config", None, format!("Limite de memória do WSL: {antes} para {gb}GB"));
         if reiniciar {
             agentes.parar_todos();
@@ -174,7 +182,7 @@ fn trazer_dados_antigos(dados: &Path) {
         let (de, para) = (antiga.join(nome), dados.join(nome));
         if de.is_file() && !para.exists() {
             if let Err(e) = std::fs::copy(&de, &para) {
-                eprintln!("não copiei {} da pasta antiga: {e}", de.display());
+                warn!("não copiei {} da pasta antiga: {e}", de.display());
             }
         }
     }
@@ -183,8 +191,16 @@ fn trazer_dados_antigos(dados: &Path) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Primeiro, para o log já pegar o que os outros plugins e o setup registram.
+        .plugin(registro::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            info!("Toca do Pinguim {} iniciado", app.package_info().version);
+            // Versão do WSL e do kernel, para o log servir de diagnóstico sem perguntar.
+            std::thread::spawn(|| match wsl::versao() {
+                Ok(v) => info!("wsl --version: {}", v.split_whitespace().collect::<Vec<_>>().join(" ")),
+                Err(e) => warn!("wsl --version falhou: {e}"),
+            });
             let dados = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dados)?;
             trazer_dados_antigos(&dados);
@@ -214,6 +230,8 @@ pub fn run() {
             atualizacao::procurar_atualizacao,
             atualizacao::instalar_atualizacao,
             atualizacao::abrir_pagina_da_versao,
+            registro::ler_log,
+            registro::abrir_pasta_de_logs,
         ])
         .build(tauri::generate_context!())
         .expect("falha ao montar o app")

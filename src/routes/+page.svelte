@@ -7,6 +7,7 @@
   import Confirmar from '$lib/Confirmar.svelte';
   import Desempenho from '$lib/Desempenho.svelte';
   import Distros from '$lib/Distros.svelte';
+  import Log from '$lib/Log.svelte';
   import { estado } from '$lib/estado.svelte';
   import Icone from '$lib/Icone.svelte';
   import Paleta from '$lib/Paleta.svelte';
@@ -20,6 +21,7 @@
     { id: 'portas', titulo: 'Portas' },
     { id: 'atividade', titulo: 'Atividade' },
     { id: 'distros', titulo: 'Distros' },
+    { id: 'log', titulo: 'Log' },
   ];
 
   const VELOCIDADES = [
@@ -122,6 +124,8 @@
         <Portas />
       {:else if estado.pagina === 'atividade'}
         <Atividade />
+      {:else if estado.pagina === 'log'}
+        <Log />
       {:else}
         <Distros />
       {/if}
