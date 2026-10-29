@@ -1,5 +1,5 @@
 [package]
-name = "wsl-tm"
+name = "toca-do-pinguim"
 version = "0.1.0"
 description = "Gerenciador de tarefas do WSL"
 edition = "2024"
@@ -7,7 +7,7 @@ edition = "2024"
 [lib]
 # O sufixo `_lib` evita colisão de nome entre a lib e o binário no Windows
 # (rust-lang/cargo#8519).
-name = "wsl_tm_lib"
+name = "toca_do_pinguim_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

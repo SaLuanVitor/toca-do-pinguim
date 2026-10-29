@@ -1,4 +1,4 @@
-# Gerenciador de WSL
+# Toca do Pinguim
 
 Gerenciador de tarefas para o WSL, no formato do Gerenciador de Tarefas do Windows. Ele
 observa e gerencia sem mudar o ciclo de vida das distros: nenhuma fica ligada por causa
@@ -27,7 +27,7 @@ conversa com ele por stdin e stdout, uma linha JSON por mensagem.
 | `src-tauri` | Windows | lista distros, supervisiona os agentes, guarda histórico e atividade, edita o `.wslconfig` |
 | `src` | WebView2 | SvelteKit em modo SPA |
 
-O agente vai para `/tmp/wsl-tm/agente-<hash>` dentro de cada distro, copiado pelo stdin
+O agente vai para `/tmp/toca-do-pinguim/agente-<hash>` dentro de cada distro, copiado pelo stdin
 do `wsl.exe`. Ele sai quando o stdin fecha, então fechar o app encerra todos os agentes.
 Além dos processos, ele lê as portas em escuta a cada 5 amostras e as mortes por falta de
 memória no `/dev/kmsg`.
@@ -46,11 +46,13 @@ Não foi medido se um processo solto da sessão (`setsid`) segura uma distro sem
 Com a janela minimizada, as amostras param de ir ao front e os agentes passam a ler a
 cada 5 s.
 
-**Dados.** Em `%APPDATA%\com.luan.wsltm`: `memoria.csv` (pico de memória usada por
-minuto, 30 dias) e `atividade.jsonl` (últimos 1000 eventos). A sugestão de limite é o pico
+**Dados.** Em `%APPDATA%\com.luan.tocadopinguim`: `memoria.csv` (pico de memória usada por
+minuto, 30 dias) e `atividade.jsonl` (últimos 1000 eventos). Na primeira abertura, os dois
+são copiados de `%APPDATA%\com.luan.wsltm`, a pasta de quando o app se chamava Gerenciador
+de WSL; a pasta antiga fica como está. A sugestão de limite é o pico
 dos últimos 7 dias com 25% de folga, arredondado para cima em GB, e só aparece depois de
 uma hora de dados. Gravar o limite troca só a linha `memory` do `.wslconfig` e guarda a
-versão anterior em `.wslconfig.wsl-tm.bak`.
+versão anterior em `.wslconfig.toca-do-pinguim.bak`.
 
 ## Desenvolvimento
 

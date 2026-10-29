@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    wsl_tm_lib::run()
+    toca_do_pinguim_lib::run()
 }

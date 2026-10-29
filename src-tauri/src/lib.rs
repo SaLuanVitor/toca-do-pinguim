@@ -4,6 +4,7 @@ mod config;
 mod historico;
 mod wsl;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use agentes::Agentes;
@@ -160,12 +161,31 @@ async fn definir_limite_memoria(
     .await
 }
 
+/// Identificador de quando o app se chamava Gerenciador de WSL; a pasta de dados vem dele.
+const IDENTIFICADOR_ANTIGO: &str = "com.luan.wsltm";
+const ARQUIVOS_DE_DADOS: [&str; 2] = ["memoria.csv", "atividade.jsonl"];
+
+/// Copia o histórico da pasta do nome antigo, uma vez: arquivo que já existe na pasta nova
+/// não é sobrescrito. A pasta antiga fica intacta, para quem voltar à versão anterior.
+fn trazer_dados_antigos(dados: &Path) {
+    let Some(antiga) = dados.parent().map(|p| p.join(IDENTIFICADOR_ANTIGO)) else { return };
+    for nome in ARQUIVOS_DE_DADOS {
+        let (de, para) = (antiga.join(nome), dados.join(nome));
+        if de.is_file() && !para.exists() {
+            if let Err(e) = std::fs::copy(&de, &para) {
+                eprintln!("não copiei {} da pasta antiga: {e}", de.display());
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let dados = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dados)?;
+            trazer_dados_antigos(&dados);
             let agentes = Agentes::novo(&dados);
             app.manage(Arc::clone(&agentes));
             agentes::supervisionar(app.handle().clone(), agentes);
@@ -199,4 +219,27 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn traz_da_pasta_antiga_sem_sobrescrever() {
+        let raiz = std::env::temp_dir().join(format!("toca-migracao-{}", std::process::id()));
+        let (antiga, nova) = (raiz.join(IDENTIFICADOR_ANTIGO), raiz.join("com.luan.tocadopinguim"));
+        std::fs::create_dir_all(&antiga).unwrap();
+        std::fs::create_dir_all(&nova).unwrap();
+        std::fs::write(antiga.join("memoria.csv"), "antigo").unwrap();
+        std::fs::write(antiga.join("atividade.jsonl"), "antigo").unwrap();
+        std::fs::write(nova.join("atividade.jsonl"), "novo").unwrap();
+
+        trazer_dados_antigos(&nova);
+
+        assert_eq!(std::fs::read_to_string(nova.join("memoria.csv")).unwrap(), "antigo");
+        assert_eq!(std::fs::read_to_string(nova.join("atividade.jsonl")).unwrap(), "novo");
+        assert!(antiga.join("memoria.csv").is_file());
+        std::fs::remove_dir_all(&raiz).unwrap();
+    }
 }

@@ -64,7 +64,7 @@
 </script>
 
 <svelte:head>
-  <title>Gerenciador de WSL</title>
+  <title>Toca do Pinguim</title>
 </svelte:head>
 
 <svelte:window onkeydown={atalho} />

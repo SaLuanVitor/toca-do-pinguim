@@ -88,12 +88,12 @@ impl WslConfig {
     pub fn gravar(&self) -> io::Result<()> {
         let destino = caminho();
         if destino.exists() {
-            fs::copy(&destino, destino.with_file_name(".wslconfig.wsl-tm.bak"))?;
+            fs::copy(&destino, destino.with_file_name(".wslconfig.toca-do-pinguim.bak"))?;
         }
         let quebra = if self.crlf { "\r\n" } else { "\n" };
         let mut texto = self.linhas.join(quebra);
         texto.push_str(quebra);
-        let temporario = destino.with_file_name(".wslconfig.wsl-tm.tmp");
+        let temporario = destino.with_file_name(".wslconfig.toca-do-pinguim.tmp");
         fs::write(&temporario, texto)?;
         fs::rename(&temporario, &destino)
     }

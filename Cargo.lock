@@ -3340,6 +3340,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
+name = "toca-do-pinguim"
+version = "0.1.0"
+dependencies = [
+ "protocolo",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "tokio"
 version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4188,18 +4200,6 @@ dependencies = [
  "windows-core",
  "windows-version",
  "x11-dl",
-]
-
-[[package]]
-name = "wsl-tm"
-version = "0.1.0"
-dependencies = [
- "protocolo",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -285,7 +285,7 @@ fn caminho_remoto() -> String {
         h ^= *b as u64;
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("/tmp/wsl-tm/agente-{h:016x}")
+    format!("/tmp/toca-do-pinguim/agente-{h:016x}")
 }
 
 /// Copia o agente para dentro da distro pelo stdin do `wsl.exe`, sem depender de onde

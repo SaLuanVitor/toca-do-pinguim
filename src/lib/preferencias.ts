@@ -2,7 +2,7 @@
 // recolhidos. Perder isso só volta ao padrão, então toda falha de leitura ou escrita é
 // ignorada.
 
-const PREFIXO = 'wsl-tm.';
+const PREFIXO = 'toca-do-pinguim.';
 
 export function lerPreferencia<T>(chave: string, padrao: T): T {
   try {

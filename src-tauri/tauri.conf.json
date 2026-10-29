@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Gerenciador de WSL",
+  "productName": "Toca do Pinguim",
   "version": "0.1.0",
-  "identifier": "com.luan.wsltm",
+  "identifier": "com.luan.tocadopinguim",
   "build": {
     "beforeDevCommand": "npm run agente && npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Gerenciador de WSL",
+        "title": "Toca do Pinguim",
         "width": 1100,
         "height": 720,
         "minWidth": 640,
