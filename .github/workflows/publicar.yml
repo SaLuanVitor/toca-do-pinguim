@@ -37,7 +37,8 @@ jobs:
           Copy-Item $instalador.FullName "dist/$base-setup.exe"
           Compress-Archive -Path target/release/toca-do-pinguim.exe, LICENSE -DestinationPath "dist/$base-portable.zip"
           $somas = Get-ChildItem dist | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLower(), $_.Name }
-          $somas | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          # Fim de linha LF: com CRLF, o `sha256sum -c` do Linux e do WSL não acha os arquivos.
+          [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", ($somas -join "`n") + "`n")
           Get-Content dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v7
         with:
