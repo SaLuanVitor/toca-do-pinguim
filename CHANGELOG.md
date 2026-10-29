@@ -21,12 +21,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   SvelteKit (redirecionamento, XSS e cookie). Nenhum deles alcançava o app, que é estático e
   não tem servidor. Fica o alerta do `deepmerge`, sem versão corrigida: ele só roda no build,
   para juntar a configuração do próprio projeto.
+- O Dependabot só alerta, na aba Security: não abre PR. Toda mudança entra por commit e PR
+  de quem mantém o projeto.
 
 ### Adicionado
 
 - Arquivos de projeto aberto: `SECURITY.md` (relato privado de falha e onde o app tem
-  privilégio), `CONTRIBUTING.md`, código de conduta, modelos de issue e de PR e Dependabot
-  para Cargo, npm e Actions.
+  privilégio), `CONTRIBUTING.md`, código de conduta e modelos de issue e de PR.
 - Cada release e o zip portátil trazem o `THIRD-PARTY-NOTICES.md`, com a licença de cada
   biblioteca de terceiros incluída no app, gerado pelo `cargo-about` e por
   `scripts/avisos-de-licenca.mjs`.
