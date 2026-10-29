@@ -1,0 +1,9 @@
+[package]
+name = "agente"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+protocolo = { path = "../protocolo" }
+serde_json = { workspace = true }
+libc = "0.2"
