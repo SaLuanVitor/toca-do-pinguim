@@ -75,6 +75,9 @@ pub fn definir_atalho_teclado(tecla: String) -> Result<(), String> {
             $s.WorkingDirectory = Split-Path -Parent $env:TOCA_ALVO
             $s.Description = 'Gerenciador do WSL'
         }
+        # Regravar o atalho deixa o ícone como ",0", sem caminho, e o menu Iniciar mostra um
+        # ícone em branco: aponta sempre para o executável do próprio atalho.
+        if (-not $s.IconLocation -or $s.IconLocation.StartsWith(',')) { $s.IconLocation = "$($s.TargetPath),0" }
         $s.Hotkey = $env:TOCA_TECLA
         $s.Save()
     "#;

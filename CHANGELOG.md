@@ -5,6 +5,12 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+
+- Gravar a tecla de atalho deixava o atalho do menu Iniciar sem ícone, porque regravar o
+  `.lnk` apagava o caminho do ícone. Agora ele aponta para o executável, e um ícone escolhido
+  à mão é mantido.
+
 ## [0.5.0] - 2026-10-29
 
 ### Adicionado
