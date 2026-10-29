@@ -47,6 +47,44 @@ export class Ordenacao<C extends string> {
     return this.crescente ? 'ascending' : 'descending';
   }
 
+  #fixos = new Map<string, number>();
+  #assinaturaFixos = '';
+
+  /**
+   * Ordena por um valor fixo de cada item, que só acompanha o valor real quando ele se
+   * afasta mais que `tolerancia`. A lista sai ordenada exatamente pelos valores fixos, e
+   * cada um está a no máximo uma tolerância do real: dois itens quaisquer nunca aparecem
+   * invertidos por mais que duas tolerâncias, em qualquer distância da lista. Valor que
+   * oscila dentro da faixa não mexe a linha.
+   *
+   * `assinatura` diferente da anterior (outra coluna, direção ou filtro) descarta os
+   * valores fixos e ordena pelos reais.
+   */
+  ordenarEstavel<T>(
+    lista: readonly T[],
+    valor: (t: T, c: C) => unknown,
+    chave: (t: T) => string,
+    tolerancia: (v: number) => number,
+    desempate: (a: T, b: T) => number,
+    assinatura: string,
+  ): T[] {
+    if (assinatura !== this.#assinaturaFixos || this.#fixos.size > 5000) {
+      this.#fixos.clear();
+      this.#assinaturaFixos = assinatura;
+    }
+    const c = this.coluna;
+    const pares = lista.map((t) => {
+      const v = valor(t, c);
+      if (typeof v !== 'number') return { t, v };
+      const k = chave(t);
+      const f = this.#fixos.get(k);
+      if (f !== undefined && Math.abs(v - f) <= tolerancia(v)) return { t, v: f };
+      this.#fixos.set(k, v);
+      return { t, v };
+    });
+    return this.ordenar(pares, (p) => p.v, (a, b) => desempate(a.t, b.t)).map((p) => p.t);
+  }
+
   /**
    * Devolve uma cópia ordenada. Vazio fica no fim nas duas direções. Empate na coluna
    * cai em `desempate`, que não inverte com a direção: assim duas linhas de mesmo valor

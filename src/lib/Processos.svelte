@@ -50,14 +50,20 @@
    * Processos novos entram no fim até a lista voltar a ordenar.
    */
   const congelada = $derived(ponteiroNaLista || focoNaLista);
+  let ultimaOrdem = { assinatura: '', posicoes: new Map<string, number>() };
 
   /**
-   * Fora disso, as posições se rearranjam a cada 3 amostras, e os valores, a cada uma.
-   * Medido com carga real (CI na docker-desktop), ordenar a cada amostra trocava cerca de
-   * 25 linhas de lugar por segundo, quase todas as visíveis.
+   * Fora disso, a lista reordena a cada amostra por valores que só mudam quando o real se
+   * afasta mais que 0,3 ponto de CPU ou 2% de memória (`Ordenacao.ordenarEstavel`).
+   * Medido com carga real (CI na docker-desktop): sem isso, cerca de 25 linhas trocavam
+   * de lugar por segundo; rearranjar só a cada 3 amostras deixava 0,5% acima de 7,6%; e
+   * uma tolerância só entre vizinhos deixava 1,4% abaixo de 0,6%, somando ao longo da lista.
    */
-  const AMOSTRAS_POR_REORDENACAO = 3;
-  let ultimaOrdem = { assinatura: '', posicoes: new Map<string, number>(), quando: 0 };
+  function tolerancia(v: number): number {
+    if (ordem.coluna === 'cpu_pct') return 3;
+    if (ordem.coluna === 'rss') return Math.max(10, 0.02 * v);
+    return 0;
+  }
 
   const colunas = $derived<{ id: Coluna; titulo: string; numerica?: boolean; classe: string }[]>([
     { id: 'nome', titulo: 'Nome', classe: 'c-nome' },
@@ -134,51 +140,55 @@
   // a lista congelada.
   const assinatura = $derived(`${ordem.coluna}|${ordem.crescente}|${agrupar}|${busca}`);
 
+  /**
+   * Congelada, mantém a ordem da tela e acrescenta os novos no fim. Fora disso, ordena
+   * pelos valores fixos com tolerância; se coluna, direção, filtro ou agrupamento
+   * mudaram, os valores fixos são descartados e a ordem sai dos valores reais.
+   */
   function ordenarCom<T>(
     lista: T[],
     valorDe: (t: T, c: Coluna) => unknown,
     desempateDe: (a: T, b: T) => number,
     chaveDe: (t: T) => string,
-    manter: boolean,
   ): T[] {
-    if (!manter) return ordem.ordenar(lista, valorDe, desempateDe);
+    const mesma = ultimaOrdem.assinatura === assinatura;
     const pos = ultimaOrdem.posicoes;
-    const conhecidas = lista.filter((t) => pos.has(chaveDe(t))).sort((a, b) => pos.get(chaveDe(a))! - pos.get(chaveDe(b))!);
-    const novas = ordem.ordenar(lista.filter((t) => !pos.has(chaveDe(t))), valorDe, desempateDe);
-    return [...conhecidas, ...novas];
+    if (mesma && congelada) {
+      const conhecidas = lista.filter((t) => pos.has(chaveDe(t))).sort((a, b) => pos.get(chaveDe(a))! - pos.get(chaveDe(b))!);
+      return [...conhecidas, ...ordem.ordenar(lista.filter((t) => !pos.has(chaveDe(t))), valorDe, desempateDe)];
+    }
+    // Empate no valor fixo mantém quem já estava na frente.
+    const posicao = (t: T) => (mesma ? (pos.get(chaveDe(t)) ?? Infinity) : 0);
+    return ordem.ordenarEstavel(
+      lista,
+      valorDe,
+      chaveDe,
+      tolerancia,
+      (a, b) => posicao(a) - posicao(b) || desempateDe(a, b),
+      assinatura,
+    );
   }
 
-  const montagem = $derived.by(() => {
-    // `Date.now()` não é reativo: quem dispara o recálculo é a amostra nova; o relógio só
-    // decide se esta é a vez de rearranjar.
-    const recente = Date.now() - ultimaOrdem.quando < AMOSTRAS_POR_REORDENACAO * estado.intervalo;
-    const manter = (congelada || recente) && ultimaOrdem.assinatura === assinatura;
-    const ordenarLinhas = (ls: Linha[]) => ordenarCom(ls, valor, desempate, chave, manter);
-    let visuais: Visual[];
+  const visuais = $derived.by((): Visual[] => {
+    const ordenarLinhas = (ls: Linha[]) => ordenarCom(ls, valor, desempate, chave);
+    let lista: Visual[];
     if (!agrupar) {
       const todas = grupos.flatMap((g) => g.processos.map((p) => ({ distro: g.distro, p })));
-      visuais = ordenarLinhas(todas).map((l): Visual => ({ tipo: 'proc', l }));
+      lista = ordenarLinhas(todas).map((l): Visual => ({ tipo: 'proc', l }));
     } else {
       const desempateGrupo = (a: Grupo, b: Grupo) => comparar(a.distro, b.distro);
-      visuais = ordenarCom(grupos, valorGrupo, desempateGrupo, (g) => `grupo:${g.distro}`, manter).flatMap((g): Visual[] => [
+      lista = ordenarCom(grupos, valorGrupo, desempateGrupo, (g) => `grupo:${g.distro}`).flatMap((g): Visual[] => [
         { tipo: 'grupo', g },
         ...(recolhidas[g.distro]
           ? []
           : ordenarLinhas(g.processos.map((p) => ({ distro: g.distro, p }))).map((l): Visual => ({ tipo: 'proc', l }))),
       ]);
     }
-    return { visuais, rearranjou: !manter };
+    return lista;
   });
 
-  const visuais = $derived(montagem.visuais);
-
   $effect(() => {
-    const { visuais, rearranjou } = montagem;
-    ultimaOrdem = {
-      assinatura,
-      posicoes: new Map(visuais.map((v, i) => [chaveVisual(v), i])),
-      quando: rearranjou ? Date.now() : ultimaOrdem.quando,
-    };
+    ultimaOrdem = { assinatura, posicoes: new Map(visuais.map((v, i) => [chaveVisual(v), i])) };
   });
 
   const linhas = $derived(visuais.flatMap((v) => (v.tipo === 'proc' ? [v.l] : [])));
