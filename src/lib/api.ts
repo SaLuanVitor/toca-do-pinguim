@@ -1,4 +1,4 @@
-import type { Amostra, Distro, Evento, ResumoMemoria } from './tipos';
+import type { Amostra, Atualizacao, Distro, Evento, ResumoMemoria } from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
 
@@ -13,6 +13,9 @@ export interface Api {
   listarAtividade(): Promise<Evento[]>;
   resumoMemoria(): Promise<ResumoMemoria>;
   definirLimiteMemoria(gb: number, reiniciar: boolean): Promise<void>;
+  procurarAtualizacao(): Promise<Atualizacao | null>;
+  instalarAtualizacao(): Promise<void>;
+  abrirPaginaDaVersao(versao: string): Promise<void>;
 }
 
 export const dentroDoApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -48,6 +51,9 @@ async function conectarTauri(): Promise<Api> {
     listarAtividade: () => invoke('listar_atividade'),
     resumoMemoria: () => invoke('resumo_memoria'),
     definirLimiteMemoria: (gb, reiniciar) => invoke('definir_limite_memoria', { gb, reiniciar }),
+    procurarAtualizacao: () => invoke('procurar_atualizacao'),
+    instalarAtualizacao: () => invoke('instalar_atualizacao'),
+    abrirPaginaDaVersao: (versao) => invoke('abrir_pagina_da_versao', { versao }),
   };
 }
 

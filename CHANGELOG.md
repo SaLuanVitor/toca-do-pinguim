@@ -5,6 +5,14 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Atualização automática: o app instalado procura versão nova ao abrir e a cada 6 horas e
+  mostra um aviso. Nada é baixado sem clique: "Atualizar e reiniciar" baixa, confere a
+  assinatura e reabre o app na versão nova. Na versão portátil, o aviso leva à página da
+  versão. Quem está na 0.1.0 precisa instalar a 0.2.0 à mão uma vez, porque a 0.1.0 não tem
+  esse recurso.
+
 ## [0.1.0] - 2026-10-29
 
 Primeira versão pública.

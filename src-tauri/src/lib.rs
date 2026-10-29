@@ -1,5 +1,6 @@
 mod agentes;
 mod atividade;
+mod atualizacao;
 mod config;
 mod historico;
 mod wsl;
@@ -182,6 +183,7 @@ fn trazer_dados_antigos(dados: &Path) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let dados = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dados)?;
@@ -209,6 +211,9 @@ pub fn run() {
             listar_atividade,
             resumo_memoria,
             definir_limite_memoria,
+            atualizacao::procurar_atualizacao,
+            atualizacao::instalar_atualizacao,
+            atualizacao::abrir_pagina_da_versao,
         ])
         .build(tauri::generate_context!())
         .expect("falha ao montar o app")

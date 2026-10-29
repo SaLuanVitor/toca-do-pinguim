@@ -70,3 +70,10 @@ export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'dist
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;
+
+export interface Atualizacao {
+  versao: string;
+  notas: string | null;
+  /** Falso na versão portátil, que não se substitui sozinha. */
+  instalavel: boolean;
+}

@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { api, conectar, dentroDoApp } from '$lib/api';
   import Atividade from '$lib/Atividade.svelte';
+  import AvisoAtualizacao from '$lib/AvisoAtualizacao.svelte';
   import Confirmar from '$lib/Confirmar.svelte';
   import Desempenho from '$lib/Desempenho.svelte';
   import Distros from '$lib/Distros.svelte';
@@ -112,6 +113,7 @@
       </p>
     {/if}
     {#if pronto}
+      <AvisoAtualizacao />
       {#if estado.pagina === 'processos'}
         <Processos />
       {:else if estado.pagina === 'desempenho'}

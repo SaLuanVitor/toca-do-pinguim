@@ -26,7 +26,12 @@ jobs:
       - run: npm ci
       - name: Conferir versão
         run: node scripts/sincronizar-versao.mjs --conferir ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      # A chave assina o instalador para a atualização automática; o app confere com a
+      # chave pública do tauri.conf.json. Ela foi gerada sem senha.
       - run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
       - name: Montar pacotes
         shell: pwsh
         run: |
@@ -36,6 +41,19 @@ jobs:
           $instalador = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           Copy-Item $instalador.FullName "dist/$base-setup.exe"
           Compress-Archive -Path target/release/toca-do-pinguim.exe, LICENSE -DestinationPath "dist/$base-portable.zip"
+          # O app instalado lê este arquivo em releases/latest e baixa o instalador indicado.
+          $releases = "https://github.com/${{ github.repository }}/releases"
+          @{
+            version   = $versao
+            notes     = "O que mudou: $releases/tag/v$versao"
+            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = @{
+              'windows-x86_64' = @{
+                signature = (Get-Content "$($instalador.FullName).sig" -Raw).Trim()
+                url       = "$releases/download/v$versao/$base-setup.exe"
+              }
+            }
+          } | ConvertTo-Json -Depth 4 | ForEach-Object { [IO.File]::WriteAllText("$PWD/dist/latest.json", $_) }
           $somas = Get-ChildItem dist | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLower(), $_.Name }
           # Fim de linha LF: com CRLF, o `sha256sum -c` do Linux e do WSL não acha os arquivos.
           [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", ($somas -join "`n") + "`n")

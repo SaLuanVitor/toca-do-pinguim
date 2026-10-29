@@ -201,5 +201,15 @@ export function criarDemonstracao(): Api {
         registrar('wsl', null, 'O app desligou o WSL para aplicar a configuração');
       }
     },
+    // `?atualizacao` na URL simula uma versão nova, para ver o aviso fora do app.
+    procurarAtualizacao: async () =>
+      new URLSearchParams(location.search).has('atualizacao')
+        ? { versao: '9.9.9', notas: null, instalavel: true }
+        : null,
+    instalarAtualizacao: async () => {
+      await esperar(1500);
+      throw new Error('Modo demonstração: nada foi instalado.');
+    },
+    abrirPaginaDaVersao: async () => {},
   };
 }

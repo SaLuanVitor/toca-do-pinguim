@@ -20,3 +20,6 @@ tauri = { version = "2", features = [] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2.14.1"

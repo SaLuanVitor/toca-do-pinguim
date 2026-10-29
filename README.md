@@ -23,6 +23,10 @@ não há assinatura digital, então o SmartScreen avisa na primeira execução: 
 informações" e depois "Executar assim mesmo". O que mudou em cada versão está no
 [CHANGELOG](CHANGELOG.md).
 
+Instalado pelo instalador, o app avisa quando sai versão nova e se atualiza com um clique.
+Ele procura ao abrir e a cada 6 horas, e não baixa nada sem você pedir. O instalador baixado
+é conferido contra uma assinatura própria do projeto antes de rodar.
+
 ## Como funciona
 
 O Windows enxerga todas as distros como um processo só (`vmmemWSL`). Os processos só
@@ -94,6 +98,12 @@ A versão mora no `package.json`. O `tauri.conf.json` lê de lá, e o
    em rascunho com as notas do CHANGELOG. Revise e publique pela página de Releases.
 
 Rodar o Publicar à mão, pela aba Actions, gera os mesmos pacotes como artefato, sem release.
+
+A atualização automática só enxerga a release depois de publicada, porque lê o
+`latest.json` de `releases/latest`. O Publicar assina o instalador com o secret
+`TAURI_SIGNING_PRIVATE_KEY`; a chave pública correspondente está em `tauri.conf.json`.
+**Perder a chave privada impede atualizar quem já instalou:** uma chave nova exige que todos
+reinstalem à mão.
 
 ## Medido em 2026-10-28
 
