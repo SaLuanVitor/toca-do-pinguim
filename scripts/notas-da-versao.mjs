@@ -24,6 +24,7 @@ console.log(`${secao}
 | \`toca-do-pinguim_${versao}_x64-portable.zip\` | sem instalação: extraia e abra \`toca-do-pinguim.exe\`. Os dados ficam em \`%APPDATA%\\com.luan.tocadopinguim\` do mesmo jeito |
 | \`SHA256SUMS.txt\` | para conferir o download: \`Get-FileHash <arquivo>\` no PowerShell |
 | \`latest.json\` | lido pelo app instalado para avisar e instalar a versão nova |
+| \`THIRD-PARTY-NOTICES.md\` | licenças das bibliotecas de terceiros incluídas no app |
 
 Requer Windows 10 ou 11 x64 com WSL 2. Ainda sem assinatura digital: o SmartScreen avisa na
 primeira execução, e o caminho é "Mais informações" e depois "Executar assim mesmo".`);

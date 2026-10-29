@@ -1,0 +1,19 @@
+name: Ideia de funcionalidade
+description: Algo que o app poderia fazer
+labels: [funcionalidade]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qual problema isso resolve
+      description: O que você tenta fazer hoje e onde esbarra.
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Como você imagina
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: O que você usa hoje no lugar

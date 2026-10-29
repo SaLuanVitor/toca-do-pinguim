@@ -8,6 +8,7 @@
   // O Windows aceita a tecla de um atalho com pelo menos dois modificadores.
   const MODIFICADORES = ['Ctrl', 'Alt', 'Shift'] as const;
 
+  let versao = $state('');
   let atual = $state('');
   let caminho = $state('');
   let existe = $state(false);
@@ -81,10 +82,26 @@
     }
   }
 
-  onMount(carregar);
+  onMount(() => {
+    carregar();
+    api.versaoApp().then((v) => (versao = v), () => (versao = 'desconhecida'));
+  });
 </script>
 
 <div class="rolagem">
+  <section aria-labelledby="sobre-titulo">
+    <h2 id="sobre-titulo">Sobre</h2>
+    <div class="linha">
+      <span class="rotulo">Versão</span>
+      <strong>{versao}</strong>
+    </div>
+    <p class="explica">
+      Código, versões e relato de bugs em
+      <code>github.com/SaLuanVitor/toca-do-pinguim</code>. Licença MIT; as licenças das bibliotecas
+      de terceiros incluídas estão no <code>THIRD-PARTY-NOTICES.md</code> de cada versão.
+    </p>
+  </section>
+
   <section aria-labelledby="tecla-titulo">
     <h2 id="tecla-titulo">Tecla de atalho</h2>
     <p class="explica">

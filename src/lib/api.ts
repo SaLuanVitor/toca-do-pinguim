@@ -20,6 +20,7 @@ export interface Api {
   lerWslconfig(): Promise<ConteudoWslconfig>;
   gravarWslconfig(mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   lerWslconf(distro: string): Promise<ConteudoWslconfig>;
+  versaoApp(): Promise<string>;
   lerAtalhoTeclado(): Promise<AtalhoTeclado>;
   definirAtalhoTeclado(tecla: string): Promise<void>;
   gravarWslconf(distro: string, mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
@@ -66,6 +67,7 @@ async function conectarTauri(): Promise<Api> {
     lerWslconfig: () => invoke('ler_wslconfig'),
     gravarWslconfig: (mudancas, reiniciar) => invoke('gravar_wslconfig', { mudancas, reiniciar }),
     lerWslconf: (distro) => invoke('ler_wslconf', { distro }),
+    versaoApp: async () => (await import('@tauri-apps/api/app')).getVersion(),
     lerAtalhoTeclado: () => invoke('ler_atalho_teclado'),
     definirAtalhoTeclado: (tecla) => invoke('definir_atalho_teclado', { tecla }),
     gravarWslconf: (distro, mudancas, reiniciar) => invoke('gravar_wslconf', { distro, mudancas, reiniciar }),

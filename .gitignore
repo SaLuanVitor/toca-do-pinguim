@@ -11,3 +11,5 @@ vite.config.ts.timestamp-*
 
 # Cargo (workspace na raiz)
 /target/
+licencas-rust.md
+THIRD-PARTY-NOTICES.md

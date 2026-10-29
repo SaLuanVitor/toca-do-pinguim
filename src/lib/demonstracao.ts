@@ -253,6 +253,7 @@ export function criarDemonstracao(): Api {
         publicar();
       }
     },
+    versaoApp: async () => 'demonstração',
     lerAtalhoTeclado: async () => ({ tecla: teclaAtalho, caminho: 'C:\Users\voce\...\Toca do Pinguim.lnk', existe: teclaAtalho !== '' }),
     definirAtalhoTeclado: async (tecla) => {
       await esperar(300);

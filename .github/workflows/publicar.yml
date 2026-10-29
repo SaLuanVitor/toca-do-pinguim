@@ -32,6 +32,14 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+      # As licenças das dependências pedem que o aviso delas acompanhe o binário distribuído.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Avisos de licença de terceiros
+        run: |
+          cargo about generate about.hbs -o licencas-rust.md
+          node scripts/avisos-de-licenca.mjs licencas-rust.md THIRD-PARTY-NOTICES.md
       - name: Montar pacotes
         shell: pwsh
         run: |
@@ -40,7 +48,8 @@ jobs:
           New-Item -ItemType Directory dist | Out-Null
           $instalador = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           Copy-Item $instalador.FullName "dist/$base-setup.exe"
-          Compress-Archive -Path target/release/toca-do-pinguim.exe, LICENSE -DestinationPath "dist/$base-portable.zip"
+          Copy-Item THIRD-PARTY-NOTICES.md dist/
+          Compress-Archive -Path target/release/toca-do-pinguim.exe, LICENSE, THIRD-PARTY-NOTICES.md -DestinationPath "dist/$base-portable.zip"
           # O app instalado lê este arquivo em releases/latest e baixa o instalador indicado.
           $releases = "https://github.com/${{ github.repository }}/releases"
           @{

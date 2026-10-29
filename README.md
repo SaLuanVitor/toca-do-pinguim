@@ -4,6 +4,21 @@ Gerenciador de tarefas para o WSL, no formato do Gerenciador de Tarefas do Windo
 observa e gerencia sem mudar o ciclo de vida das distros: nenhuma fica ligada por causa
 do app.
 
+> **In English:** a Task Manager-style app for WSL on Windows 10 and 11. It shows processes,
+> CPU, memory and listening ports of every distro, lets you start, stop and restart distros,
+> edits every documented `.wslconfig` and per-distro `/etc/wsl.conf` setting, and logs WSL
+> failures. It never keeps a distro running on its own. Install with
+> `irm https://raw.githubusercontent.com/SaLuanVitor/toca-do-pinguim/main/scripts/instalar.ps1 | iex`.
+> The interface is in Brazilian Portuguese.
+
+![Aba Processos](docs/capturas/processos.png)
+
+| Desempenho | Configurações |
+|---|---|
+| ![Aba Desempenho](docs/capturas/desempenho.png) | ![Aba Configurações](docs/capturas/configuracoes.png) |
+
+As capturas são do modo demonstração, com dados simulados.
+
 | Aba | O que tem |
 |---|---|
 | Processos | processos de cada distro com CPU e memória; encerramento por SIGTERM ou SIGKILL |
@@ -138,6 +153,12 @@ com 162), executável de release:
 
 Medições únicas, numa máquina; não são dado de campo.
 
+## Contribuir
+
+Veja o [CONTRIBUTING.md](CONTRIBUTING.md). Falha de segurança se relata em particular, como
+descrito no [SECURITY.md](SECURITY.md). O projeto segue um [código de conduta](CODE_OF_CONDUCT.md).
+
 ## Licença
 
-[MIT](LICENSE).
+[MIT](LICENSE). As licenças das bibliotecas de terceiros incluídas no app vão no
+`THIRD-PARTY-NOTICES.md` de cada versão em Releases e dentro do zip portátil.

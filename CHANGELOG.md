@@ -5,6 +5,17 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Arquivos de projeto aberto: `SECURITY.md` (relato privado de falha e onde o app tem
+  privilégio), `CONTRIBUTING.md`, código de conduta, modelos de issue e de PR e Dependabot
+  para Cargo, npm e Actions.
+- Cada release e o zip portátil trazem o `THIRD-PARTY-NOTICES.md`, com a licença de cada
+  biblioteca de terceiros incluída no app, gerado pelo `cargo-about` e por
+  `scripts/avisos-de-licenca.mjs`.
+- Configurações > Este app mostra a versão do app.
+- README com capturas de tela e um resumo em inglês.
+
 ## [0.5.1] - 2026-10-29
 
 ### Corrigido
