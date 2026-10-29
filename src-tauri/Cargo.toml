@@ -20,10 +20,16 @@ protocolo = { path = "../crates/protocolo" }
 tauri = { version = "2", features = [] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
+windows-sys = { version = "0.61", features = [
+    "Wdk_System_SystemInformation",
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_WindowsProgramming",
+] }
 tauri-plugin-log = "2.10.1"
 log = "0.4.34"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2.5.5"
 tauri-plugin-updater = "2.14.1"
+tauri-plugin-notification = "2.7.0"
