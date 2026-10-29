@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agente"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libc",
  "protocolo",
@@ -2536,7 +2536,7 @@ dependencies = [
 
 [[package]]
 name = "protocolo"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
 ]
@@ -3816,7 +3816,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "toca-do-pinguim"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "log",
  "protocolo",
