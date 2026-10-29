@@ -1,14 +1,9 @@
 <script lang="ts">
-  import { api } from './api';
-  import Confirmar from './Confirmar.svelte';
+  import { desligarWsl, iniciar, ocupadas, reiniciar, terminar } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import { bytes, pct } from './formato';
   import Icone from './Icone.svelte';
-  import type { Distro, Pedido } from './tipos';
-
-  let ocupadas = $state<Record<string, string>>({});
-  let desligando = $state(false);
-  let pedido = $state<Pedido | null>(null);
+  import type { Distro } from './tipos';
 
   const linhas = $derived(
     estado.distros.map((d) => {
@@ -23,65 +18,18 @@
   );
   const algumaRodando = $derived(estado.distros.some((d) => d.rodando));
 
-  async function executar(d: Distro, rotulo: string, acao: () => Promise<void>) {
-    ocupadas[d.nome] = rotulo;
-    try {
-      await acao();
-      estado.receberDistros(await api.listarDistros());
-    } catch (e) {
-      estado.avisar(`${d.nome}: ${e}`);
-    } finally {
-      delete ocupadas[d.nome];
-    }
-  }
-
-  function iniciar(d: Distro) {
-    executar(d, 'Iniciando', () => api.iniciarDistro(d.nome));
-  }
-
-  function terminar(d: Distro) {
-    pedido = {
-      titulo: `Terminar ${d.nome}?`,
-      texto: `Todos os processos de ${d.nome} serão encerrados sem aviso a eles. O que não estiver salvo dentro da distro se perde.`,
-      acao: 'Terminar',
-      executar: () => executar(d, 'Terminando', () => api.terminarDistro(d.nome)),
-    };
-  }
-
-  function reiniciar(d: Distro) {
-    pedido = {
-      titulo: `Reiniciar ${d.nome}?`,
-      texto: `${d.nome} é terminada e ligada de novo. Todos os processos dela são encerrados.`,
-      acao: 'Reiniciar',
-      executar: () => executar(d, 'Reiniciando', () => api.reiniciarDistro(d.nome)),
-    };
-  }
-
-  function desligar() {
-    pedido = {
-      titulo: 'Desligar o WSL?',
-      texto: 'Todas as distros são terminadas e a VM do WSL é desligada, liberando a memória dela no Windows.',
-      acao: 'Desligar',
-      executar: async () => {
-        desligando = true;
-        try {
-          await api.desligarWsl();
-          estado.receberDistros(await api.listarDistros());
-        } catch (e) {
-          estado.avisar(String(e));
-        } finally {
-          desligando = false;
-        }
-      },
-    };
+  function situacao(d: Distro): string {
+    if (ocupadas[d.nome]) return ocupadas[d.nome];
+    if (!d.rodando) return 'Parada';
+    return estado.ociosas.has(d.nome) ? 'Sem atividade' : 'Em execução';
   }
 </script>
 
 <header class="barra">
   <h1>Distros</h1>
   <div class="acoes">
-    <button class="botao" disabled={!algumaRodando || desligando} onclick={desligar}>
-      <Icone nome="energia" /> {desligando ? 'Desligando' : 'Desligar WSL'}
+    <button class="botao" disabled={!algumaRodando || !!ocupadas.WSL} onclick={desligarWsl}>
+      <Icone nome="energia" /> {ocupadas.WSL ?? 'Desligar WSL'}
     </button>
   </div>
 </header>
@@ -114,8 +62,13 @@
               {#if d.padrao}<span class="selo">Padrão</span>{/if}
             </th>
             <td>
-              <span class="estado" class:ligada={d.rodando} aria-hidden="true"></span>
-              {ocupada ?? (d.rodando ? 'Em execução' : 'Parada')}
+              <span
+                class="estado"
+                class:ligada={d.rodando && !estado.ociosas.has(d.nome)}
+                class:ociosa={d.rodando && estado.ociosas.has(d.nome)}
+                aria-hidden="true"
+              ></span>
+              {situacao(d)}
             </td>
             <td class="numero">WSL {d.versao}</td>
             <td class="numero">{processos ?? ''}</td>
@@ -140,13 +93,11 @@
       </tbody>
     </table>
     <p class="nota">
-      Enquanto este app estiver aberto, as distros em execução não desligam sozinhas por
-      ociosidade: o agente que lê os processos conta como atividade.
+      O app não segura nenhuma distro ligada. Quando a única sessão aberta numa distro é a
+      do agente que lê os processos, ele sai, e o WSL a desliga no prazo normal de ociosidade.
     </p>
   </div>
 {/if}
-
-<Confirmar bind:pedido />
 
 <style>
   .rolagem {
@@ -212,6 +163,11 @@
 
   .estado.ligada {
     background: var(--ok);
+    opacity: 1;
+  }
+
+  .estado.ociosa {
+    background: rgb(var(--calor));
     opacity: 1;
   }
 

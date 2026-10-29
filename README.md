@@ -1,8 +1,18 @@
 # Gerenciador de WSL
 
-Gerenciador de tarefas para o WSL, no formato do Gerenciador de Tarefas do Windows:
-processos de cada distro com CPU e memória, encerramento por SIGTERM ou SIGKILL,
-gráficos da VM e controle das distros (iniciar, terminar, reiniciar, desligar o WSL).
+Gerenciador de tarefas para o WSL, no formato do Gerenciador de Tarefas do Windows. Ele
+observa e gerencia sem mudar o ciclo de vida das distros: nenhuma fica ligada por causa
+do app.
+
+| Aba | O que tem |
+|---|---|
+| Processos | processos de cada distro com CPU e memória; encerramento por SIGTERM ou SIGKILL |
+| Desempenho | gráficos de CPU e memória da VM; limite de memória com pico medido e sugestão |
+| Portas | sockets em escuta na VM, o processo e a distro de cada um |
+| Atividade | distros que ligaram e desligaram, processos encerrados, falta de memória, configuração |
+| Distros | iniciar, terminar, reiniciar e desligar o WSL |
+
+Ctrl+K abre uma busca única por processo, porta, distro ou ação.
 
 ## Como funciona
 
@@ -14,15 +24,33 @@ conversa com ele por stdin e stdout, uma linha JSON por mensagem.
 |---|---|---|
 | `crates/protocolo` | as duas pontas | tipos das mensagens; o mesmo crate compila para Windows e Linux |
 | `crates/agente` | dentro da distro | binário estático (musl) que lê `/proc` e aplica sinais; recusa o PID 1 |
-| `src-tauri` | Windows | lista distros, instala e supervisiona os agentes, repassa amostras ao front |
-| `src` | WebView2 | SvelteKit em modo SPA: abas Processos, Desempenho e Distros |
+| `src-tauri` | Windows | lista distros, supervisiona os agentes, guarda histórico e atividade, edita o `.wslconfig` |
+| `src` | WebView2 | SvelteKit em modo SPA |
 
 O agente vai para `/tmp/wsl-tm/agente-<hash>` dentro de cada distro, copiado pelo stdin
 do `wsl.exe`. Ele sai quando o stdin fecha, então fechar o app encerra todos os agentes.
+Além dos processos, ele lê as portas em escuta a cada 5 amostras e as mortes por falta de
+memória no `/dev/kmsg`.
 
-Enquanto o app está aberto, as distros em execução não desligam por ociosidade: o agente
-conta como atividade. Com a janela minimizada, as amostras param de ir ao front e os
-agentes passam a ler a cada 5 s.
+**Ociosidade.** O WSL desliga uma distro quando não sobra sessão aberta nela (cada
+`wsl.exe` conectado aparece lá dentro como um `SessionLeader`). Medido no WSL 2.6.1 numa
+Debian com systemd: com `cron`, `dbus` e `journald` rodando, ela desligou 16 s depois que
+a última sessão fechou. O agente roda numa sessão, então sai sozinho quando a dele é a
+única, e o app espera o `instanceIdleTimeout` (padrão 15 s, lido do `.wslconfig`) mais 5 s
+antes de subir outro. Se a distro continua ligada depois disso, algo além do app a segura.
+Toda chamada ao `wsl.exe` tem prazo, porque uma sessão presa também segura a distro.
+
+Não foi medido se um processo solto da sessão (`setsid`) segura uma distro sem systemd: o
+único teste disso coincidiu com o serviço do WSL parando de responder.
+
+Com a janela minimizada, as amostras param de ir ao front e os agentes passam a ler a
+cada 5 s.
+
+**Dados.** Em `%APPDATA%\com.luan.wsltm`: `memoria.csv` (pico de memória usada por
+minuto, 30 dias) e `atividade.jsonl` (últimos 1000 eventos). A sugestão de limite é o pico
+dos últimos 7 dias com 25% de folga, arredondado para cima em GB, e só aparece depois de
+uma hora de dados. Gravar o limite troca só a linha `memory` do `.wslconfig` e guarda a
+versão anterior em `.wslconfig.wsl-tm.bak`.
 
 ## Desenvolvimento
 
@@ -48,10 +76,12 @@ com 162), executável de release:
 
 | Medida | Valor |
 |---|---|
-| Executável | 3,7 MB |
-| Agente | 541 KB, cerca de 0,5 MB de memória, 1 a 20 ms por leitura conforme o número de processos |
-| CPU da árvore do app, janela visível, 1 leitura/s | 3,9% de um núcleo |
+| Executável | 3,8 MB |
+| Agente | cerca de 0,5 MB de memória, 1 a 20 ms por leitura conforme o número de processos |
+| CPU da árvore do app, janela visível, 1 leitura/s | 3,2% a 3,9% de um núcleo |
 | CPU da árvore do app, janela minimizada | 0,2% de um núcleo |
-| Memória privada da árvore do app | 226 MB, quase toda do WebView2 |
+| Memória privada da árvore do app | 226 a 273 MB, quase toda do WebView2 |
+| App aberto, Debian ligada sem sessão | agente saiu 2 s depois; o WSL a desligou 16 s depois disso |
+| App aberto, Debian com uma sessão de 40 s | agente ficou durante a sessão e saiu quando ela fechou; desligou 16 s depois |
 
-Uma medição só, numa máquina; não é dado de campo.
+Medições únicas, numa máquina; não são dado de campo.

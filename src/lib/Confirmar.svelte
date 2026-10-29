@@ -1,34 +1,33 @@
 <script lang="ts">
-  import type { Pedido } from './tipos';
+  import { estado } from './estado.svelte';
 
-  let { pedido = $bindable() }: { pedido: Pedido | null } = $props();
   let dialogo: HTMLDialogElement;
   let cancelar = $state<HTMLButtonElement>();
 
   $effect(() => {
-    if (pedido && !dialogo.open) {
+    if (estado.pedido && !dialogo.open) {
       dialogo.showModal();
       // O foco abre em Cancelar: Enter por engano não encerra nada.
       cancelar?.focus();
-    } else if (!pedido && dialogo.open) {
+    } else if (!estado.pedido && dialogo.open) {
       dialogo.close();
     }
   });
 
   function confirmar() {
-    const p = pedido;
-    pedido = null;
+    const p = estado.pedido;
+    estado.pedido = null;
     p?.executar();
   }
 </script>
 
-<dialog bind:this={dialogo} onclose={() => (pedido = null)} aria-labelledby="confirmar-titulo">
-  {#if pedido}
-    <h2 id="confirmar-titulo">{pedido.titulo}</h2>
-    <p>{pedido.texto}</p>
+<dialog bind:this={dialogo} onclose={() => (estado.pedido = null)} aria-labelledby="confirmar-titulo">
+  {#if estado.pedido}
+    <h2 id="confirmar-titulo">{estado.pedido.titulo}</h2>
+    <p>{estado.pedido.texto}</p>
     <div class="rodape">
-      <button class="botao primario" onclick={confirmar}>{pedido.acao}</button>
-      <button class="botao" bind:this={cancelar} onclick={() => (pedido = null)}>Cancelar</button>
+      <button class="botao primario" onclick={confirmar}>{estado.pedido.acao}</button>
+      <button class="botao" bind:this={cancelar} onclick={() => (estado.pedido = null)}>Cancelar</button>
     </div>
   {/if}
 </dialog>

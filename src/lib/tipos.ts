@@ -1,4 +1,4 @@
-// Espelho de crates/protocolo e de src-tauri/src/wsl.rs.
+// Espelho de crates/protocolo e dos tipos serializados por src-tauri.
 
 export interface Processo {
   pid: number;
@@ -11,6 +11,13 @@ export interface Processo {
   rss: number;
 }
 
+export interface Porta {
+  protocolo: string;
+  endereco: string;
+  porta: number;
+  pid: number | null;
+}
+
 export interface Amostra {
   seq: number;
   uptime_s: number;
@@ -21,6 +28,7 @@ export interface Amostra {
   swap_total: number;
   swap_livre: number;
   processos: Processo[];
+  portas?: Porta[];
   agente: { rss: number; cpu_pct: number; coleta_us: number };
 }
 
@@ -31,6 +39,25 @@ export interface Distro {
   rodando: boolean;
 }
 
+export type TipoEvento = 'distro' | 'processo' | 'memoria' | 'config' | 'wsl';
+
+export interface Evento {
+  quando_ms: number;
+  tipo: TipoEvento;
+  distro: string | null;
+  texto: string;
+  detalhe?: string;
+}
+
+export interface ResumoMemoria {
+  limite_bytes: number;
+  limite_configurado: boolean;
+  ram_host_bytes: number;
+  minutos_de_dados: number;
+  pico_bytes: number;
+  sugestao_bytes: number | null;
+}
+
 /** Pedido de confirmação para ação que encerra processos em massa. */
 export interface Pedido {
   titulo: string;
@@ -38,6 +65,8 @@ export interface Pedido {
   acao: string;
   executar: () => void;
 }
+
+export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;

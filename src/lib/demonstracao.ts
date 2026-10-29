@@ -2,7 +2,18 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { Distro, Processo } from './tipos';
+import type { Distro, Evento, Porta, Processo } from './tipos';
+
+const GIB = 1024 ** 3;
+
+// Porta, nome do processo e distro dona; sem distro, o socket é de outro lugar da VM.
+const PORTAS: [number, string, string | null][] = [
+  [80, 'nginx', 'docker-desktop'],
+  [3000, 'node', 'Ubuntu'],
+  [5432, 'postgres', 'Ubuntu'],
+  [22, 'sshd', 'Ubuntu'],
+  [1434, '', null],
+];
 
 type Modelo = [nome: string, usuario: string, cmdline: string, carga: number, rssMb: number];
 
@@ -67,6 +78,19 @@ export function criarDemonstracao(): Api {
     estado.receberDistros(distros.map((d) => ({ ...d })));
   }
 
+  function registrar(tipo: Evento['tipo'], distro: string | null, texto: string) {
+    estado.receberEvento({ quando_ms: Date.now(), tipo, distro, texto });
+  }
+
+  function portas(distro: string): Porta[] {
+    return PORTAS.map(([porta, nome, dona]) => ({
+      protocolo: 'tcp',
+      endereco: porta === 22 ? '0.0.0.0' : '::',
+      porta,
+      pid: dona === distro ? (processos[distro].find((p) => p.nome === nome)?.pid ?? null) : null,
+    }));
+  }
+
   function tick() {
     uptime += intervalo / 1000;
     seq++;
@@ -87,6 +111,7 @@ export function criarDemonstracao(): Api {
         swap_total: 4 * 1024 ** 3,
         swap_livre: 3.9 * 1024 ** 3,
         processos: lista.map((p) => ({ ...p })),
+        portas: seq % 5 === 1 ? portas(d.nome) : undefined,
         agente: { rss: 512 * 1024, cpu_pct: 0.1, coleta_us: 600 },
       });
     }
@@ -108,6 +133,16 @@ export function criarDemonstracao(): Api {
     return d;
   };
 
+  let limiteGb = 12;
+  const agora = Date.now();
+  const eventosIniciais: Evento[] = [
+    { quando_ms: agora - 3 * 3600_000, tipo: 'distro', distro: 'Ubuntu', texto: 'Ubuntu foi ligada' },
+    { quando_ms: agora - 2 * 3600_000, tipo: 'memoria', distro: null, texto: 'Faltou memória na VM e o kernel encerrou node', detalhe: 'Out of memory: Killed process 48211 (node) total-vm:4120332kB' },
+    { quando_ms: agora - 40 * 60_000, tipo: 'processo', distro: 'Ubuntu', texto: 'O app pediu o encerramento de vim (PID 265)' },
+    { quando_ms: agora - 10 * 60_000, tipo: 'distro', distro: 'Debian', texto: 'Debian ficou sem atividade; o WSL deve desligá-la em cerca de 15 s' },
+    { quando_ms: agora - 9 * 60_000, tipo: 'distro', distro: 'Debian', texto: 'Debian foi desligada' },
+  ];
+
   return {
     listarDistros: async () => distros.map((d) => ({ ...d })),
     iniciarDistro: async (nome) => {
@@ -115,11 +150,13 @@ export function criarDemonstracao(): Api {
       achar(nome).rodando = true;
       ligar(nome);
       publicar();
+      registrar('distro', nome, `${nome} foi ligada`);
     },
     terminarDistro: async (nome) => {
       await esperar(300);
       achar(nome).rodando = false;
       publicar();
+      registrar('distro', nome, `${nome} foi desligada`);
     },
     reiniciarDistro: async (nome) => {
       achar(nome).rodando = false;
@@ -133,14 +170,36 @@ export function criarDemonstracao(): Api {
       await esperar(500);
       for (const d of distros) d.rodando = false;
       publicar();
+      registrar('wsl', null, 'O app desligou o WSL');
     },
-    enviarSinal: async (distro, pid) => {
+    enviarSinal: async (distro, pid, sinal, nome) => {
       if (pid <= 1) throw 'PID 1 é protegido';
       processos[distro] = processos[distro].filter((p) => p.pid !== pid);
+      const como = sinal === 9 ? 'forçou o encerramento de' : 'pediu o encerramento de';
+      registrar('processo', distro, `O app ${como} ${nome} (PID ${pid})`);
     },
     definirIntervalo: async (ms) => {
       intervalo = ms;
       agendar();
+    },
+    listarAtividade: async () => eventosIniciais,
+    resumoMemoria: async () => ({
+      limite_bytes: limiteGb * GIB,
+      limite_configurado: true,
+      ram_host_bytes: 32 * GIB,
+      minutos_de_dados: 3 * 24 * 60,
+      pico_bytes: 7.4 * GIB,
+      sugestao_bytes: 10 * GIB,
+    }),
+    definirLimiteMemoria: async (gb, reiniciar) => {
+      await esperar(400);
+      registrar('config', null, `Limite de memória do WSL: ${limiteGb}GB para ${gb}GB`);
+      limiteGb = gb;
+      if (reiniciar) {
+        for (const d of distros) d.rodando = false;
+        publicar();
+        registrar('wsl', null, 'O app desligou o WSL para aplicar a configuração');
+      }
     },
   };
 }

@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 pub enum Mensagem {
     Amostra(Amostra),
     Resposta { ok: bool, erro: Option<String> },
+    /// A sessão do agente é a única aberta na distro. O agente avisa e sai, para o WSL
+    /// poder desligá-la por ociosidade como faria sem o app.
+    Ocioso,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,6 +39,12 @@ pub struct Amostra {
     pub swap_livre: u64,
     /// Só os processos desta distro: cada uma tem o próprio namespace de PID.
     pub processos: Vec<Processo>,
+    /// Ausente nas amostras em que a varredura de portas não rodou; o app mantém a última.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portas: Option<Vec<Porta>>,
+    /// Linhas do log do kernel lidas desde a amostra anterior que interessam ao usuário.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kernel: Vec<EventoKernel>,
     pub agente: CustoAgente,
 }
 
@@ -50,6 +59,24 @@ pub struct Processo {
     /// Percentual do total de CPUs, como o Gerenciador de Tarefas mostra.
     pub cpu_pct: f32,
     pub rss: u64,
+}
+
+/// Socket em escuta. A rede é uma só para todas as distros, então o mesmo socket aparece
+/// na amostra de cada uma; o `pid` só vem preenchido na distro dona do processo.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Porta {
+    pub protocolo: String,
+    pub endereco: String,
+    pub porta: u16,
+    pub pid: Option<i32>,
+}
+
+/// O log do kernel é um só para a VM: a mesma linha chega pelos agentes de todas as
+/// distros, e o `seq` do kernel é o que permite descartar as repetidas.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EventoKernel {
+    pub seq: u64,
+    pub texto: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

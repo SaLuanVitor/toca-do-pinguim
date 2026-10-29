@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { tick } from 'svelte';
-  import { api } from './api';
+  import { tick, untrack } from 'svelte';
+  import { encerrarProcesso } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import { bytes, pct, rotuloEstado } from './formato';
   import Icone from './Icone.svelte';
   import { SIGKILL, SIGTERM, type Processo } from './tipos';
-
-  let { irPara }: { irPara: (pagina: 'distros') => void } = $props();
 
   type Coluna = 'nome' | 'pid' | 'usuario' | 'estado' | 'cpu_pct' | 'rss' | 'cmdline';
   interface Linha {
@@ -144,13 +142,24 @@
   async function sinal(s: number) {
     const alvo = selecionado;
     menu = null;
-    if (!alvo || alvo.p.pid <= 1) return;
-    try {
-      await api.enviarSinal(alvo.distro, alvo.p.pid, s);
-    } catch (e) {
-      estado.avisar(String(e));
-    }
+    if (alvo) await encerrarProcesso(alvo.distro, alvo.p.pid, alvo.p.nome, s);
   }
+
+  // Seleção pedida pela busca: abre o grupo, limpa o filtro e seleciona quando a linha
+  // existir (a amostra da distro pode ainda não ter chegado).
+  $effect(() => {
+    const f = estado.foco;
+    if (!f) return;
+    untrack(() => {
+      recolhidas[f.distro] = false;
+      busca = '';
+    });
+    const l = linhas.find((x) => x.distro === f.distro && x.p.pid === f.pid);
+    if (l) {
+      estado.foco = null;
+      selecionar(l, true);
+    }
+  });
 
   async function copiar() {
     const alvo = selecionado;
@@ -242,7 +251,7 @@
   <div class="vazio">
     <strong>Nenhuma distro em execução</strong>
     <span>Os processos de uma distro só aparecem com ela ligada.</span>
-    <button class="botao" onclick={() => irPara('distros')}>Ver distros</button>
+    <button class="botao" onclick={() => (estado.pagina = 'distros')}>Ver distros</button>
   </div>
 {:else}
   <div
@@ -290,7 +299,9 @@
                 >
                   <span class="seta" class:aberta={!recolhidas[g.distro]}><Icone nome="chevron" tamanho={12} /></span>
                   {g.distro}
-                  <span class="contagem">({g.conectado ? g.processos.length : 'conectando'})</span>
+                  <span class="contagem">
+                    ({g.conectado ? g.processos.length : estado.ociosas.has(g.distro) ? 'sem atividade, deve desligar' : 'conectando'})
+                  </span>
                 </button>
               </th>
               <td class="numero">{g.conectado ? pct(g.cpu) : ''}</td>

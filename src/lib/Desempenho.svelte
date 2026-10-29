@@ -1,9 +1,37 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { api } from './api';
   import { estado } from './estado.svelte';
   import { bytes, duracao, pct } from './formato';
   import Grafico from './Grafico.svelte';
+  import LimiteMemoria from './LimiteMemoria.svelte';
+  import type { ResumoMemoria } from './tipos';
 
-  let { irPara }: { irPara: (pagina: 'distros') => void } = $props();
+  let resumo = $state<ResumoMemoria | null>(null);
+  let ajustando = $state(false);
+
+  async function atualizarResumo() {
+    try {
+      resumo = await api.resumoMemoria();
+    } catch (e) {
+      estado.avisar(String(e));
+    }
+  }
+
+  // A busca pode pedir o ajuste direto; ele abre assim que o resumo estiver carregado.
+  $effect(() => {
+    if (estado.ajustarLimite && resumo) {
+      estado.ajustarLimite = false;
+      ajustando = true;
+    }
+  });
+
+  // O histórico fecha um ponto por minuto; consultar mais vezes que isso não muda nada.
+  onMount(() => {
+    atualizarResumo();
+    const t = setInterval(atualizarResumo, 60_000);
+    return () => clearInterval(t);
+  });
 
   const vm = $derived(estado.vm);
   const cpu = $derived(estado.historico.map((p) => p.cpu));
@@ -32,7 +60,7 @@
   <div class="vazio">
     <strong>Nenhuma distro em execução</strong>
     <span>A VM do WSL só pode ser medida por dentro de uma distro ligada.</span>
-    <button class="botao" onclick={() => irPara('distros')}>Ver distros</button>
+    <button class="botao" onclick={() => (estado.pagina = 'distros')}>Ver distros</button>
   </div>
 {:else}
   <div class="rolagem">
@@ -68,6 +96,25 @@
         <div><dt>Disponível</dt><dd>{bytes(vm.mem_disponivel)}</dd></div>
         <div><dt>Swap em uso</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
       </dl>
+      {#if resumo}
+        <div class="limite">
+          <dl>
+            <div>
+              <dt>Limite {resumo.limite_configurado ? '(.wslconfig)' : '(padrão do WSL)'}</dt>
+              <dd>{bytes(resumo.limite_bytes)}</dd>
+            </div>
+            <div>
+              <dt>Pico medido</dt>
+              <dd>{resumo.minutos_de_dados ? bytes(resumo.pico_bytes) : 'sem dados ainda'}</dd>
+            </div>
+            <div>
+              <dt>Sugestão</dt>
+              <dd>{resumo.sugestao_bytes !== null ? bytes(resumo.sugestao_bytes) : 'após 1 h de uso'}</dd>
+            </div>
+          </dl>
+          <button class="botao" onclick={() => (ajustando = true)}>Ajustar limite</button>
+        </div>
+      {/if}
     </section>
 
     <section class="cartao largo" aria-labelledby="titulo-distros">
@@ -103,7 +150,21 @@
   </div>
 {/if}
 
+{#if resumo}
+  <LimiteMemoria {resumo} bind:aberto={ajustando} onsalvo={atualizarResumo} />
+{/if}
+
 <style>
+  .limite {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-top: 12px;
+    border-top: 1px solid var(--borda);
+  }
+
   .rolagem {
     flex: 1;
     overflow: auto;

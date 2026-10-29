@@ -5,6 +5,8 @@
     processos: 'M2 3.5h12M2 8h12M2 12.5h12M2 3.5h.01M2 8h.01M2 12.5h.01',
     desempenho: 'M2 13.5h12M3 11l3-4 3 2 4-6',
     distros: 'M3 2.5h10v4H3zM3 9.5h10v4H3zM5 4.5h.01M5 11.5h.01',
+    portas: 'M5.5 2v3.5M10.5 2v3.5M3.5 5.5h9v2.5a4.5 4.5 0 0 1-9 0zM8 12.5V15',
+    atividade: 'M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM8 4.5V8l2.5 1.5',
     busca: 'M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM14 14l-3.5-3.5',
     chevron: 'M6 4l4 4-4 4',
     parar: 'M4 4l8 8M12 4l-8 8',

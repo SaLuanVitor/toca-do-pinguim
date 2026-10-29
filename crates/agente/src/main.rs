@@ -4,6 +4,11 @@
 //! processo, para que o agente nunca segure a distro ligada depois que a janela fecha.
 //!
 //! `--uma-vez` coleta uma amostra e sai, para comparar com a consulta repetida.
+//! `--sair-se-ocioso` encerra o agente quando a sessão dele é a única aberta na distro,
+//! para não ser ele o motivo de ela continuar ligada.
+
+mod kernel;
+mod portas;
 
 use std::collections::HashMap;
 use std::fs;
@@ -16,6 +21,13 @@ use std::time::{Duration, Instant};
 use protocolo::{Amostra, Comando, CustoAgente, Mensagem, Processo};
 
 const CMDLINE_MAX: usize = 512;
+
+/// Varrer os descritores de todos os processos custa mais que o resto da amostra junto.
+const PORTAS_A_CADA: u64 = 5;
+
+/// Amostras seguidas sem atividade antes de sair. Uma só pegaria o instante entre um
+/// processo terminar e o seguinte começar, num script por exemplo.
+const AMOSTRAS_OCIOSAS: u32 = 2;
 
 struct CpuVm {
     ocupado: u64,
@@ -46,6 +58,7 @@ struct Coletor {
     /// chave, cada processo tem o `cmdline` lido uma vez só.
     cmdlines: HashMap<(i32, u64, String), String>,
     anterior_self: Option<u64>,
+    kmsg: Option<kernel::Kmsg>,
     seq: u64,
 }
 
@@ -63,6 +76,7 @@ impl Coletor {
             anterior_proc: HashMap::new(),
             cmdlines: HashMap::new(),
             anterior_self: None,
+            kmsg: kernel::Kmsg::abrir(),
             seq: 0,
         }
     }
@@ -115,6 +129,9 @@ impl Coletor {
             })
             .collect();
 
+        let portas = (self.seq % PORTAS_A_CADA == 0).then(portas::coletar);
+        let kernel = self.kmsg.as_mut().map(kernel::Kmsg::novos).unwrap_or_default();
+
         let (ticks_self, rss_self) = ler_self();
         let cpu_self = match (self.anterior_self, capacidade) {
             (Some(antes), Some(cap)) => (100.0 * ticks_self.saturating_sub(antes) as f64 / cap) as f32,
@@ -138,6 +155,8 @@ impl Coletor {
             swap_total: mem.get("SwapTotal").copied().unwrap_or(0),
             swap_livre: mem.get("SwapFree").copied().unwrap_or(0),
             processos,
+            portas,
+            kernel,
             agente: CustoAgente {
                 rss: rss_self * self.pagina,
                 cpu_pct: cpu_self,
@@ -268,6 +287,23 @@ fn enviar_sinal(pid: i32, sinal: i32) -> Result<(), String> {
     }
 }
 
+/// O WSL desliga uma distro ociosa quando não sobra sessão aberta nela. Medido no WSL 2.6.1
+/// com uma Debian com systemd: com `cron`, `dbus`, `journald` e `udevd` rodando, ela
+/// desligou 16 s depois que a última sessão fechou. Cada `wsl.exe` aberto aparece lá
+/// dentro como um `SessionLeader` filho do init do WSL, e é isso que o agente conta.
+///
+/// A sessão do próprio agente fica de fora: é o `SessionLeader` acima do `Relay` que o
+/// lançou.
+fn sem_outras_sessoes(amostra: &Amostra) -> bool {
+    let eu = std::process::id() as i32;
+    let pai = |pid: i32| amostra.processos.iter().find(|p| p.pid == pid).map(|p| p.ppid);
+    let minha_sessao = pai(eu).and_then(pai);
+    !amostra
+        .processos
+        .iter()
+        .any(|p| p.nome == "SessionLeader" && Some(p.pid) != minha_sessao)
+}
+
 fn escrever(saida: &mut impl Write, msg: &Mensagem) -> io::Result<()> {
     serde_json::to_writer(&mut *saida, msg)?;
     saida.write_all(b"\n")?;
@@ -283,6 +319,7 @@ fn main() {
         .map(Duration::from_millis)
         .unwrap_or(Duration::from_millis(1000));
     let uma_vez = args.iter().any(|a| a == "--uma-vez");
+    let sair_se_ocioso = args.iter().any(|a| a == "--sair-se-ocioso");
 
     let mut coletor = Coletor::novo();
     let mut saida = io::stdout().lock();
@@ -296,10 +333,12 @@ fn main() {
     thread::spawn(move || {
         for linha in io::stdin().lock().lines() {
             let Ok(linha) = linha else { break };
-            if linha.trim().is_empty() {
+            // Escritores .NET costumam abrir o fluxo com BOM; ele não é parte do JSON.
+            let linha = linha.trim_start_matches('\u{feff}').trim();
+            if linha.is_empty() {
                 continue;
             }
-            match serde_json::from_str::<Comando>(&linha) {
+            match serde_json::from_str::<Comando>(linha) {
                 Ok(cmd) => {
                     if tx.send(Some(cmd)).is_err() {
                         return;
@@ -312,8 +351,15 @@ fn main() {
         let _ = tx.send(None);
     });
 
+    let mut ociosas = 0;
     loop {
-        if escrever(&mut saida, &Mensagem::Amostra(coletor.coletar())).is_err() {
+        let amostra = coletor.coletar();
+        ociosas = if sair_se_ocioso && sem_outras_sessoes(&amostra) { ociosas + 1 } else { 0 };
+        if escrever(&mut saida, &Mensagem::Amostra(amostra)).is_err() {
+            return;
+        }
+        if ociosas >= AMOSTRAS_OCIOSAS {
+            let _ = escrever(&mut saida, &Mensagem::Ocioso);
             return;
         }
         let prazo = Instant::now() + intervalo;

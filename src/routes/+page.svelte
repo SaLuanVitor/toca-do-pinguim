@@ -2,18 +2,23 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { api, conectar, dentroDoApp } from '$lib/api';
+  import Atividade from '$lib/Atividade.svelte';
+  import Confirmar from '$lib/Confirmar.svelte';
   import Desempenho from '$lib/Desempenho.svelte';
   import Distros from '$lib/Distros.svelte';
   import { estado } from '$lib/estado.svelte';
   import Icone from '$lib/Icone.svelte';
+  import Paleta from '$lib/Paleta.svelte';
+  import Portas from '$lib/Portas.svelte';
   import Processos from '$lib/Processos.svelte';
+  import type { Pagina } from '$lib/tipos';
 
-  type Pagina = 'processos' | 'desempenho' | 'distros';
-
-  const PAGINAS: { id: Pagina; titulo: string; icone: 'processos' | 'desempenho' | 'distros' }[] = [
-    { id: 'processos', titulo: 'Processos', icone: 'processos' },
-    { id: 'desempenho', titulo: 'Desempenho', icone: 'desempenho' },
-    { id: 'distros', titulo: 'Distros', icone: 'distros' },
+  const PAGINAS: { id: Pagina; titulo: string }[] = [
+    { id: 'processos', titulo: 'Processos' },
+    { id: 'desempenho', titulo: 'Desempenho' },
+    { id: 'portas', titulo: 'Portas' },
+    { id: 'atividade', titulo: 'Atividade' },
+    { id: 'distros', titulo: 'Distros' },
   ];
 
   const VELOCIDADES = [
@@ -22,12 +27,14 @@
     { ms: 4000, rotulo: 'Baixa (4 s)' },
   ];
 
-  let pagina = $state<Pagina>('processos');
   let expandido = $state(true);
   let pronto = $state(false);
 
-  function irPara(p: Pagina) {
-    pagina = p;
+  function atalho(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      estado.paletaAberta = true;
+    }
   }
 
   async function mudarVelocidade(ms: number) {
@@ -50,6 +57,8 @@
   <title>Gerenciador de WSL</title>
 </svelte:head>
 
+<svelte:window onkeydown={atalho} />
+
 <div class="janela" class:expandido>
   <nav aria-label="Seções">
     <button
@@ -60,14 +69,19 @@
     >
       <Icone nome="menu" />
     </button>
+    <button class="item busca" title={expandido ? undefined : 'Buscar (Ctrl+K)'} onclick={() => (estado.paletaAberta = true)}>
+      <Icone nome="busca" />
+      <span class="rotulo">Buscar</span>
+      <kbd class="rotulo">Ctrl+K</kbd>
+    </button>
     {#each PAGINAS as p (p.id)}
       <button
         class="item"
-        aria-current={pagina === p.id ? 'page' : undefined}
+        aria-current={estado.pagina === p.id ? 'page' : undefined}
         title={expandido ? undefined : p.titulo}
-        onclick={() => (pagina = p.id)}
+        onclick={() => (estado.pagina = p.id)}
       >
-        <Icone nome={p.icone} />
+        <Icone nome={p.id} />
         <span class="rotulo">{p.titulo}</span>
       </button>
     {/each}
@@ -88,15 +102,22 @@
       </p>
     {/if}
     {#if pronto}
-      {#if pagina === 'processos'}
-        <Processos {irPara} />
-      {:else if pagina === 'desempenho'}
-        <Desempenho {irPara} />
+      {#if estado.pagina === 'processos'}
+        <Processos />
+      {:else if estado.pagina === 'desempenho'}
+        <Desempenho />
+      {:else if estado.pagina === 'portas'}
+        <Portas />
+      {:else if estado.pagina === 'atividade'}
+        <Atividade />
       {:else}
         <Distros />
       {/if}
     {/if}
   </main>
+
+  <Confirmar />
+  <Paleta />
 
   <div class="avisos" role="log" aria-live="polite">
     {#each estado.avisos as a (a.id)}
@@ -156,6 +177,18 @@
 
   .item:hover {
     background: var(--hover);
+  }
+
+  .item.busca {
+    margin-bottom: 6px;
+    border: 1px solid var(--borda);
+  }
+
+  .item.busca kbd {
+    margin-left: auto;
+    color: var(--texto-2);
+    font: inherit;
+    font-size: 11px;
   }
 
   .item[aria-current='page'] {

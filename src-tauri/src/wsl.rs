@@ -4,16 +4,52 @@
 //! `wsl.exe` piscaria uma janela preta na tela.
 
 use std::os::windows::process::CommandExt;
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+pub const PRAZO: Duration = Duration::from_secs(30);
+/// Desligar a VM espera todas as distros terminarem.
+const PRAZO_DESLIGAR: Duration = Duration::from_secs(90);
+
 pub fn wsl() -> Command {
     let mut c = Command::new("wsl.exe");
     c.creation_flags(CREATE_NO_WINDOW);
     c
+}
+
+/// Um `wsl.exe` preso é uma sessão aberta, e sessão aberta segura a distro ligada: foi
+/// assim que uma distro de teste ficou de pé 69 s em vez de 15. Toda chamada tem prazo e
+/// é encerrada quando ele vence. A saída é lida só no fim, o que serve às respostas
+/// curtas do `wsl.exe`; quem transmite muito (o agente) não passa por aqui.
+pub fn esperar(mut filho: Child, prazo: Duration) -> Result<Output, String> {
+    let fim = Instant::now() + prazo;
+    loop {
+        match filho.try_wait() {
+            Ok(Some(_)) => return filho.wait_with_output().map_err(|e| e.to_string()),
+            Ok(None) if Instant::now() < fim => thread::sleep(Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = filho.kill();
+                let _ = filho.wait();
+                return Err(format!("wsl.exe não respondeu em {} s", prazo.as_secs()));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+pub fn com_prazo(comando: &mut Command, prazo: Duration) -> Result<Output, String> {
+    let filho = comando
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("wsl.exe: {e}"))?;
+    esperar(filho, prazo)
 }
 
 /// Parte dos verbos do `wsl.exe` responde em UTF-16, mesmo com o console em UTF-8.
@@ -31,7 +67,11 @@ pub fn decodificar(bytes: &[u8]) -> String {
 }
 
 fn executar(args: &[&str]) -> Result<String, String> {
-    let saida = wsl().args(args).output().map_err(|e| format!("wsl.exe: {e}"))?;
+    executar_com_prazo(args, PRAZO)
+}
+
+fn executar_com_prazo(args: &[&str], prazo: Duration) -> Result<String, String> {
+    let saida = com_prazo(wsl().args(args), prazo)?;
     let stdout = decodificar(&saida.stdout);
     if saida.status.success() {
         Ok(stdout)
@@ -94,5 +134,5 @@ pub fn terminar(nome: &str) -> Result<(), String> {
 }
 
 pub fn desligar() -> Result<(), String> {
-    executar(&["--shutdown"]).map(|_| ())
+    executar_com_prazo(&["--shutdown"], PRAZO_DESLIGAR).map(|_| ())
 }

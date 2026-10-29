@@ -1,4 +1,4 @@
-import type { Amostra, Distro } from './tipos';
+import type { Amostra, Distro, Evento, ResumoMemoria } from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
 
@@ -8,8 +8,11 @@ export interface Api {
   terminarDistro(nome: string): Promise<void>;
   reiniciarDistro(nome: string): Promise<void>;
   desligarWsl(): Promise<void>;
-  enviarSinal(distro: string, pid: number, sinal: number): Promise<void>;
+  enviarSinal(distro: string, pid: number, sinal: number, nome: string): Promise<void>;
   definirIntervalo(ms: number): Promise<void>;
+  listarAtividade(): Promise<Evento[]>;
+  resumoMemoria(): Promise<ResumoMemoria>;
+  definirLimiteMemoria(gb: number, reiniciar: boolean): Promise<void>;
 }
 
 export const dentroDoApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -28,6 +31,8 @@ async function conectarTauri(): Promise<Api> {
     if (!e.payload.ok) estado.avisar(`${e.payload.distro}: ${e.payload.erro}`);
   });
   await listen<string>('agente_parou', (e) => estado.agenteParou(e.payload));
+  await listen<string>('distro_ociosa', (e) => estado.distroOciosa(e.payload));
+  await listen<Evento>('atividade', (e) => estado.receberEvento(e.payload));
   await listen<{ distro: string | null; mensagem: string }>('erro', (e) =>
     estado.avisar(e.payload.distro ? `${e.payload.distro}: ${e.payload.mensagem}` : e.payload.mensagem),
   );
@@ -38,8 +43,11 @@ async function conectarTauri(): Promise<Api> {
     terminarDistro: (nome) => invoke('terminar_distro', { nome }),
     reiniciarDistro: (nome) => invoke('reiniciar_distro', { nome }),
     desligarWsl: () => invoke('desligar_wsl'),
-    enviarSinal: (distro, pid, sinal) => invoke('enviar_sinal', { distro, pid, sinal }),
+    enviarSinal: (distro, pid, sinal, nome) => invoke('enviar_sinal', { distro, pid, sinal, nome }),
     definirIntervalo: (ms) => invoke('definir_intervalo', { ms }),
+    listarAtividade: () => invoke('listar_atividade'),
+    resumoMemoria: () => invoke('resumo_memoria'),
+    definirLimiteMemoria: (gb, reiniciar) => invoke('definir_limite_memoria', { gb, reiniciar }),
   };
 }
 
@@ -50,6 +58,7 @@ export async function conectar() {
   estado.demonstracao = !dentroDoApp;
   try {
     estado.receberDistros(await api.listarDistros());
+    estado.receberEventos(await api.listarAtividade());
   } catch (e) {
     estado.avisar(String(e));
   }
