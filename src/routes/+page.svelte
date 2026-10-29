@@ -1,20 +1,20 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
-  import { api, conectar, dentroDoApp } from '$lib/api';
-  import Atividade from '$lib/Atividade.svelte';
-  import AvisoAtualizacao from '$lib/AvisoAtualizacao.svelte';
-  import Configuracoes from '$lib/Configuracoes.svelte';
-  import Confirmar from '$lib/Confirmar.svelte';
-  import Desempenho from '$lib/Desempenho.svelte';
-  import Distros from '$lib/Distros.svelte';
-  import Log from '$lib/Log.svelte';
-  import { estado } from '$lib/estado.svelte';
-  import Icone from '$lib/Icone.svelte';
-  import Paleta from '$lib/Paleta.svelte';
-  import Portas from '$lib/Portas.svelte';
-  import Processos from '$lib/Processos.svelte';
-  import type { Pagina } from '$lib/tipos';
+  import { api, conectar, dentroDoApp } from '#lib/api.js';
+  import Atividade from '#lib/Atividade.svelte';
+  import AvisoAtualizacao from '#lib/AvisoAtualizacao.svelte';
+  import Configuracoes from '#lib/Configuracoes.svelte';
+  import Confirmar from '#lib/Confirmar.svelte';
+  import Desempenho from '#lib/Desempenho.svelte';
+  import Distros from '#lib/Distros.svelte';
+  import Log from '#lib/Log.svelte';
+  import { estado } from '#lib/estado.svelte.js';
+  import Icone from '#lib/Icone.svelte';
+  import Paleta from '#lib/Paleta.svelte';
+  import Portas from '#lib/Portas.svelte';
+  import Processos from '#lib/Processos.svelte';
+  import type { Pagina } from '#lib/tipos.js';
 
   const PAGINAS: { id: Pagina; titulo: string }[] = [
     { id: 'processos', titulo: 'Processos' },

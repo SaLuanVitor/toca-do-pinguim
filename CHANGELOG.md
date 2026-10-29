@@ -17,6 +17,10 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   licenças, crates e origem) para o app no alvo Windows e o agente no Linux, `npm audit`,
   `gitleaks` no histórico e revisão das dependências novas em PR. Workflow **CodeQL** para
   Rust, TypeScript e os próprios workflows.
+- SvelteKit 3 e `@sveltejs/adapter-static` 4, que fecham os alertas de gravidade baixa do
+  SvelteKit (redirecionamento, XSS e cookie). Nenhum deles alcançava o app, que é estático e
+  não tem servidor. Fica o alerta do `deepmerge`, sem versão corrigida: ele só roda no build,
+  para juntar a configuração do próprio projeto.
 - O Dependabot só alerta, na aba Security: não abre PR. Toda mudança entra por commit e PR
   de quem mantém o projeto.
 
