@@ -1,7 +1,7 @@
 [package]
 name = "toca-do-pinguim"
-version = "0.1.0"
-license = "MIT"
+version.workspace = true
+license.workspace = true
 description = "Gerenciador de tarefas do WSL"
 edition = "2024"
 

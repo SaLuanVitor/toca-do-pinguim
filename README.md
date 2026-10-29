@@ -16,10 +16,12 @@ Ctrl+K abre uma busca única por processo, porta, distro ou ação.
 
 ## Instalar
 
-O instalador para Windows 10 e 11 fica em
-[Releases](https://github.com/SaLuanVitor/toca-do-pinguim/releases). Ele ainda não tem
-assinatura digital, então o SmartScreen avisa na primeira execução: "Mais informações" e
-depois "Executar assim mesmo".
+Cada versão em [Releases](https://github.com/SaLuanVitor/toca-do-pinguim/releases) traz o
+instalador (`_x64-setup.exe`), uma versão portátil (`_x64-portable.zip`) e o
+`SHA256SUMS.txt` para conferir o download. Requer Windows 10 ou 11 x64 com WSL 2. Ainda
+não há assinatura digital, então o SmartScreen avisa na primeira execução: "Mais
+informações" e depois "Executar assim mesmo". O que mudou em cada versão está no
+[CHANGELOG](CHANGELOG.md).
 
 ## Como funciona
 
@@ -77,6 +79,21 @@ antes do app, porque o binário dele é embutido no executável.
 
 Aberto num navegador comum (`npm run dev`), o front roda em modo demonstração, com
 dados simulados e um aviso na tela.
+
+## Publicar uma versão
+
+A versão mora no `package.json`. O `tauri.conf.json` lê de lá, e o
+`scripts/sincronizar-versao.mjs` copia o número para o `Cargo.toml` e o `Cargo.lock`.
+
+1. Em `CHANGELOG.md`, mova o que está em "Não lançado" para uma seção nova da versão e faça
+   o commit; o `npm version` recusa árvore com mudança pendente.
+2. Rode `npm version patch`, `minor` ou `major`. O comando sincroniza a versão nos arquivos
+   do Rust, faz o commit `chore: versão X.Y.Z` e cria a tag `vX.Y.Z`.
+3. Envie o commit e a tag: `git push --follow-tags`.
+4. O workflow Publicar confere se a tag bate com a versão, gera os pacotes e abre uma release
+   em rascunho com as notas do CHANGELOG. Revise e publique pela página de Releases.
+
+Rodar o Publicar à mão, pela aba Actions, gera os mesmos pacotes como artefato, sem release.
 
 ## Medido em 2026-10-28
 

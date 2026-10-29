@@ -1,15 +1,17 @@
 name: Publicar
 
-# Uma tag v* gera o instalador e abre uma release em rascunho com ele anexado.
+# Uma tag v* gera os pacotes e abre uma release em rascunho com eles e as notas do
+# CHANGELOG.md. Rodado à mão, sem tag, só gera os pacotes como artefato, para conferir.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  instalador:
+  windows-x64:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -22,11 +24,31 @@ jobs:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Conferir versão
+        run: node scripts/sincronizar-versao.mjs --conferir ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      - run: npm run tauri build
+      - name: Montar pacotes
+        shell: pwsh
+        run: |
+          $versao = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $base = "toca-do-pinguim_${versao}_x64"
+          New-Item -ItemType Directory dist | Out-Null
+          $instalador = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Copy-Item $instalador.FullName "dist/$base-setup.exe"
+          Compress-Archive -Path target/release/toca-do-pinguim.exe, LICENSE -DestinationPath "dist/$base-portable.zip"
+          $somas = Get-ChildItem dist | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLower(), $_.Name }
+          $somas | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Toca do Pinguim ${{ github.ref_name }}
-          releaseBody: Instalador para Windows 10 e 11. Ainda sem assinatura digital, então o SmartScreen avisa na primeira execução.
-          releaseDraft: true
+          name: pacotes-windows-x64
+          path: dist/
+      - name: Abrir release em rascunho
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/notas-da-versao.mjs ${{ github.ref_name }} | Set-Content -Encoding utf8 notas.md
+          gh release create ${{ github.ref_name }} (Get-ChildItem dist).FullName --draft --verify-tag `
+            --title "Toca do Pinguim ${{ github.ref_name }}" --notes-file notas.md
