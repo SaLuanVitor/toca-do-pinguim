@@ -124,6 +124,12 @@ select {
   border-color: transparent;
 }
 
+.botao[aria-pressed='true'] {
+  background: var(--selecionado);
+  border-color: var(--destaque);
+  color: var(--destaque);
+}
+
 .barra {
   display: flex;
   align-items: center;

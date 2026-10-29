@@ -1,23 +1,42 @@
 <script lang="ts">
   import { encerrarProcesso } from './acoes.svelte';
+  import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado, type PortaVista } from './estado.svelte';
   import Icone from './Icone.svelte';
+  import { comparar, Ordenacao } from './ordenacao.svelte';
   import { SIGTERM } from './tipos';
+
+  type Coluna = 'porta' | 'protocolo' | 'escuta' | 'nome' | 'pid' | 'distro';
+  const ordem = new Ordenacao<Coluna>('portas', 'porta', () => true);
 
   const algumaRodando = $derived(estado.distros.some((d) => d.rodando));
 
+  function valor(p: PortaVista, c: Coluna): unknown {
+    switch (c) {
+      case 'escuta': return escuta(p.endereco);
+      case 'protocolo': return p.protocolo.toUpperCase();
+      default: return p[c];
+    }
+  }
+
   const portas = $derived.by(() => {
     const termo = estado.buscaPortas.trim().toLowerCase();
-    return estado.portas
-      .filter(
-        (p) =>
-          !termo ||
-          String(p.porta).startsWith(termo) ||
-          (p.nome ?? '').toLowerCase().includes(termo) ||
-          (p.distro ?? '').toLowerCase().includes(termo),
-      )
-      .sort((a, b) => a.porta - b.porta || a.protocolo.localeCompare(b.protocolo));
+    const filtradas = estado.portas.filter(
+      (p) =>
+        !termo ||
+        String(p.porta).startsWith(termo) ||
+        (p.nome ?? '').toLowerCase().includes(termo) ||
+        (p.distro ?? '').toLowerCase().includes(termo),
+    );
+    return ordem.ordenar(filtradas, valor, (a, b) => a.porta - b.porta || comparar(a.protocolo, b.protocolo) || comparar(a.endereco, b.endereco));
   });
+
+  function teclaBusca(e: KeyboardEvent) {
+    if (e.key === 'Escape' && estado.buscaPortas) {
+      e.preventDefault();
+      estado.buscaPortas = '';
+    }
+  }
 
   function escuta(endereco: string): string {
     if (endereco === '0.0.0.0' || endereco === '::') return 'Todas as interfaces';
@@ -37,7 +56,13 @@
   <label class="busca">
     <Icone nome="busca" />
     <span class="visualmente-oculto">Filtrar portas</span>
-    <input type="search" placeholder="Porta, processo ou distro" bind:value={estado.buscaPortas} />
+    <input
+      type="search"
+      placeholder="Porta, processo ou distro"
+      bind:value={estado.buscaPortas}
+      onkeydown={teclaBusca}
+      data-filtro
+    />
   </label>
 </header>
 
@@ -56,12 +81,12 @@
     <table aria-label="Portas em escuta na VM do WSL">
       <thead>
         <tr>
-          <th scope="col" class="numero">Porta</th>
-          <th scope="col">Protocolo</th>
-          <th scope="col">Escuta em</th>
-          <th scope="col">Processo</th>
-          <th scope="col" class="numero">PID</th>
-          <th scope="col">Distro</th>
+          <ColunaOrdenavel {ordem} coluna="porta" titulo="Porta" numerica />
+          <ColunaOrdenavel {ordem} coluna="protocolo" titulo="Protocolo" />
+          <ColunaOrdenavel {ordem} coluna="escuta" titulo="Escuta em" />
+          <ColunaOrdenavel {ordem} coluna="nome" titulo="Processo" />
+          <ColunaOrdenavel {ordem} coluna="pid" titulo="PID" numerica />
+          <ColunaOrdenavel {ordem} coluna="distro" titulo="Distro" />
           <th scope="col"><span class="visualmente-oculto">Ações</span></th>
         </tr>
       </thead>
@@ -84,6 +109,7 @@
                 <button
                   class="botao sutil"
                   disabled={pid <= 1}
+                  title={pid <= 1 ? "O init da distro só se encerra terminando a distro" : undefined}
                   onclick={() => encerrarProcesso(distro, pid, p.nome ?? `PID ${pid}`, SIGTERM)}
                   aria-label="Encerrar {p.nome ?? 'processo'} na porta {p.porta}"
                 >
@@ -145,7 +171,7 @@
     font-size: 13px;
   }
 
-  th,
+  table :global(th),
   td {
     height: 38px;
     padding: 0 10px;
@@ -154,14 +180,14 @@
     white-space: nowrap;
   }
 
-  thead th {
+  thead :global(th) {
     height: 36px;
     color: var(--texto-2);
     font-weight: 400;
     font-size: 12px;
   }
 
-  th.numero,
+  table :global(th.numero),
   td.numero {
     text-align: right;
     font-variant-numeric: tabular-nums;

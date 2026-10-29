@@ -1,12 +1,15 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { encerrarProcesso } from './acoes.svelte';
+  import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
   import { bytes, pct, rotuloEstado } from './formato';
   import Icone from './Icone.svelte';
+  import { comparar, Ordenacao } from './ordenacao.svelte';
+  import { lerPreferencia, salvarPreferencia } from './preferencias';
   import { SIGKILL, SIGTERM, type Processo } from './tipos';
 
-  type Coluna = 'nome' | 'pid' | 'usuario' | 'estado' | 'cpu_pct' | 'rss' | 'cmdline';
+  type Coluna = 'nome' | 'distro' | 'pid' | 'usuario' | 'estado' | 'cpu_pct' | 'rss' | 'cmdline';
   interface Linha {
     distro: string;
     p: Processo;
@@ -25,35 +28,81 @@
   const ALTURA_LINHA = 30;
   const ALTURA_CABECALHO = 52;
   const MARGEM = 8;
+  const DECIMO_DE_MB = 104_857.6;
 
-  const COLUNAS: { id: Coluna; titulo: string; numerica?: boolean }[] = [
-    { id: 'nome', titulo: 'Nome' },
-    { id: 'pid', titulo: 'PID', numerica: true },
-    { id: 'usuario', titulo: 'Usuário' },
-    { id: 'estado', titulo: 'Status' },
-    { id: 'cpu_pct', titulo: 'CPU', numerica: true },
-    { id: 'rss', titulo: 'Memória', numerica: true },
-    { id: 'cmdline', titulo: 'Linha de comando' },
-  ];
+  const ordem = new Ordenacao<Coluna>('processos', 'cpu_pct', (c) => c !== 'cpu_pct' && c !== 'rss');
+  let agrupar = $state(lerPreferencia('processos.agrupar', true));
+  let recolhidas = $state<Record<string, boolean>>(lerPreferencia('processos.recolhidas', {}));
 
   let busca = $state('');
-  let coluna = $state<Coluna>('cpu_pct');
-  let crescente = $state(false);
-  let recolhidas = $state<Record<string, boolean>>({});
   let selecao = $state<{ distro: string; pid: number } | null>(null);
   let menu = $state<{ x: number; y: number } | null>(null);
   let menuEl = $state<HTMLDivElement>();
   let rolagemEl = $state<HTMLDivElement>();
   let topo = $state(0);
   let alturaVisivel = $state(600);
+  let ponteiroNaLista = $state(false);
+  let focoNaLista = $state(false);
 
-  function comparar(a: Processo, b: Processo): number {
-    const va = a[coluna];
-    const vb = b[coluna];
-    const r = typeof va === 'number' && typeof vb === 'number'
-      ? va - vb
-      : String(va).localeCompare(String(vb), 'pt-BR', { sensitivity: 'base' });
-    return (crescente ? r : -r) || a.pid - b.pid;
+  /**
+   * Enquanto o ponteiro ou o foco estão nas linhas, a ordem não muda: os valores seguem
+   * atualizando, mas a linha não sai de baixo do clique nem da seta do teclado.
+   * Processos novos entram no fim até a lista voltar a ordenar.
+   */
+  const congelada = $derived(ponteiroNaLista || focoNaLista);
+
+  /**
+   * Fora disso, as posições se rearranjam a cada 3 amostras, e os valores, a cada uma.
+   * Medido com carga real (CI na docker-desktop), ordenar a cada amostra trocava cerca de
+   * 25 linhas de lugar por segundo, quase todas as visíveis.
+   */
+  const AMOSTRAS_POR_REORDENACAO = 3;
+  let ultimaOrdem = { assinatura: '', posicoes: new Map<string, number>(), quando: 0 };
+
+  const colunas = $derived<{ id: Coluna; titulo: string; numerica?: boolean; classe: string }[]>([
+    { id: 'nome', titulo: 'Nome', classe: 'c-nome' },
+    ...(agrupar ? [] : [{ id: 'distro' as Coluna, titulo: 'Distro', classe: 'c-distro' }]),
+    { id: 'pid', titulo: 'PID', numerica: true, classe: 'c-pid' },
+    { id: 'usuario', titulo: 'Usuário', classe: 'c-usuario' },
+    { id: 'estado', titulo: 'Status', classe: 'c-estado' },
+    { id: 'cpu_pct', titulo: 'CPU', numerica: true, classe: 'c-cpu' },
+    { id: 'rss', titulo: 'Memória', numerica: true, classe: 'c-rss' },
+    { id: 'cmdline', titulo: 'Linha de comando', classe: 'c-cmd' },
+  ]);
+
+  /**
+   * O valor ordenado é o que a tela mostra: 0,04% e 0,05% aparecem os dois como "0,0%" e,
+   * comparados crus, trocariam de lugar a cada amostra.
+   */
+  function valor(l: Linha, c: Coluna): unknown {
+    const p = l.p;
+    switch (c) {
+      case 'cpu_pct': return Math.round(p.cpu_pct * 10);
+      case 'rss': return Math.round(p.rss / DECIMO_DE_MB);
+      case 'estado': return rotuloEstado(p.estado);
+      case 'distro': return l.distro;
+      default: return p[c];
+    }
+  }
+
+  function desempate(a: Linha, b: Linha): number {
+    return comparar(a.p.nome, b.p.nome) || comparar(a.distro, b.distro) || a.p.pid - b.p.pid;
+  }
+
+  /** Grupos seguem a coluna quando ela tem total (CPU, memória) ou é o nome. */
+  function valorGrupo(g: Grupo, c: Coluna): unknown {
+    if (c === 'cpu_pct') return Math.round(g.cpu * 10);
+    if (c === 'rss') return Math.round(g.mem / DECIMO_DE_MB);
+    if (c === 'nome' || c === 'distro') return g.distro;
+    return null;
+  }
+
+  function chave(l: Linha) {
+    return `${l.distro}:${l.p.pid}`;
+  }
+
+  function chaveVisual(v: Visual) {
+    return v.tipo === 'grupo' ? `grupo:${v.g.distro}` : chave(v.l);
   }
 
   const grupos = $derived.by((): Grupo[] => {
@@ -63,32 +112,74 @@
       .map((d) => {
         const amostra = estado.amostras[d.nome];
         const todos = amostra?.processos ?? [];
-        const processos = (termo
-          ? todos.filter(
-              (p) =>
-                p.nome.toLowerCase().includes(termo) ||
-                String(p.pid) === termo ||
-                p.usuario.toLowerCase().includes(termo) ||
-                p.cmdline.toLowerCase().includes(termo),
-            )
-          : [...todos]
-        ).sort(comparar);
         return {
           distro: d.nome,
           conectado: !!amostra,
-          processos,
+          processos: termo
+            ? todos.filter(
+                (p) =>
+                  p.nome.toLowerCase().includes(termo) ||
+                  String(p.pid) === termo ||
+                  p.usuario.toLowerCase().includes(termo) ||
+                  p.cmdline.toLowerCase().includes(termo),
+              )
+            : todos,
           cpu: todos.reduce((s, p) => s + p.cpu_pct, 0),
           mem: todos.reduce((s, p) => s + p.rss, 0),
         };
       });
   });
 
-  const visuais = $derived<Visual[]>(
-    grupos.flatMap((g): Visual[] => [
-      { tipo: 'grupo', g },
-      ...(recolhidas[g.distro] ? [] : g.processos.map((p): Visual => ({ tipo: 'proc', l: { distro: g.distro, p } }))),
-    ]),
-  );
+  // Mudar coluna, direção, agrupamento ou filtro é pedido explícito: reordena mesmo com
+  // a lista congelada.
+  const assinatura = $derived(`${ordem.coluna}|${ordem.crescente}|${agrupar}|${busca}`);
+
+  function ordenarCom<T>(
+    lista: T[],
+    valorDe: (t: T, c: Coluna) => unknown,
+    desempateDe: (a: T, b: T) => number,
+    chaveDe: (t: T) => string,
+    manter: boolean,
+  ): T[] {
+    if (!manter) return ordem.ordenar(lista, valorDe, desempateDe);
+    const pos = ultimaOrdem.posicoes;
+    const conhecidas = lista.filter((t) => pos.has(chaveDe(t))).sort((a, b) => pos.get(chaveDe(a))! - pos.get(chaveDe(b))!);
+    const novas = ordem.ordenar(lista.filter((t) => !pos.has(chaveDe(t))), valorDe, desempateDe);
+    return [...conhecidas, ...novas];
+  }
+
+  const montagem = $derived.by(() => {
+    // `Date.now()` não é reativo: quem dispara o recálculo é a amostra nova; o relógio só
+    // decide se esta é a vez de rearranjar.
+    const recente = Date.now() - ultimaOrdem.quando < AMOSTRAS_POR_REORDENACAO * estado.intervalo;
+    const manter = (congelada || recente) && ultimaOrdem.assinatura === assinatura;
+    const ordenarLinhas = (ls: Linha[]) => ordenarCom(ls, valor, desempate, chave, manter);
+    let visuais: Visual[];
+    if (!agrupar) {
+      const todas = grupos.flatMap((g) => g.processos.map((p) => ({ distro: g.distro, p })));
+      visuais = ordenarLinhas(todas).map((l): Visual => ({ tipo: 'proc', l }));
+    } else {
+      const desempateGrupo = (a: Grupo, b: Grupo) => comparar(a.distro, b.distro);
+      visuais = ordenarCom(grupos, valorGrupo, desempateGrupo, (g) => `grupo:${g.distro}`, manter).flatMap((g): Visual[] => [
+        { tipo: 'grupo', g },
+        ...(recolhidas[g.distro]
+          ? []
+          : ordenarLinhas(g.processos.map((p) => ({ distro: g.distro, p }))).map((l): Visual => ({ tipo: 'proc', l }))),
+      ]);
+    }
+    return { visuais, rearranjou: !manter };
+  });
+
+  const visuais = $derived(montagem.visuais);
+
+  $effect(() => {
+    const { visuais, rearranjou } = montagem;
+    ultimaOrdem = {
+      assinatura,
+      posicoes: new Map(visuais.map((v, i) => [chaveVisual(v), i])),
+      quando: rearranjou ? Date.now() : ultimaOrdem.quando,
+    };
+  });
 
   const linhas = $derived(visuais.flatMap((v) => (v.tipo === 'proc' ? [v.l] : [])));
 
@@ -104,17 +195,18 @@
   const vm = $derived(estado.vm);
   const memVm = $derived(vm && vm.mem_total ? (1 - vm.mem_disponivel / vm.mem_total) * 100 : 0);
   const protegido = $derived(!selecionado || selecionado.p.pid <= 1);
+  const motivoBloqueio = $derived(
+    !selecionado ? 'Selecione um processo na lista' : selecionado.p.pid <= 1 ? 'O init da distro só se encerra terminando a distro' : '',
+  );
 
-  function ordenar(c: Coluna) {
-    if (coluna === c) crescente = !crescente;
-    else {
-      coluna = c;
-      crescente = c !== 'cpu_pct' && c !== 'rss';
-    }
+  function alternarAgrupar() {
+    agrupar = !agrupar;
+    salvarPreferencia('processos.agrupar', agrupar);
   }
 
-  function chave(l: Linha) {
-    return `${l.distro}:${l.p.pid}`;
+  function alternarGrupo(distro: string) {
+    recolhidas[distro] = !recolhidas[distro];
+    salvarPreferencia('processos.recolhidas', $state.snapshot(recolhidas));
   }
 
   /** Rola até a linha antes de focar: fora da área visível ela não existe no DOM. */
@@ -151,7 +243,7 @@
     const f = estado.foco;
     if (!f) return;
     untrack(() => {
-      recolhidas[f.distro] = false;
+      if (recolhidas[f.distro]) alternarGrupo(f.distro);
       busca = '';
     });
     const l = linhas.find((x) => x.distro === f.distro && x.p.pid === f.pid);
@@ -222,6 +314,13 @@
     }
   }
 
+  function teclaBusca(e: KeyboardEvent) {
+    if (e.key === 'Escape' && busca) {
+      e.preventDefault();
+      busca = '';
+    }
+  }
+
   function calor(fracao: number): string {
     if (fracao <= 0.002) return '';
     return `background-color: rgba(var(--calor), ${(0.12 + Math.min(1, fracao) * 0.55).toFixed(3)})`;
@@ -235,16 +334,28 @@
   <label class="busca">
     <Icone nome="busca" />
     <span class="visualmente-oculto">Filtrar processos</span>
-    <input type="search" placeholder="Nome, PID, usuário ou comando" bind:value={busca} />
+    <input
+      type="search"
+      placeholder="Nome, PID, usuário ou comando"
+      bind:value={busca}
+      onkeydown={teclaBusca}
+      data-filtro
+    />
   </label>
   <div class="acoes">
-    <button class="botao" disabled={protegido} onclick={() => sinal(SIGTERM)} title="Envia SIGTERM (Delete)">
+    <button class="botao" aria-pressed={agrupar} onclick={alternarAgrupar} title="Mostrar os processos separados por distro ou numa lista só">
+      Agrupar por distro
+    </button>
+    <button class="botao" disabled={protegido} onclick={() => sinal(SIGTERM)} title={motivoBloqueio || 'Envia SIGTERM (Delete)'}>
       <Icone nome="parar" /> Finalizar tarefa
     </button>
-    <button class="botao perigo" disabled={protegido} onclick={() => sinal(SIGKILL)} title="Envia SIGKILL (Shift+Delete)">
+    <button class="botao perigo" disabled={protegido} onclick={() => sinal(SIGKILL)} title={motivoBloqueio || 'Envia SIGKILL (Shift+Delete)'}>
       Forçar encerramento
     </button>
   </div>
+  {#if congelada && grupos.length}
+    <p class="pausa">Ordem pausada enquanto o ponteiro ou o foco estão na lista</p>
+  {/if}
 </header>
 
 {#if grupos.length === 0}
@@ -262,41 +373,42 @@
   >
     <!-- As teclas chegam por borbulhamento das linhas, que são as focáveis. -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <table aria-label="Processos por distro" aria-rowcount={visuais.length + 1} onkeydown={teclaTabela}>
+    <table
+      aria-label={agrupar ? 'Processos por distro' : 'Processos de todas as distros'}
+      aria-rowcount={visuais.length + 1}
+      onkeydown={teclaTabela}
+    >
       <thead>
         <tr aria-rowindex={1}>
-          {#each COLUNAS as c (c.id)}
-            <th
-              scope="col"
-              class:numero={c.numerica}
-              class:cmd={c.id === 'cmdline'}
-              aria-sort={coluna === c.id ? (crescente ? 'ascending' : 'descending') : 'none'}
-            >
-              <button onclick={() => ordenar(c.id)}>
-                {#if c.id === 'cpu_pct' && vm}
-                  <span class="total">{pct(vm.cpu_vm_pct)}</span>
-                {:else if c.id === 'rss' && vm}
-                  <span class="total">{pct(memVm)}</span>
-                {/if}
-                <span class="titulo">{c.titulo}</span>
-              </button>
-            </th>
+          {#each colunas as c (c.id)}
+            <ColunaOrdenavel
+              {ordem}
+              coluna={c.id}
+              titulo={c.titulo}
+              numerica={c.numerica}
+              classe={c.classe}
+              total={vm && c.id === 'cpu_pct' ? pct(vm.cpu_vm_pct) : vm && c.id === 'rss' ? pct(memVm) : c.numerica ? '' : undefined}
+            />
           {/each}
         </tr>
       </thead>
-      <tbody>
+      <tbody
+        onpointerenter={() => (ponteiroNaLista = true)}
+        onpointerleave={() => (ponteiroNaLista = false)}
+        onfocusin={() => (focoNaLista = true)}
+        onfocusout={(e) => (focoNaLista = e.currentTarget.contains(e.relatedTarget as Node))}
+      >
         {#if inicio > 0}
-          <tr class="espaco" aria-hidden="true" style:height="{inicio * ALTURA_LINHA}px"><td colspan="7"></td></tr>
+          <tr class="espaco" aria-hidden="true" style:height="{inicio * ALTURA_LINHA}px">
+            <td colspan={colunas.length}></td>
+          </tr>
         {/if}
-        {#each visuais.slice(inicio, fim) as v, k (v.tipo === 'grupo' ? `grupo:${v.g.distro}` : chave(v.l))}
+        {#each visuais.slice(inicio, fim) as v, k (chaveVisual(v))}
           {#if v.tipo === 'grupo'}
             {@const g = v.g}
             <tr class="grupo" aria-rowindex={inicio + k + 2}>
               <th scope="row" colspan="4">
-                <button
-                  aria-expanded={!recolhidas[g.distro]}
-                  onclick={() => (recolhidas[g.distro] = !recolhidas[g.distro])}
-                >
+                <button aria-expanded={!recolhidas[g.distro]} onclick={() => alternarGrupo(g.distro)}>
                   <span class="seta" class:aberta={!recolhidas[g.distro]}><Icone nome="chevron" tamanho={12} /></span>
                   {g.distro}
                   <span class="contagem">
@@ -305,7 +417,9 @@
                 </button>
               </th>
               <td class="numero">{g.conectado ? pct(g.cpu) : ''}</td>
-              <td class="numero" title="Soma do RSS dos processos: memória compartilhada entra uma vez por processo">{g.conectado ? bytes(g.mem) : ''}</td>
+              <td class="numero" title="Soma do RSS dos processos: memória compartilhada entra uma vez por processo">
+                {g.conectado ? bytes(g.mem) : ''}
+              </td>
               <td></td>
             </tr>
           {:else}
@@ -326,7 +440,8 @@
                 abrirMenu(e.clientX, e.clientY);
               }}
             >
-              <td class="nome">{p.nome}</td>
+              <td class="nome" class:recuo={agrupar}>{p.nome}</td>
+              {#if !agrupar}<td class="distro">{l.distro}</td>{/if}
               <td class="numero">{p.pid}</td>
               <td>{p.usuario}</td>
               <td class="status">{rotuloEstado(p.estado)}</td>
@@ -338,7 +453,7 @@
         {/each}
         {#if fim < visuais.length}
           <tr class="espaco" aria-hidden="true" style:height="{(visuais.length - fim) * ALTURA_LINHA}px">
-            <td colspan="7"></td>
+            <td colspan={colunas.length}></td>
           </tr>
         {/if}
       </tbody>
@@ -401,6 +516,13 @@
     color: var(--texto);
   }
 
+  .pausa {
+    flex-basis: 100%;
+    margin: -4px 0 0;
+    color: var(--texto-2);
+    font-size: 12px;
+  }
+
   .rolagem {
     flex: 1;
     overflow: auto;
@@ -414,10 +536,10 @@
     table-layout: fixed;
   }
 
-  th,
+  table :global(th),
   td {
-    padding: 0 10px;
     height: 30px;
+    padding: 0 10px;
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -425,7 +547,7 @@
     border-left: 1px solid var(--borda);
   }
 
-  th:first-child,
+  table :global(th:first-child),
   td:first-child {
     border-left: 0;
   }
@@ -440,7 +562,7 @@
     border: 0;
   }
 
-  thead th {
+  thead :global(th) {
     position: sticky;
     top: 0;
     z-index: 1;
@@ -452,50 +574,21 @@
     border-bottom: 1px solid var(--borda);
   }
 
-  :global(:root.mica) thead th {
+  :global(:root.mica) thead :global(th) {
     background: color-mix(in srgb, var(--fundo) 92%, transparent);
   }
 
-  thead th:nth-child(1) { width: 22%; }
-  thead th:nth-child(2) { width: 72px; }
-  thead th:nth-child(3) { width: 96px; }
-  thead th:nth-child(4) { width: 112px; }
-  thead th:nth-child(5) { width: 80px; }
-  thead th:nth-child(6) { width: 104px; }
+  thead :global(th.c-nome) { width: 22%; }
+  thead :global(th.c-distro) { width: 120px; }
+  thead :global(th.c-pid) { width: 72px; }
+  thead :global(th.c-usuario) { width: 96px; }
+  thead :global(th.c-estado) { width: 120px; }
+  thead :global(th.c-cpu) { width: 80px; }
+  thead :global(th.c-rss) { width: 104px; }
 
-  thead button {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    width: 100%;
-    height: 100%;
-    padding: 6px 10px;
-    border: 0;
-    background: transparent;
-    text-align: inherit;
-    align-items: flex-start;
+  thead :global(th button) {
+    height: 52px;
   }
-
-  thead th.numero button {
-    align-items: flex-end;
-  }
-
-  thead button:hover {
-    background: var(--hover);
-  }
-
-  .total {
-    font-size: 16px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .titulo {
-    color: var(--texto-2);
-    font-size: 12px;
-  }
-
-  [aria-sort='ascending'] .titulo::after { content: ' ▲'; font-size: 9px; }
-  [aria-sort='descending'] .titulo::after { content: ' ▼'; font-size: 9px; }
 
   tr.grupo th {
     padding: 0;
@@ -533,12 +626,13 @@
     font-weight: 400;
   }
 
-  td.nome {
+  td.nome.recuo {
     padding-left: 28px;
   }
 
   td.status,
-  td.cmd {
+  td.cmd,
+  td.distro {
     color: var(--texto-2);
   }
 

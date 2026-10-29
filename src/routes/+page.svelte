@@ -31,9 +31,19 @@
   let pronto = $state(false);
 
   function atalho(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const tecla = e.key.toLowerCase();
+    if (tecla === 'k') {
       e.preventDefault();
       estado.paletaAberta = true;
+    } else if (tecla === 'f') {
+      // Na aba com filtro, Ctrl+F vai para ele em vez da busca de texto do WebView.
+      const filtro = document.querySelector<HTMLInputElement>('main [data-filtro]');
+      if (filtro) {
+        e.preventDefault();
+        filtro.focus();
+        filtro.select();
+      }
     }
   }
 

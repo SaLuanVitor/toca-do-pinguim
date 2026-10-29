@@ -1,11 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from './api';
+  import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
   import { bytes, duracao, pct } from './formato';
   import Grafico from './Grafico.svelte';
   import LimiteMemoria from './LimiteMemoria.svelte';
+  import { comparar, Ordenacao } from './ordenacao.svelte';
   import type { ResumoMemoria } from './tipos';
+
+  type Coluna = 'nome' | 'processos' | 'cpu' | 'mem' | 'agenteRss' | 'coleta';
+  const ordem = new Ordenacao<Coluna>('por-distro', 'nome', (c) => c === 'nome');
 
   let resumo = $state<ResumoMemoria | null>(null);
   let ajustando = $state(false);
@@ -39,15 +44,18 @@
   const memUsada = $derived(vm ? vm.mem_total - vm.mem_disponivel : 0);
   const swapUsada = $derived(vm ? vm.swap_total - vm.swap_livre : 0);
   const porDistro = $derived(
-    Object.entries(estado.amostras)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([nome, a]) => ({
+    ordem.ordenar(
+      Object.entries(estado.amostras).map(([nome, a]) => ({
         nome,
         processos: a.processos.length,
         cpu: a.processos.reduce((s, p) => s + p.cpu_pct, 0),
         mem: a.processos.reduce((s, p) => s + p.rss, 0),
         agente: a.agente,
       })),
+      (d, c) =>
+        c === 'cpu' ? Math.round(d.cpu * 10) : c === 'agenteRss' ? d.agente.rss : c === 'coleta' ? d.agente.coleta_us : d[c],
+      (a, b) => comparar(a.nome, b.nome),
+    ),
   );
   const totalProcessos = $derived(porDistro.reduce((s, d) => s + d.processos, 0));
 </script>
@@ -125,12 +133,12 @@
       <table>
         <thead>
           <tr>
-            <th scope="col">Distro</th>
-            <th scope="col" class="numero">Processos</th>
-            <th scope="col" class="numero">CPU</th>
-            <th scope="col" class="numero">Memória (soma do RSS)</th>
-            <th scope="col" class="numero">Agente: memória</th>
-            <th scope="col" class="numero">Agente: leitura</th>
+            <ColunaOrdenavel {ordem} coluna="nome" titulo="Distro" />
+            <ColunaOrdenavel {ordem} coluna="processos" titulo="Processos" numerica />
+            <ColunaOrdenavel {ordem} coluna="cpu" titulo="CPU" numerica />
+            <ColunaOrdenavel {ordem} coluna="mem" titulo="Memória (soma do RSS)" numerica />
+            <ColunaOrdenavel {ordem} coluna="agenteRss" titulo="Agente: memória" numerica />
+            <ColunaOrdenavel {ordem} coluna="coleta" titulo="Agente: leitura" numerica />
           </tr>
         </thead>
         <tbody>
@@ -236,7 +244,7 @@
     font-size: 13px;
   }
 
-  th,
+  table :global(th),
   td {
     height: 30px;
     padding: 0 10px;
@@ -244,7 +252,7 @@
     border-bottom: 1px solid var(--borda);
   }
 
-  thead th {
+  thead :global(th) {
     color: var(--texto-2);
     font-weight: 400;
     font-size: 12px;
@@ -254,7 +262,7 @@
     font-weight: 600;
   }
 
-  th.numero,
+  table :global(th.numero),
   td.numero {
     text-align: right;
   }
