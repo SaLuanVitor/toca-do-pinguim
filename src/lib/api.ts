@@ -19,6 +19,8 @@ export interface Api {
   lerLog(linhas: number): Promise<string[]>;
   lerWslconfig(): Promise<ConteudoWslconfig>;
   gravarWslconfig(mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
+  lerWslconf(distro: string): Promise<ConteudoWslconfig>;
+  gravarWslconf(distro: string, mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   abrirPastaDeLogs(): Promise<void>;
 }
 
@@ -61,6 +63,8 @@ async function conectarTauri(): Promise<Api> {
     lerLog: (linhas) => invoke('ler_log', { linhas }),
     lerWslconfig: () => invoke('ler_wslconfig'),
     gravarWslconfig: (mudancas, reiniciar) => invoke('gravar_wslconfig', { mudancas, reiniciar }),
+    lerWslconf: (distro) => invoke('ler_wslconf', { distro }),
+    gravarWslconf: (distro, mudancas, reiniciar) => invoke('gravar_wslconf', { distro, mudancas, reiniciar }),
     abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
   };
 }

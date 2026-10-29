@@ -2,10 +2,10 @@
 // (versão de 16/10/2026). Padrão e descrição seguem a documentação; o app não muda
 // nenhum padrão, só grava a chave quando a pessoa escolhe um valor.
 
-export type TipoChave = 'bool' | 'tamanho' | 'numero' | 'texto' | 'caminho' | 'escolha';
+export type TipoChave = 'bool' | 'tamanho' | 'numero' | 'texto' | 'caminho' | 'caminhoLinux' | 'escolha';
 
 export interface Chave {
-  secao: 'wsl2' | 'experimental' | 'general';
+  secao: string;
   chave: string;
   grupo: string;
   tipo: TipoChave;
@@ -100,6 +100,8 @@ export function validar(c: Chave, v: string): string | null {
       return /^-?\d+$/.test(t) ? null : 'Use um número inteiro.';
     case 'caminho':
       return /^([A-Za-z]:\\|\\\\)/.test(t) ? null :'Use um caminho completo do Windows, como D:\\WSL\\swap.vhdx.';
+    case 'caminhoLinux':
+      return t.startsWith('/') ? null : 'Use um caminho absoluto do Linux, como /mnt/.';
     case 'escolha':
       return c.opcoes?.includes(t) ? null : `Use uma destas opções: ${c.opcoes?.join(', ')}.`;
     case 'bool':

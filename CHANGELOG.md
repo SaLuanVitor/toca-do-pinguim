@@ -13,6 +13,11 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   e volta ao padrão. Valores são conferidos antes de gravar, caminhos vão com as barras
   invertidas dobradas que o WSL pede, e chaves que o app não conhece aparecem e são
   mantidas. Salva só no arquivo ou salva e reinicia o WSL, com confirmação.
+- Na mesma página, o seletor "Aplicar a" escolhe uma distro e edita o `/etc/wsl.conf` dela:
+  as 19 chaves documentadas (systemd, comando ao ligar, usuário padrão, montagem dos discos do
+  Windows, programas do Windows, rede, GPU e fuso). Ler o arquivo de uma distro desligada a
+  liga, por isso só acontece com "Ligar e ler". Ao gravar, a versão anterior fica em
+  `/etc/wsl.conf.toca-do-pinguim.bak`; "Salvar e reiniciar" termina só aquela distro.
 
 ## [0.3.0] - 2026-10-29
 

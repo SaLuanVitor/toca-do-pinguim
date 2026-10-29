@@ -21,12 +21,23 @@ pub struct WslConfig {
 
 impl WslConfig {
     pub fn ler() -> Self {
-        let texto = fs::read_to_string(caminho()).unwrap_or_default();
+        Self::de_texto(&fs::read_to_string(caminho()).unwrap_or_default())
+    }
+
+    /// O mesmo formato serve ao `/etc/wsl.conf` de cada distro, lido pelo `wsl.exe`.
+    pub fn de_texto(texto: &str) -> Self {
         let texto = texto.trim_start_matches('\u{feff}');
         WslConfig {
             crlf: texto.contains("\r\n"),
             linhas: texto.lines().map(str::to_string).collect(),
         }
+    }
+
+    pub fn texto(&self) -> String {
+        let quebra = if self.crlf { "\r\n" } else { "\n" };
+        let mut texto = self.linhas.join(quebra);
+        texto.push_str(quebra);
+        texto
     }
 
     pub fn obter(&self, secao: &str, chave: &str) -> Option<String> {
@@ -118,11 +129,8 @@ impl WslConfig {
         if destino.exists() {
             fs::copy(&destino, destino.with_file_name(".wslconfig.toca-do-pinguim.bak"))?;
         }
-        let quebra = if self.crlf { "\r\n" } else { "\n" };
-        let mut texto = self.linhas.join(quebra);
-        texto.push_str(quebra);
         let temporario = destino.with_file_name(".wslconfig.toca-do-pinguim.tmp");
-        fs::write(&temporario, texto)?;
+        fs::write(&temporario, self.texto())?;
         fs::rename(&temporario, &destino)
     }
 

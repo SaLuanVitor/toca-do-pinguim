@@ -140,6 +140,12 @@ export function criarDemonstracao(): Api {
     ['experimental', 'sparseVhd', 'true'],
     ['wsl2', 'algoQueOAppNaoConhece', '1'],
   ];
+  const wslconf: Record<string, [string, string, string][]> = {
+    Ubuntu: [
+      ['boot', 'systemd', 'true'],
+      ['user', 'default', 'luan'],
+    ],
+  };
   const agora = Date.now();
   const eventosIniciais: Evento[] = [
     { quando_ms: agora - 3 * 3600_000, tipo: 'distro', distro: 'Ubuntu', texto: 'Ubuntu foi ligada' },
@@ -243,6 +249,31 @@ export function criarDemonstracao(): Api {
       registrar('config', null, `.wslconfig: ${mudancas.map((m) => `${m.chave} para ${m.valor ?? 'padrão'}`).join('; ')}`);
       if (reiniciar) {
         for (const d of distros) d.rodando = false;
+        publicar();
+      }
+    },
+    lerWslconf: async (nome) => {
+      const d = achar(nome);
+      await esperar(300);
+      d.rodando = true;
+      publicar();
+      const valores = wslconf[nome] ?? [];
+      return { caminho: `${nome}:/etc/wsl.conf`, existe: valores.length > 0, valores: valores.map((v) => [...v] as [string, string, string]) };
+    },
+    gravarWslconf: async (nome, mudancas, reiniciar) => {
+      const d = achar(nome);
+      await esperar(400);
+      const valores = (wslconf[nome] ??= []);
+      for (const m of mudancas) {
+        const i = valores.findIndex(([s, k]) => s === m.secao && k.toLowerCase() === m.chave.toLowerCase());
+        if (m.valor === null) {
+          if (i >= 0) valores.splice(i, 1);
+        } else if (i >= 0) valores[i][2] = m.valor;
+        else valores.push([m.secao, m.chave, m.valor]);
+      }
+      registrar('config', nome, `wsl.conf de ${nome}: ${mudancas.map((m) => `${m.chave} para ${m.valor ?? 'padrão'}`).join('; ')}`);
+      if (reiniciar) {
+        d.rodando = false;
         publicar();
       }
     },
