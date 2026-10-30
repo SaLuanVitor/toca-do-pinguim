@@ -5,6 +5,24 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.8.0] - 2026-10-29
+
+### Adicionado
+
+- **Devolver cache agora**, em Desempenho: esvazia o cache da VM e mostra quanto voltou para o
+  Windows 15 s e 2 min depois, também registrado na Atividade. Medido numa máquina com Docker e
+  CI rodando: de 10,0 GB para 7,8 GB em 15 s, e 7,6 GB 2 min depois.
+- Opção em Configurações > Este app para devolver o cache sozinho quando o Windows fica abaixo
+  de 10% de memória livre, no máximo uma vez a cada 10 minutos. Vem desligada.
+- Quando o cache passa do uso real e o teto da VM passa da sugestão, Desempenho mostra em
+  destaque quanto a VM devolveria com o limite sugerido, com o botão de ajustar.
+
+### Alterado
+
+- O cache da VM aparece em três partes: tabelas de arquivos percorridos, blocos de disco e
+  arquivos lidos. Numa máquina medida, a maior delas eram as tabelas, e não o conteúdo de
+  arquivos, como o rótulo único "cache de arquivos" dava a entender.
+
 ## [0.7.0] - 2026-10-29
 
 ### Adicionado
@@ -160,7 +178,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.7.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...v0.5.1

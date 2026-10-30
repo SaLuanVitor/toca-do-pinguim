@@ -39,6 +39,15 @@ pub struct Amostra {
     /// descarta quando precisa, mas que até lá a VM segura no Windows.
     #[serde(default)]
     pub mem_livre: u64,
+    /// As três partes do que o kernel descarta quando precisa: blocos do disco
+    /// (`Buffers`), conteúdo de arquivos lidos (`Cached` sem a memória compartilhada, que
+    /// não é descartável) e as tabelas de arquivos percorridos (`SReclaimable`).
+    #[serde(default)]
+    pub mem_blocos: u64,
+    #[serde(default)]
+    pub mem_arquivos: u64,
+    #[serde(default)]
+    pub mem_tabelas: u64,
     pub swap_total: u64,
     pub swap_livre: u64,
     /// Só os processos desta distro: cada uma tem o próprio namespace de PID.

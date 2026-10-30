@@ -1,5 +1,5 @@
 import { lerPreferencia, salvarPreferencia } from './preferencias';
-import type { Amostra, Distro, Docker, Evento, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
+import type { Amostra, Devolucao, Distro, Docker, Evento, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
 
 const PONTOS_HISTORICO = 60;
 const EVENTOS_NA_TELA = 500;
@@ -33,6 +33,8 @@ class Estado {
   docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null });
   /** Queda em curso do WSL, ou null quando ele responde. */
   saude = $state.raw<SituacaoWsl | null>(null);
+  devolucao = $state.raw<Devolucao | null>(null);
+  devolverCacheAutomatico = $state(false);
   /** Processos com sinal de estar presos, por distro e PID. */
   suspeitos = $state.raw<Record<string, Map<number, Suspeito>>>({});
   /** Distros cujo agente saiu por ociosidade e que o WSL deve desligar em seguida. */

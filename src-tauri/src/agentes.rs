@@ -161,6 +161,11 @@ impl Agentes {
         self.ligadas.lock().unwrap().contains(distro)
     }
 
+    /// Uma distro ligada qualquer, para comandos que valem para a VM inteira.
+    pub fn uma_ligada(&self) -> Option<String> {
+        self.ligadas.lock().unwrap().iter().min().cloned()
+    }
+
     pub fn pausar(&self, sim: bool) {
         if self.pausado.swap(sim, Ordering::Relaxed) == sim {
             return;
@@ -275,7 +280,9 @@ impl Agentes {
                 Ok(Mensagem::Amostra(amostra)) => {
                     self.historico.lock().unwrap().registrar(&amostra);
                     // A VM é uma só: qualquer distro serve para medir o cache dela.
-                    self.cache_vm.store(amostra.mem_disponivel.saturating_sub(amostra.mem_livre), Ordering::Relaxed);
+                    let partes = amostra.mem_blocos + amostra.mem_arquivos + amostra.mem_tabelas;
+                    let cache = if partes > 0 { partes } else { amostra.mem_disponivel.saturating_sub(amostra.mem_livre) };
+                    self.cache_vm.store(cache, Ordering::Relaxed);
                     self.vigiar_travados(&app, &distro, &amostra);
                     if !amostra.kernel.is_empty() {
                         let mut atividade = self.atividade.lock().unwrap();

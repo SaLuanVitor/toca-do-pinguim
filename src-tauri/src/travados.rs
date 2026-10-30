@@ -129,6 +129,9 @@ mod testes {
             mem_total: 0,
             mem_disponivel: 0,
             mem_livre: 0,
+            mem_blocos: 0,
+            mem_arquivos: 0,
+            mem_tabelas: 0,
             swap_total: 0,
             swap_livre: 0,
             processos: processos

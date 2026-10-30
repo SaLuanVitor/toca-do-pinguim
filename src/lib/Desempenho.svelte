@@ -9,7 +9,7 @@
   import LimiteMemoria from './LimiteMemoria.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
   import ProjetosDocker from './ProjetosDocker.svelte';
-  import type { ResumoMemoria } from './tipos';
+  import type { Devolucao, ResumoMemoria } from './tipos';
 
   type Coluna = 'nome' | 'processos' | 'cpu' | 'mem' | 'agenteRss' | 'coleta';
   const ordem = new Ordenacao<Coluna>('por-distro', 'nome', (c) => c === 'nome');
@@ -45,7 +45,43 @@
   const mem = $derived(estado.historico.map((p) => p.mem));
   const memUsada = $derived(vm ? vm.mem_total - vm.mem_disponivel : 0);
   const swapUsada = $derived(vm ? vm.swap_total - vm.swap_livre : 0);
-  const cache = $derived(vm ? Math.max(0, vm.mem_disponivel - vm.mem_livre) : 0);
+  // Agente antigo não manda as três partes; aí o cache sai da diferença entre disponível e livre.
+  const partes = $derived(vm ? vm.mem_blocos + vm.mem_arquivos + vm.mem_tabelas : 0);
+  const cache = $derived(vm ? (partes > 0 ? partes : Math.max(0, vm.mem_disponivel - vm.mem_livre)) : 0);
+  const programas = $derived(vm ? (partes > 0 ? Math.max(0, vm.mem_total - vm.mem_livre - partes) : memUsada) : 0);
+  // O que passa da sugestão no teto da VM vira cache, que o Windows paga.
+  const sobra = $derived(
+    resumo && resumo.sugestao_bytes !== null && resumo.limite_bytes > resumo.sugestao_bytes && cache > programas
+      ? resumo.limite_bytes - resumo.sugestao_bytes
+      : 0,
+  );
+  const devolucao = $derived(estado.devolucao);
+  // O esvaziamento leva alguns segundos antes de o backend avisar que começou.
+  let pedindo = $state(false);
+  const devolvendo = $derived(pedindo || (!!devolucao && !devolucao.concluida));
+  const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  function resultado(d: Devolucao): string {
+    if (!d.concluida) {
+      return d.logo_bytes === null
+        ? `Devolvendo: a VM tinha ${bytes(d.antes_bytes)} na RAM do Windows. O resultado sai em 2 min.`
+        : `15 s depois: de ${bytes(d.antes_bytes)} para ${bytes(d.logo_bytes)}. O resultado final sai em 2 min.`;
+    }
+    const depois = d.depois_bytes ?? d.antes_bytes;
+    const quem = d.automatica ? 'Devolvido sozinho' : 'Devolvido';
+    return `${quem} às ${hora.format(d.quando_ms)}: de ${bytes(d.antes_bytes)} para ${bytes(d.logo_bytes ?? depois)} em 15 s; 2 min depois, ${bytes(depois)}, ${bytes(Math.max(0, d.antes_bytes - depois))} a menos que antes.`;
+  }
+
+  async function devolver() {
+    pedindo = true;
+    try {
+      await api.devolverCache();
+    } catch (e) {
+      estado.avisar(String(e));
+    } finally {
+      pedindo = false;
+    }
+  }
   const windows = $derived(estado.memoriaWindows);
   const usadaWindows = $derived(windows ? windows.total_bytes - windows.disponivel_bytes : 0);
   const porDistro = $derived(
@@ -105,8 +141,8 @@
         />
       </div>
       <dl>
-        <div><dt>Programas e kernel</dt><dd>{bytes(memUsada)}</dd></div>
-        <div><dt>Cache de arquivos</dt><dd>{bytes(cache)}</dd></div>
+        <div><dt>Programas e kernel</dt><dd>{bytes(programas)}</dd></div>
+        <div><dt>Cache descartável</dt><dd>{bytes(cache)}</dd></div>
         {#if windows?.wsl_bytes != null}
           <div><dt>Na RAM do Windows</dt><dd>{bytes(windows.wsl_bytes)}</dd></div>
         {/if}
@@ -149,17 +185,43 @@
         />
         <BarraMemoria
           titulo="Dentro da VM do WSL: {bytes(vm.mem_total)}"
-          partes={[
-            { rotulo: 'Programas e kernel', bytes: memUsada, cor: 'var(--mem)' },
-            { rotulo: 'Cache de arquivos', bytes: cache, cor: 'rgb(var(--calor))' },
-            { rotulo: 'Livre', bytes: vm.mem_livre, cor: 'var(--borda-forte)' },
-          ]}
+          partes={partes > 0
+            ? [
+                { rotulo: 'Programas e kernel', bytes: programas, cor: 'var(--mem)' },
+                { rotulo: 'Tabelas de arquivos', bytes: vm.mem_tabelas, cor: 'rgb(var(--calor))' },
+                { rotulo: 'Blocos de disco', bytes: vm.mem_blocos, cor: 'rgba(var(--calor), 0.65)' },
+                { rotulo: 'Arquivos lidos', bytes: vm.mem_arquivos, cor: 'rgba(var(--calor), 0.4)' },
+                { rotulo: 'Livre', bytes: vm.mem_livre, cor: 'var(--borda-forte)' },
+              ]
+            : [
+                { rotulo: 'Programas e kernel', bytes: programas, cor: 'var(--mem)' },
+                { rotulo: 'Cache descartável', bytes: cache, cor: 'rgb(var(--calor))' },
+                { rotulo: 'Livre', bytes: vm.mem_livre, cor: 'var(--borda-forte)' },
+              ]}
         />
         <p class="nota">
-          O cache guarda arquivos lidos, e o Linux o descarta quando um programa precisa de memória; até lá, o Windows o conta
-          como ocupado pela VM. Para a VM ocupar menos no Windows, baixe o limite de memória dela ou pare os containers que não
-          estiver usando.
+          O Linux guarda o que leu do disco: as tabelas com o nome e o tamanho de cada arquivo percorrido, os blocos do disco e o
+          conteúdo dos arquivos. Tudo isso ele descarta quando um programa precisa de memória, mas dentro da VM quase nunca
+          falta, e até lá o Windows conta como ocupado.
         </p>
+        {#if sobra > 0 && resumo?.sugestao_bytes}
+          <div class="sugestao" role="note">
+            <p>
+              <strong>O teto da VM é {bytes(resumo.limite_bytes)}, e o uso real chegou a {bytes(resumo.pico_bytes)}.</strong>
+              O que sobra do teto vira cache. Com {bytes(resumo.sugestao_bytes)}, a VM devolve até {bytes(sobra)} ao Windows de vez.
+              O novo limite vale no próximo início do WSL, ou na hora, se você reiniciar.
+            </p>
+            <button class="botao primario" onclick={() => (ajustando = true)}>Ajustar limite</button>
+          </div>
+        {/if}
+        <div class="devolver">
+          <button class="botao" onclick={devolver} disabled={devolvendo}>{devolvendo ? 'Devolvendo' : 'Devolver cache agora'}</button>
+          <span role="status">
+            {devolucao
+              ? resultado(devolucao)
+              : 'Esvazia o cache da VM e mede o efeito 15 s e 2 min depois. Se algo continuar lendo muitos arquivos, parte dele volta.'}
+          </span>
+        </div>
       </section>
     {/if}
 
@@ -203,6 +265,39 @@
 {/if}
 
 <style>
+  .sugestao {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border: 1px solid var(--borda);
+    border-left: 3px solid var(--destaque);
+    border-radius: var(--raio);
+    background: var(--selecionado);
+    font-size: 13px;
+  }
+
+  .sugestao p {
+    flex: 1;
+    min-width: 240px;
+    margin: 0;
+  }
+
+  .devolver {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: var(--texto-2);
+    font-size: 12px;
+  }
+
+  .devolver span {
+    flex: 1;
+    min-width: 240px;
+  }
+
   .nota {
     margin: 0;
     color: var(--texto-2);
