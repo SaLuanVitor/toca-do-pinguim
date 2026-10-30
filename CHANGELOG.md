@@ -24,6 +24,10 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   aparecer. Agora a espera zera nesses dois casos.
 - O aviso diz o que acontece de fato: o WSL não está abrindo sessões novas, o que já está
   rodando continua, e o app não consegue ler as distros.
+- Ligar ou reiniciar uma distro pelo app levava cerca de 19 s para ela aparecer com dados quando
+  ela estava sem atividade: o app esperava o prazo de ociosidade do WSL mais 5 s antes de subir o
+  agente, para não segurá-la ligada. Quando é você quem liga, essa espera não vale mais; medido,
+  0,8 s.
 
 ## [0.10.0] - 2026-10-30
 

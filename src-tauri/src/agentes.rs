@@ -214,6 +214,14 @@ impl Agentes {
         self.falhas.lock().unwrap().clear();
     }
 
+    /// Quem ligou a distro pelo app vai usá-la: a espera de ociosidade e a de falhas não valem,
+    /// e o agente sobe na hora. Medido: sem isto, a distro ligada pelo app levava 18,9 s para
+    /// aparecer com dados, presa nos 15 s de ociosidade do WSL mais a margem.
+    pub fn acordar(&self, distro: &str) {
+        self.ociosas.lock().unwrap().remove(distro);
+        self.falhas.lock().unwrap().remove(distro);
+    }
+
     pub fn segurar(&self, sim: bool) {
         self.segurando.store(sim, Ordering::SeqCst);
     }

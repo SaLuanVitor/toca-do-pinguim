@@ -71,6 +71,7 @@ async fn iniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: String)
     bloqueante(move || {
         info!("pedido: iniciar {nome}");
         wsl::iniciar(&nome)?;
+        agentes.acordar(&nome);
         agentes.garantir(&app, &nome);
         Ok(())
     })
