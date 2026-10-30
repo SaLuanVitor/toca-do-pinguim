@@ -5,7 +5,38 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Aba **Disco**: o tamanho de cada disco virtual no Windows, quanto está ocupado dentro
+  e quanto é espaço vazio que o disco não devolveu, incluindo o disco de dados do Docker
+  Desktop e um disco antigo dele que tenha ficado para trás. O Docker aparece por categoria
+  (imagens, containers, volumes, cache de build) com o quanto cada uma libera, e cada limpeza
+  pede confirmação: containers parados vêm por padrão só os que não pertencem a um projeto do
+  Compose, e volumes sem uso são escolhidos um a um. A análise de uma distro, a pedido, mostra
+  as pastas maiores, as entradas do `/tmp` com a data e os caches conhecidos; o que um
+  container ligado monta fica bloqueado. Limpeza semanal opcional, desligada por padrão.
+- Limite de processadores da VM, na aba Processador: grava `processors` no `.wslconfig`, para o
+  próximo início ou com reinício.
+- Devolução automática do cache de arquivos com dois gatilhos ajustáveis, na aba Memória: RAM
+  livre do Windows abaixo de uma porcentagem (10% por padrão) ou cache da VM acima de um
+  tamanho.
+
+### Mudado
+
+- A aba Desempenho virou duas, **Processador** e **Memória**, e cada uma só mostra o que é
+  dela: o teto de RAM e a devolução do cache ficam em Memória, o limite de processadores em
+  Processador, e a tabela por distro foi dividida entre as duas. Espaço em disco fica na aba
+  Disco. O aviso de RAM acabando aparece só na aba Memória, e a entrada dela no menu ganha um
+  sinal enquanto ele estiver ativo.
+- A devolução automática do cache saiu de Configurações > Este app e foi para a aba Memória.
+  Quem já a tinha ligada continua com ela ligada e com o gatilho de 10%.
+
 ### Corrigido
+
+- O aviso e a notificação de RAM acabando mandavam baixar o limite do WSL mesmo quando a maior
+  parte estava com os programas do Windows. Medido: 31,7 GB de RAM, o WSL com 8,9 GB e o
+  resto com Chrome e outros programas. Agora o WSL só é apontado quando ocupa mais que o resto
+  do Windows somado.
 
 - Os campos de Configurações aceitavam qualquer texto. Agora números e tamanhos só aceitam
   dígitos, o tamanho tem a unidade (MB ou GB) numa lista, e cada campo mostra a faixa
@@ -17,6 +48,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - A descrição do `debugConsole` diz que ele abre a janela "WSL Debug Console" a cada subida da
   VM, e a confirmação de reiniciar o WSL avisa quando ele está ligado.
 - No modo demonstração, o caminho do `.wslconfig` aparecia com caracteres trocados.
+- Devolver o cache numa VM com muita escrita pendente levava o `sync` a passar de 30 s, e o app
+  avisava que o WSL tinha parado de responder. A devolução agora espera até 5 min e não conta
+  como queda.
+- A leitura do Docker falhava inteira quando um container sumia entre a lista e o `inspect`,
+  como acontece com os de CI. Agora o que sumiu é ignorado.
+- Depois de uma devolução automática que falhava, a seguinte era tentada 5 s depois. Agora o
+  intervalo de 10 minutos conta a partir de cada tentativa.
 
 ## [0.8.1] - 2026-10-29
 

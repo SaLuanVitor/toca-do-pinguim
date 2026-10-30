@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { Conteiner, Distro, Evento, Porta, Processo } from './tipos';
+import type { AnalisePastas, Armazenamento, Conteiner, Distro, Evento, Porta, Processo } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -197,6 +197,62 @@ export function criarDemonstracao(): Api {
     registrar('docker', 'docker-desktop', `O app ${ligar ? 'ligou' : 'parou'} ${rotulo} (${ids.length} container(s))`);
   }
 
+  const armazenamento: Armazenamento = {
+    discos: [
+      { nome: 'Ubuntu', caminho: String.raw`C:\Users\voce\AppData\Local\Packages\Ubuntu\LocalState\ext4.vhdx`, tamanho_bytes: 112 * GIB, usado_bytes: 81 * GIB, esparso: false, nota: null },
+      { nome: 'docker-desktop', caminho: String.raw`E:\DockerDesktopWSL\main\ext4.vhdx`, tamanho_bytes: 0.1 * GIB, usado_bytes: null, esparso: false, nota: null },
+      { nome: 'Docker (dados)', caminho: String.raw`E:\DockerDesktopWSL\disk\docker_data.vhdx`, tamanho_bytes: 199 * GIB, usado_bytes: 177 * GIB, esparso: false, nota: null },
+      {
+        nome: 'Docker (dados, antigo)',
+        caminho: String.raw`C:\Users\voce\AppData\Local\Docker\wsl\disk\docker_data.vhdx`,
+        tamanho_bytes: 5.4 * GIB,
+        usado_bytes: null,
+        esparso: false,
+        nota: String.raw`O Docker Desktop usa a pasta E:\DockerDesktopWSL; este arquivo ficou da pasta anterior e ele não o abre mais. Pode ser apagado com o Docker Desktop fechado.`,
+      },
+    ],
+    docker: {
+      categorias: [
+        { tipo: 'Images', total_bytes: 117 * GIB, recuperavel_bytes: 84.6 * GIB, quantidade: 117, ativos: 47 },
+        { tipo: 'Containers', total_bytes: 14.2 * GIB, recuperavel_bytes: 14.1 * GIB, quantidade: 122, ativos: 6 },
+        { tipo: 'Local Volumes', total_bytes: 55.9 * GIB, recuperavel_bytes: 10.6 * GIB, quantidade: 229, ativos: 56 },
+        { tipo: 'Build Cache', total_bytes: 45 * GIB, recuperavel_bytes: 19.3 * GIB, quantidade: 715, ativos: 0 },
+      ],
+      volumes_sem_uso: [
+        { nome: 'loja-online_db-antigo', bytes: 3.2 * GIB },
+        { nome: 'chat-bot_kafka', bytes: 1.4 * GIB },
+        { nome: 'blog_uploads', bytes: 0.6 * GIB },
+        { nome: '4f2a91c0d7e3b8a6f5e4d3c2b1a09876', bytes: 0.2 * GIB },
+      ],
+      sobras: 104,
+      sobras_bytes: 13.8 * GIB,
+    },
+    erro_docker: null,
+    limpeza: { cache_de_build: false, sobras_de_containers: false, tmp_dias: null, ultima_ms: null },
+    distros_ligadas: ['Ubuntu'],
+  };
+  const agoraMs = Date.now();
+  const analiseDemo: AnalisePastas = {
+    distro: 'Ubuntu',
+    raiz: [
+      { caminho: '/', bytes: 81 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
+      { caminho: '/tmp', bytes: 53 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
+      { caminho: '/home', bytes: 17 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
+      { caminho: '/root', bytes: 4.4 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
+    ],
+    tmp: [
+      { caminho: '/tmp/loja-analise-20261028', bytes: 30 * GIB, modificado_ms: agoraMs - 2 * 86_400_000, em_uso_por: 'loja-api', apagavel: false },
+      { caminho: '/tmp/loja-analise-02', bytes: 11 * GIB, modificado_ms: agoraMs - 3 * 86_400_000, em_uso_por: null, apagavel: true },
+      { caminho: '/tmp/blog-correcao-20261023', bytes: 2.1 * GIB, modificado_ms: agoraMs - 7 * 86_400_000, em_uso_por: null, apagavel: true },
+      { caminho: '/tmp/modelo-venv', bytes: 1 * GIB, modificado_ms: agoraMs - 9 * 86_400_000, em_uso_por: null, apagavel: true },
+    ],
+    caches: [
+      { caminho: '/root/.cache', bytes: 4.4 * GIB, modificado_ms: null, em_uso_por: null, apagavel: true },
+      { caminho: '/home/voce/.cache', bytes: 0.9 * GIB, modificado_ms: null, em_uso_por: null, apagavel: true },
+      { caminho: '/var/cache/apt/archives', bytes: 0.3 * GIB, modificado_ms: null, em_uso_por: null, apagavel: true },
+    ],
+  };
+
   let limiteGb = 12;
   let teclaAtalho = '';
   const wslconfig: [string, string, string][] = [
@@ -262,7 +318,7 @@ export function criarDemonstracao(): Api {
     listarAtividade: async () => eventosIniciais,
     estadoRecursos: async () => {
       publicarRecursos();
-      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null, devolucao: null, devolver_cache_automatico: false };
+      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
     },
     // Encurtado para a tela: no app real, as medidas saem 15 s e 2 min depois.
     devolverCache: async () => {
@@ -275,6 +331,34 @@ export function criarDemonstracao(): Api {
         registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
       }, 8000);
     },
+    lerArmazenamento: async () => {
+      await esperar(600);
+      return armazenamento;
+    },
+    analisarPastas: async (distro) => {
+      await esperar(1500);
+      return { ...analiseDemo, distro };
+    },
+    apagarPastas: async (distro, caminhos) => {
+      await esperar(500);
+      const liberado = analiseDemo.tmp.filter((p) => caminhos.includes(p.caminho)).reduce((s, p) => s + p.bytes, 0);
+      analiseDemo.tmp = analiseDemo.tmp.filter((p) => !caminhos.includes(p.caminho));
+      registrar('armazenamento', distro, `O app apagou ${(liberado / GIB).toFixed(1).replace('.', ',')} GB em ${distro}`);
+      return liberado;
+    },
+    limparDocker: async (qual) => {
+      await esperar(800);
+      const tipo = { sobras: 'Containers', parados: 'Containers', imagens_sem_uso: 'Images', cache_de_build: 'Build Cache', volumes: 'Local Volumes' }[qual];
+      const cat = armazenamento.docker!.categorias.find((x) => x.tipo === tipo)!;
+      const liberado = cat.recuperavel_bytes;
+      cat.total_bytes -= liberado;
+      cat.recuperavel_bytes = 0;
+      registrar('armazenamento', 'docker-desktop', `O app limpou o Docker: ${(liberado / GIB).toFixed(1).replace('.', ',')} GB liberados`);
+      return liberado;
+    },
+    definirLimpeza: async (limpeza) => {
+      armazenamento.limpeza = { ...limpeza };
+    },
     limitesDaMaquina: async () => ({
       ram_bytes: 31.7 * GIB,
       processadores: 8,
@@ -283,8 +367,9 @@ export function criarDemonstracao(): Api {
         { letra: 'E', livre_bytes: 359.6 * GIB },
       ],
     }),
-    definirDevolverCacheAutomatico: async (sim) => {
-      estado.devolverCacheAutomatico = sim;
+    definirDevolucao: async (automatico, minimoLivrePct, cacheMaximoGb) => {
+      estado.devolverCacheAutomatico = automatico;
+      estado.gatilho = { minimo_livre_pct: minimoLivrePct, cache_maximo_bytes: cacheMaximoGb === null ? null : cacheMaximoGb * GIB };
     },
     pararConteineres: (ids, rotulo) => agirEm(ids, false, rotulo),
     iniciarConteineres: (ids, rotulo) => agirEm(ids, true, rotulo),

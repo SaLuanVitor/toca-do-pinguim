@@ -14,14 +14,17 @@
     executar: () => void;
   }
 
-  const PAGINAS: [Pagina, string][] = [
-    ['processos', 'Processos'],
-    ['desempenho', 'Desempenho'],
-    ['portas', 'Portas'],
-    ['atividade', 'Atividade'],
-    ['configuracoes', 'Configurações'],
-    ['log', 'Log'],
-    ['distros', 'Distros'],
+  // O terceiro campo só entra na busca: quem procura "cpu" ou "armazenamento" acha a aba.
+  const PAGINAS: [Pagina, string, string][] = [
+    ['processos', 'Processos', ''],
+    ['processador', 'Processador', 'cpu desempenho'],
+    ['memoria', 'Memória', 'ram desempenho'],
+    ['disco', 'Disco', 'armazenamento espaço'],
+    ['portas', 'Portas', ''],
+    ['atividade', 'Atividade', ''],
+    ['configuracoes', 'Configurações', ''],
+    ['log', 'Log', ''],
+    ['distros', 'Distros', ''],
   ];
   const MAXIMO = 12;
   const PROCESSOS_NO_MAXIMO = 8;
@@ -45,8 +48,8 @@
     const r: Item[] = [];
     const add = (i: Omit<Item, 'peso'>, peso: number) => peso && r.push({ ...i, peso });
 
-    for (const [p, nome] of PAGINAS) {
-      add({ id: `p:${p}`, titulo: `Ir para ${nome}`, detalhe: '', categoria: 'Página', executar: () => (estado.pagina = p) }, casar(`${nome} ir para`, t));
+    for (const [p, nome, extra] of PAGINAS) {
+      add({ id: `p:${p}`, titulo: `Ir para ${nome}`, detalhe: '', categoria: 'Página', executar: () => (estado.pagina = p) }, casar(`${nome} ir para ${extra}`, t));
     }
     add(
       {
@@ -55,11 +58,31 @@
         detalhe: 'Sugestão a partir do uso medido',
         categoria: 'Ação',
         executar: () => {
-          estado.pagina = 'desempenho';
+          estado.pagina = 'memoria';
           estado.ajustarLimite = true;
         },
       },
       casar('ajustar limite de memória ram wslconfig', t),
+    );
+    add(
+      {
+        id: 'a:processadores',
+        titulo: 'Limite de processadores',
+        detalhe: 'Quantos processadores a VM do WSL pode usar',
+        categoria: 'Ação',
+        executar: () => (estado.pagina = 'processador'),
+      },
+      casar('limite de processadores cpu núcleos wslconfig', t),
+    );
+    add(
+      {
+        id: 'a:cache',
+        titulo: 'Devolver o cache de arquivos sozinho',
+        detalhe: 'RAM da VM que volta ao Windows quando falta',
+        categoria: 'Ação',
+        executar: () => (estado.pagina = 'memoria'),
+      },
+      casar('devolver cache de arquivos ram sozinho automático', t),
     );
     if (estado.distros.some((d) => d.rodando)) {
       add({ id: 'a:desligar', titulo: 'Desligar o WSL', detalhe: 'Termina todas as distros', categoria: 'Ação', executar: desligarWsl }, casar('desligar o wsl shutdown', t));

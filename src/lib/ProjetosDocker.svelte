@@ -12,9 +12,9 @@
 
 <section class="cartao" aria-labelledby="titulo-docker">
   <div class="cabeca">
-    <h2 id="titulo-docker">Docker</h2>
+    <h2 id="titulo-docker">RAM do Docker por projeto</h2>
     {#if docker.ligado && !docker.erro}
-      <span>{bytes(total)} em {rodando} projeto(s) ligado(s), lido a cada 15 s</span>
+      <span>{bytes(total)} de RAM em {rodando} projeto(s) ligado(s), lido a cada 15 s</span>
     {/if}
   </div>
 

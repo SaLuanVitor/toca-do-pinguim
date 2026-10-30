@@ -1,5 +1,7 @@
 import type {
   Amostra,
+  AnalisePastas,
+  Armazenamento,
   AtalhoTeclado,
   Atualizacao,
   ConteudoWslconfig,
@@ -7,6 +9,8 @@ import type {
   Distro,
   Docker,
   EstadoRecursos,
+  LimpezaDocker,
+  LimpezaProgramada,
   Limites,
   Evento,
   MemoriaWindows,
@@ -34,7 +38,12 @@ export interface Api {
   iniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   reiniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   devolverCache(): Promise<void>;
-  definirDevolverCacheAutomatico(sim: boolean): Promise<void>;
+  definirDevolucao(automatico: boolean, minimoLivrePct: number, cacheMaximoGb: number | null): Promise<void>;
+  lerArmazenamento(): Promise<Armazenamento>;
+  analisarPastas(distro: string): Promise<AnalisePastas>;
+  apagarPastas(distro: string, caminhos: string[]): Promise<number>;
+  limparDocker(qual: LimpezaDocker, volumes: string[]): Promise<number>;
+  definirLimpeza(limpeza: LimpezaProgramada): Promise<void>;
   procurarAtualizacao(): Promise<Atualizacao | null>;
   instalarAtualizacao(): Promise<void>;
   abrirPaginaDaVersao(versao: string): Promise<void>;
@@ -93,7 +102,13 @@ async function conectarTauri(): Promise<Api> {
     iniciarConteineres: (ids, rotulo) => invoke('iniciar_conteineres', { ids, rotulo }),
     reiniciarConteineres: (ids, rotulo) => invoke('reiniciar_conteineres', { ids, rotulo }),
     devolverCache: () => invoke('devolver_cache'),
-    definirDevolverCacheAutomatico: (sim) => invoke('definir_devolver_cache_automatico', { sim }),
+    definirDevolucao: (automatico, minimoLivrePct, cacheMaximoGb) =>
+      invoke('definir_devolucao', { automatico, minimoLivrePct, cacheMaximoGb }),
+    lerArmazenamento: () => invoke('ler_armazenamento'),
+    analisarPastas: (distro) => invoke('analisar_pastas', { distro }),
+    apagarPastas: (distro, caminhos) => invoke('apagar_pastas', { distro, caminhos }),
+    limparDocker: (qual, volumes) => invoke('limpar_docker', { qual, volumes }),
+    definirLimpeza: (limpeza) => invoke('definir_limpeza', { limpeza }),
     procurarAtualizacao: () => invoke('procurar_atualizacao'),
     instalarAtualizacao: () => invoke('instalar_atualizacao'),
     abrirPaginaDaVersao: (versao) => invoke('abrir_pagina_da_versao', { versao }),
@@ -124,6 +139,7 @@ export async function conectar() {
     estado.saude = recursos.saude;
     estado.devolucao = recursos.devolucao;
     estado.devolverCacheAutomatico = recursos.devolver_cache_automatico;
+    estado.gatilho = recursos.gatilho;
   } catch (e) {
     estado.avisar(String(e));
   }

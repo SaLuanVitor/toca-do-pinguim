@@ -161,6 +161,12 @@ impl Agentes {
         self.ligadas.lock().unwrap().contains(distro)
     }
 
+    pub fn ligadas(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.ligadas.lock().unwrap().iter().cloned().collect();
+        v.sort();
+        v
+    }
+
     /// Uma distro ligada qualquer, para comandos que valem para a VM inteira.
     pub fn uma_ligada(&self) -> Option<String> {
         self.ligadas.lock().unwrap().iter().min().cloned()

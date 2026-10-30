@@ -85,7 +85,7 @@ impl Vigia {
 
 /// A saída é lida enquanto o processo roda: a lista de um Docker com uma centena de
 /// containers passa do que cabe no cano, e lida só no fim travaria o `docker`.
-fn executar(args: &[&str], prazo: Duration) -> Result<String, String> {
+pub(crate) fn executar(args: &[&str], prazo: Duration) -> Result<String, String> {
     let mut filho = Command::new("docker")
         .args(args)
         .creation_flags(CREATE_NO_WINDOW)
@@ -120,11 +120,19 @@ fn executar(args: &[&str], prazo: Duration) -> Result<String, String> {
         }
     };
     let (saida, erro) = (saida.join().unwrap_or_default(), erro.join().unwrap_or_default());
-    if status.success() {
+    if status.success() || (so_sumiu_objeto(&erro) && !saida.is_empty()) {
         Ok(saida)
     } else {
         Err(erro.split_whitespace().collect::<Vec<_>>().join(" "))
     }
+}
+
+/// Entre a listagem e o `inspect`, um container de job de CI pode sumir; o `inspect` então
+/// sai com erro, mas ainda escreve os outros. Medido: com o CI rodando, a leitura inteira
+/// falhava por um container que tinha acabado de ser removido.
+fn so_sumiu_objeto(erro: &str) -> bool {
+    let linhas: Vec<&str> = erro.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    !linhas.is_empty() && linhas.iter().all(|l| l.to_ascii_lowercase().contains("no such object"))
 }
 
 /// Projetos do Compose aparecem mesmo parados, para poderem ser ligados de volta; avulsos,
@@ -238,7 +246,7 @@ fn ler_pares<T>(texto: &str, valor: impl Fn(&str) -> Option<T>) -> HashMap<Strin
 }
 
 /// Tamanhos como o `docker stats` escreve: `136.3MiB`, `1.722GiB`, `0B`, `1.2kB`.
-fn tamanho(texto: &str) -> Option<u64> {
+pub(crate) fn tamanho(texto: &str) -> Option<u64> {
     let fim = texto.find(|c: char| c.is_ascii_alphabetic())?;
     let (numero, unidade) = texto.split_at(fim);
     let fator: f64 = match unidade {
@@ -303,6 +311,18 @@ mod testes {
         assert!(c.perto_do_limite());
         c.memoria_bytes = 400 << 20;
         assert!(!c.perto_do_limite());
+    }
+
+    #[test]
+    fn so_container_que_sumiu_e_tolerado() {
+        assert!(so_sumiu_objeto("error: no such object: 4c1f97398ba1
+"));
+        assert!(so_sumiu_objeto("Error: No such object: a
+Error: No such object: b"));
+        assert!(!so_sumiu_objeto("error during connect: pipe not found"));
+        assert!(!so_sumiu_objeto("error: no such object: a
+permission denied"));
+        assert!(!so_sumiu_objeto(""));
     }
 
     #[test]
