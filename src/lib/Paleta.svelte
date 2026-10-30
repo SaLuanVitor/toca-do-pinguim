@@ -3,7 +3,7 @@
   import { desligarWsl, iniciar, reiniciar, terminar } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import { pct } from './formato';
-  import type { Pagina } from './tipos';
+  import type { AbaDesempenho, Pagina } from './tipos';
 
   interface Item {
     id: string;
@@ -14,16 +14,27 @@
     executar: () => void;
   }
 
-  const PAGINAS: [Pagina, string][] = [
-    ['processos', 'Processos'],
-    ['desempenho', 'Desempenho'],
-    ['portas', 'Portas'],
-    ['atividade', 'Atividade'],
-    ['configuracoes', 'Configurações'],
-    ['log', 'Log'],
-    ['distros', 'Distros'],
+  // O terceiro campo só entra na busca: quem procura "cpu" ou "armazenamento" acha a aba.
+  const PAGINAS: [Pagina, string, string][] = [
+    ['processos', 'Processos', ''],
+    ['desempenho', 'Desempenho', ''],
+    ['portas', 'Portas', ''],
+    ['atividade', 'Atividade', ''],
+    ['configuracoes', 'Configurações', ''],
+    ['log', 'Log', ''],
+    ['distros', 'Distros', ''],
+  ];
+  const ABAS: [AbaDesempenho, string, string][] = [
+    ['processamento', 'Processamento', 'cpu processador'],
+    ['memoria', 'Memória', 'ram'],
+    ['disco', 'Disco', 'armazenamento espaço'],
   ];
   const MAXIMO = 12;
+
+  function irPara(aba: AbaDesempenho) {
+    estado.pagina = 'desempenho';
+    estado.abaDesempenho = aba;
+  }
   const PROCESSOS_NO_MAXIMO = 8;
 
   let dialogo: HTMLDialogElement;
@@ -45,8 +56,20 @@
     const r: Item[] = [];
     const add = (i: Omit<Item, 'peso'>, peso: number) => peso && r.push({ ...i, peso });
 
-    for (const [p, nome] of PAGINAS) {
-      add({ id: `p:${p}`, titulo: `Ir para ${nome}`, detalhe: '', categoria: 'Página', executar: () => (estado.pagina = p) }, casar(`${nome} ir para`, t));
+    for (const [p, nome, extra] of PAGINAS) {
+      add({ id: `p:${p}`, titulo: `Ir para ${nome}`, detalhe: '', categoria: 'Página', executar: () => (estado.pagina = p) }, casar(`${nome} ir para ${extra}`, t));
+    }
+    for (const [aba, nome, extra] of ABAS) {
+      add(
+        {
+          id: `d:${aba}`,
+          titulo: `Ir para Desempenho: ${nome}`,
+          detalhe: '',
+          categoria: 'Página',
+          executar: () => irPara(aba),
+        },
+        casar(`${nome} desempenho ${extra}`, t),
+      );
     }
     add(
       {
@@ -55,11 +78,31 @@
         detalhe: 'Sugestão a partir do uso medido',
         categoria: 'Ação',
         executar: () => {
-          estado.pagina = 'desempenho';
+          irPara('memoria');
           estado.ajustarLimite = true;
         },
       },
       casar('ajustar limite de memória ram wslconfig', t),
+    );
+    add(
+      {
+        id: 'a:processadores',
+        titulo: 'Limite de processadores',
+        detalhe: 'Quantos processadores a VM do WSL pode usar',
+        categoria: 'Ação',
+        executar: () => irPara('processamento'),
+      },
+      casar('limite de processadores cpu núcleos wslconfig', t),
+    );
+    add(
+      {
+        id: 'a:cache',
+        titulo: 'Devolver o cache de arquivos sozinho',
+        detalhe: 'RAM da VM que volta ao Windows quando falta',
+        categoria: 'Ação',
+        executar: () => irPara('memoria'),
+      },
+      casar('devolver cache de arquivos ram sozinho automático', t),
     );
     if (estado.distros.some((d) => d.rodando)) {
       add({ id: 'a:desligar', titulo: 'Desligar o WSL', detalhe: 'Termina todas as distros', categoria: 'Ação', executar: desligarWsl }, casar('desligar o wsl shutdown', t));

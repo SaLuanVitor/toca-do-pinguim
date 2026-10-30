@@ -1,5 +1,5 @@
 import { lerPreferencia, salvarPreferencia } from './preferencias';
-import type { Amostra, Devolucao, Distro, Docker, Evento, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
+import type { AbaDesempenho, Amostra, Devolucao, Distro, Docker, Evento, Gatilho, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
 
 const PONTOS_HISTORICO = 60;
 const EVENTOS_NA_TELA = 500;
@@ -35,6 +35,7 @@ class Estado {
   saude = $state.raw<SituacaoWsl | null>(null);
   devolucao = $state.raw<Devolucao | null>(null);
   devolverCacheAutomatico = $state(false);
+  gatilho = $state.raw<Gatilho>({ minimo_livre_pct: 10, cache_maximo_bytes: null });
   /** Processos com sinal de estar presos, por distro e PID. */
   suspeitos = $state.raw<Record<string, Map<number, Suspeito>>>({});
   /** Distros cujo agente saiu por ociosidade e que o WSL deve desligar em seguida. */
@@ -43,6 +44,7 @@ class Estado {
   intervalo = $state(1000);
   demonstracao = $state(false);
   pagina = $state<Pagina>('processos');
+  abaDesempenho = $state<AbaDesempenho>('processamento');
   pedido = $state<Pedido | null>(null);
   paletaAberta = $state(false);
   /** Processo a selecionar na aba Processos, pedido de fora dela (pela busca). */

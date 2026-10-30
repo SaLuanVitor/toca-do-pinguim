@@ -5,6 +5,63 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.9.0] - 2026-10-30
+
+### Adicionado
+
+- Aba **Disco**, em Desempenho: o tamanho de cada disco virtual no Windows, quanto está ocupado dentro
+  e quanto é espaço vazio que o disco não devolveu, incluindo o disco de dados do Docker
+  Desktop e um disco antigo dele que tenha ficado para trás. O Docker aparece por categoria
+  (imagens, containers, volumes, cache de build) com o quanto cada uma libera, e cada limpeza
+  pede confirmação: containers parados vêm por padrão só os que não pertencem a um projeto do
+  Compose, e volumes sem uso são escolhidos um a um. A análise de uma distro, a pedido, mostra
+  as pastas maiores, as entradas do `/tmp` com a data e os caches conhecidos; o que um
+  container ligado monta fica bloqueado. Limpeza semanal opcional, desligada por padrão.
+- **Compactar** um disco virtual em Desempenho > Disco: devolve ao Windows o espaço que o Linux já
+  liberou por dentro. Desliga o WSL, roda o `diskpart` como administrador (o Windows pede a
+  permissão) e mostra o tamanho antes e depois. Pede o Docker Desktop fechado.
+- Limite de processadores da VM, em Desempenho > Processamento: grava `processors` no `.wslconfig`, para o
+  próximo início ou com reinício.
+- Devolução automática do cache de arquivos com dois gatilhos ajustáveis, em Desempenho > Memória: RAM
+  livre do Windows abaixo de uma porcentagem (10% por padrão) ou cache da VM acima de um
+  tamanho.
+
+### Mudado
+
+- Desempenho ganhou três abas, **Processamento**, **Memória** e **Disco**, e cada uma só mostra
+  o que é dela: o teto de RAM e a devolução do cache ficam em Memória, o limite de
+  processadores em Processamento, e a tabela por distro foi dividida entre as duas. O aviso de
+  RAM acabando aparece só em Memória; a entrada Desempenho no menu e a aba Memória ganham um
+  sinal enquanto ele estiver ativo. As abas mudam com as setas do teclado.
+- A devolução automática do cache saiu de Configurações > Este app e foi para Desempenho >
+  Memória.
+  Quem já a tinha ligada continua com ela ligada e com o gatilho de 10%.
+
+### Corrigido
+
+- O aviso e a notificação de RAM acabando mandavam baixar o limite do WSL mesmo quando a maior
+  parte estava com os programas do Windows. Medido: 31,7 GB de RAM, o WSL com 8,9 GB e o
+  resto com Chrome e outros programas. Agora o WSL só é apontado quando ocupa mais que o resto
+  do Windows somado.
+
+- Os campos de Configurações aceitavam qualquer texto. Agora números e tamanhos só aceitam
+  dígitos, o tamanho tem a unidade (MB ou GB) numa lista, e cada campo mostra a faixa
+  aceita a partir da máquina: `memory` de 1 GB até a RAM do Windows, `processors` até os
+  processadores lógicos, `swap` até o espaço livre do disco onde ela fica. Tempos mostram o
+  valor em segundos, e lista de portas, IP, módulos do kernel, nome de máquina e usuário do
+  Linux são conferidos pelo formato. O backend recusa também memória e processadores fora do
+  limite.
+- A descrição do `debugConsole` diz que ele abre a janela "WSL Debug Console" a cada subida da
+  VM, e a confirmação de reiniciar o WSL avisa quando ele está ligado.
+- No modo demonstração, o caminho do `.wslconfig` aparecia com caracteres trocados.
+- Devolver o cache numa VM com muita escrita pendente levava o `sync` a passar de 30 s, e o app
+  avisava que o WSL tinha parado de responder. A devolução agora espera até 5 min e não conta
+  como queda.
+- A leitura do Docker falhava inteira quando um container sumia entre a lista e o `inspect`,
+  como acontece com os de CI. Agora o que sumiu é ignorado.
+- Depois de uma devolução automática que falhava, a seguinte era tentada 5 s depois. Agora o
+  intervalo de 10 minutos conta a partir de cada tentativa.
+
 ## [0.8.1] - 2026-10-29
 
 ### Corrigido
@@ -186,7 +243,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.1...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...v0.7.0

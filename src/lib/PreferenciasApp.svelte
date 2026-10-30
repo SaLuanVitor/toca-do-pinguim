@@ -19,18 +19,6 @@
   let procurando = $state(false);
   let resultadoBusca = $state('');
 
-  async function mudarDevolverSozinho(caixa: HTMLInputElement) {
-    const sim = caixa.checked;
-    try {
-      await api.definirDevolverCacheAutomatico(sim);
-      estado.devolverCacheAutomatico = sim;
-    } catch (e) {
-      // A preferência não mudou; a caixa volta a mostrar o que vale.
-      caixa.checked = !sim;
-      estado.avisar(String(e));
-    }
-  }
-
   async function procurarAgora() {
     procurando = true;
     resultadoBusca = '';
@@ -148,24 +136,6 @@
       <button class="botao" onclick={procurarAgora} disabled={procurando}>{procurando ? 'Procurando' : 'Procurar agora'}</button>
       {#if resultadoBusca}<span role="status">{resultadoBusca}</span>{/if}
     </div>
-  </section>
-
-  <section aria-labelledby="cache-titulo">
-    <h2 id="cache-titulo">Memória</h2>
-    <label class="opcao">
-      <input
-        type="checkbox"
-        checked={estado.devolverCacheAutomatico}
-        onchange={(e) => mudarDevolverSozinho(e.currentTarget)}
-      />
-      Devolver o cache da VM sozinho quando o Windows estiver sem memória
-    </label>
-    <p class="explica">
-      Abaixo de 10% de memória livre no Windows, o app esvazia o cache do Linux, no máximo uma vez a cada 10 minutos, e
-      registra na Atividade quanto voltou. Medido numa máquina com Docker e CI rodando, voltaram 2,9 GB na hora e 1,3 GB
-      continuavam livres 5 minutos depois. Nada se perde: a VM só relê do disco o que precisar. Para a VM ocupar menos de
-      vez, o caminho é baixar o limite de memória dela, em Desempenho.
-    </p>
   </section>
 
   <section aria-labelledby="tecla-titulo">

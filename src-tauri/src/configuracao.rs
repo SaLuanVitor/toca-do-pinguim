@@ -34,6 +34,83 @@ pub struct MudancaConfig {
 const SECOES_WSLCONFIG: [&str; 3] = ["wsl2", "experimental", "general"];
 const SECOES_WSLCONF: [&str; 7] = ["automount", "network", "interop", "user", "boot", "gpu", "time"];
 
+/// Abaixo disto a VM mal sobe com systemd e Docker; é o piso que o app aceita para `memory`.
+const MEMORIA_MINIMA: u64 = 1 << 30;
+
+/// O que a máquina comporta, para a tela limitar os campos e o backend recusar o que passa.
+#[derive(Serialize, Clone, Debug)]
+pub struct Limites {
+    pub ram_bytes: u64,
+    pub processadores: u32,
+    /// Espaço livre de cada disco fixo, para a swap não pedir mais do que cabe.
+    pub discos: Vec<Disco>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Disco {
+    pub letra: String,
+    pub livre_bytes: u64,
+}
+
+pub fn limites() -> Limites {
+    Limites {
+        ram_bytes: crate::ram_host(),
+        processadores: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
+        discos: discos_fixos(),
+    }
+}
+
+fn discos_fixos() -> Vec<Disco> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives};
+    const DRIVE_FIXED: u32 = 3;
+    // SAFETY: as chamadas recebem uma raiz como `C:\` terminada em zero e ponteiros válidos.
+    let mascara = unsafe { GetLogicalDrives() };
+    (0..26u8)
+        .filter(|i| mascara & (1 << i) != 0)
+        .filter_map(|i| {
+            let letra = (b'A' + i) as char;
+            let raiz: Vec<u16> = format!("{letra}:\\").encode_utf16().chain([0]).collect();
+            if unsafe { GetDriveTypeW(raiz.as_ptr()) } != DRIVE_FIXED {
+                return None;
+            }
+            let mut livre = 0u64;
+            let ok = unsafe { GetDiskFreeSpaceExW(raiz.as_ptr(), &mut livre, std::ptr::null_mut(), std::ptr::null_mut()) } != 0;
+            ok.then(|| Disco { letra: letra.to_string(), livre_bytes: livre })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn limites_da_maquina() -> Limites {
+    limites()
+}
+
+/// O que a tela já limita, conferido de novo aqui: o arquivo também pode chegar por quem
+/// chama o comando direto.
+fn conferir_limites(m: &MudancaConfig, l: &Limites) -> Result<(), String> {
+    let Some(valor) = m.valor.as_deref() else { return Ok(()) };
+    let gb = |b: u64| format!("{:.1}", b as f64 / (1u64 << 30) as f64).replace('.', ",");
+    match (m.secao.to_ascii_lowercase().as_str(), m.chave.to_ascii_lowercase().as_str()) {
+        ("wsl2", "memory") => {
+            let b = config::tamanho_em_bytes(valor).ok_or("memory: use um tamanho como 8GB")?;
+            if b < MEMORIA_MINIMA || b > l.ram_bytes {
+                return Err(format!("memory precisa ficar entre 1 GB e {} GB, a RAM do Windows", gb(l.ram_bytes)));
+            }
+        }
+        ("wsl2", "swap") => {
+            config::tamanho_em_bytes(valor).ok_or("swap: use um tamanho como 4GB, ou 0")?;
+        }
+        ("wsl2", "processors") => {
+            let n: u32 = valor.trim().parse().map_err(|_| "processors: use um número inteiro")?;
+            if n < 1 || n > l.processadores {
+                return Err(format!("processors precisa ficar entre 1 e {}, os processadores lógicos da máquina", l.processadores));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn validar(m: &MudancaConfig, secoes: &[&str]) -> Result<(), String> {
     if !secoes.iter().any(|s| s.eq_ignore_ascii_case(&m.secao)) {
         return Err(format!("seção desconhecida: [{}]", m.secao));
@@ -81,6 +158,8 @@ pub async fn gravar_wslconfig(
     reiniciar: bool,
 ) -> Result<(), String> {
     mudancas.iter().try_for_each(|m| validar(m, &SECOES_WSLCONFIG))?;
+    let maquina = limites();
+    mudancas.iter().try_for_each(|m| conferir_limites(m, &maquina))?;
     if mudancas.is_empty() {
         return Ok(());
     }
@@ -195,6 +274,31 @@ mod testes {
         MudancaConfig { secao: secao.into(), chave: chave.into(), valor: valor.map(str::to_string) }
     }
 
+    #[test]
+    fn recusa_memoria_e_processadores_fora_da_maquina() {
+        let l = Limites { ram_bytes: 32 << 30, processadores: 8, discos: Vec::new() };
+        let m = |chave: &str, v: &str| MudancaConfig { secao: "wsl2".into(), chave: chave.into(), valor: Some(v.into()) };
+        assert!(conferir_limites(&m("memory", "12GB"), &l).is_ok());
+        assert!(conferir_limites(&m("memory", "32GB"), &l).is_ok());
+        assert!(conferir_limites(&m("memory", "33GB"), &l).is_err());
+        assert!(conferir_limites(&m("memory", "512MB"), &l).is_err());
+        assert!(conferir_limites(&m("memory", "doze"), &l).is_err());
+        assert!(conferir_limites(&m("processors", "8"), &l).is_ok());
+        assert!(conferir_limites(&m("processors", "9"), &l).is_err());
+        assert!(conferir_limites(&m("processors", "0"), &l).is_err());
+        assert!(conferir_limites(&m("swap", "0"), &l).is_ok());
+        assert!(conferir_limites(&m("swap", "x"), &l).is_err());
+        // Voltar ao padrão sempre pode.
+        let padrao = MudancaConfig { secao: "wsl2".into(), chave: "memory".into(), valor: None };
+        assert!(conferir_limites(&padrao, &l).is_ok());
+    }
+
+    #[test]
+    fn a_maquina_tem_ram_processador_e_o_disco_do_sistema() {
+        let l = limites();
+        assert!(l.ram_bytes > 0 && l.processadores >= 1);
+        assert!(l.discos.iter().any(|d| d.letra == "C" && d.livre_bytes > 0));
+    }
     #[test]
     fn recusa_secao_de_outro_arquivo_chave_estranha_e_quebra_de_linha() {
         assert!(validar(&m("boot", "systemd", Some("true")), &SECOES_WSLCONF).is_ok());

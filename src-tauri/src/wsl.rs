@@ -62,6 +62,48 @@ pub fn esperar(mut filho: Child, prazo: Duration, rotulo: &str, alvo: Option<&st
     }
 }
 
+/// Comando que pode levar minutos ou devolver muita saída: esvaziar o cache, percorrer o
+/// disco, apagar pastas. A saída é lida enquanto ele roda, porque lida só no fim travaria o
+/// `wsl.exe` com o cano cheio. Passar do prazo aqui não conta como o WSL travado: medido, um
+/// `sync` com o disco ocupado passou dos 30 s e virou um aviso falso de queda.
+pub fn executar_longo(args: &[&str], prazo: Duration) -> Result<Output, String> {
+    use std::io::Read;
+    let rotulo = rotulo(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+    let mut filho = wsl()
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("wsl.exe: {e}"))?;
+    let ler = |mut fluxo: Box<dyn Read + Send>| {
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = fluxo.read_to_end(&mut bytes);
+            bytes
+        })
+    };
+    let saida = ler(Box::new(filho.stdout.take().expect("stdout pedido como piped")));
+    let erro = ler(Box::new(filho.stderr.take().expect("stderr pedido como piped")));
+    let inicio = Instant::now();
+    let status = loop {
+        match filho.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if inicio.elapsed() < prazo => thread::sleep(Duration::from_millis(100)),
+            Ok(None) => {
+                let _ = filho.kill();
+                let _ = filho.wait();
+                let motivo = format!("não terminou em {} s", prazo.as_secs());
+                warn!("{rotulo}: {motivo}");
+                return Err(motivo);
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    info!("{rotulo}: {} ms, saída {:?}", inicio.elapsed().as_millis(), status.code());
+    Ok(Output { status, stdout: saida.join().unwrap_or_default(), stderr: erro.join().unwrap_or_default() })
+}
+
 pub fn com_prazo(comando: &mut Command, prazo: Duration) -> Result<Output, String> {
     let args: Vec<String> = comando.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
     let alvo = args.iter().position(|a| a == "-d").and_then(|i| args.get(i + 1)).cloned();

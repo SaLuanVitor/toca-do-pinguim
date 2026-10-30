@@ -99,6 +99,9 @@
       >
         <Icone nome={p.id} />
         <span class="rotulo">{p.titulo}</span>
+        {#if p.id === 'desempenho' && estado.memoriaWindows?.pressao}
+          <span class="alerta" role="img" aria-label="RAM do Windows acabando"></span>
+        {/if}
       </button>
     {/each}
     <label class="velocidade" class:visualmente-oculto={!expandido}>
@@ -226,6 +229,21 @@
     width: 3px;
     border-radius: 2px;
     background: var(--destaque);
+  }
+
+  .alerta {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-left: auto;
+    border-radius: 50%;
+    background: rgb(var(--calor));
+  }
+
+  .janela:not(.expandido) .alerta {
+    position: absolute;
+    top: 6px;
+    left: 26px;
   }
 
   .janela:not(.expandido) .rotulo {
