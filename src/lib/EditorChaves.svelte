@@ -2,9 +2,21 @@
   // Editor de um arquivo INI do WSL a partir de um catálogo de chaves. Campo vazio é o
   // padrão do WSL: a chave sai do arquivo. Nada é gravado até "Salvar".
   import { onMount } from 'svelte';
-  import { caminhoDoArquivo, caminhoParaArquivo, idChave, validar, type Chave } from './catalogoWslconfig';
+  import { api } from './api';
+  import {
+    caminhoDoArquivo,
+    caminhoParaArquivo,
+    dica,
+    emSegundos,
+    idChave,
+    mascaraNumero,
+    partesDoTamanho,
+    validar,
+    type Chave,
+    type Contexto,
+  } from './catalogoWslconfig';
   import { estado } from './estado.svelte';
-  import type { ConteudoWslconfig, MudancaWslconfig } from './tipos';
+  import type { ConteudoWslconfig, Limites, MudancaWslconfig } from './tipos';
 
   interface Props {
     catalogo: Chave[];
@@ -26,6 +38,9 @@
   let desconhecidas = $state<[string, string, string][]>([]);
   let salvando = $state(false);
   let gravado = $state('');
+  let limites = $state<Limites | null>(null);
+  /** Unidade escolhida em cada campo de tamanho, para valer mesmo com o número vazio. */
+  let unidades = $state<Record<string, 'MB' | 'GB'>>({});
 
   const conhecidas = $derived(new Set(catalogo.map(idChave)));
 
@@ -56,9 +71,40 @@
     return grupos.map((g) => ({ grupo: g, chaves: lista.filter((c) => c.grupo === g) })).filter((g) => g.chaves.length);
   });
 
+  const ctx: Contexto = $derived({ limites, edicao });
   const erros = $derived(
-    Object.fromEntries(catalogo.map((c) => [idChave(c), validar(c, edicao[idChave(c)] ?? '')])),
+    Object.fromEntries(catalogo.map((c) => [idChave(c), validar(c, edicao[idChave(c)] ?? '', ctx)])),
   );
+
+  function unidadeDe(id: string): 'MB' | 'GB' {
+    return unidades[id] ?? partesDoTamanho(edicao[id] ?? '').unidade;
+  }
+
+  function mudarTamanho(id: string, campo: HTMLInputElement) {
+    const n = mascaraNumero(campo.value, false);
+    campo.value = n;
+    edicao[id] = n === '' ? '' : `${n}${unidadeDe(id)}`;
+  }
+
+  function mudarUnidade(id: string, unidade: 'MB' | 'GB') {
+    unidades[id] = unidade;
+    const n = partesDoTamanho(edicao[id] ?? '').numero;
+    if (n !== '') edicao[id] = `${n}${unidade}`;
+  }
+
+  function mudarNumero(c: Chave, campo: HTMLInputElement) {
+    const n = mascaraNumero(campo.value, (c.min ?? 0) < 0);
+    campo.value = n;
+    edicao[idChave(c)] = n;
+  }
+
+  /** "15000 ms = 15 s", do valor na tela ou do padrão. */
+  function conversao(c: Chave): string | null {
+    if (c.unidade !== 'ms') return null;
+    const v = (edicao[idChave(c)] ?? '').trim() || c.padrao;
+    const s = emSegundos(Number(v));
+    return s ? `${Number(v).toLocaleString('pt-BR')} ms = ${s}` : null;
+  }
 
   const mudancas = $derived(
     catalogo.filter((c) => (edicao[idChave(c)] ?? '').trim() !== (original[idChave(c)] ?? '')),
@@ -90,15 +136,25 @@
   }
 
   function salvarEReiniciar() {
+    // O debugConsole abre uma janela a cada subida da VM, e o reinício pedido aqui é uma delas.
+    const abreConsole = (edicao['wsl2.debugconsole'] ?? '') === 'true';
     estado.pedido = {
       titulo: reiniciar.titulo,
-      texto: reiniciar.texto(),
+      texto: abreConsole
+        ? `${reiniciar.texto()} Com o debugConsole ligado, o WSL abre a janela "WSL Debug Console" quando subir; para ela não abrir, desligue-o em Avançado.`
+        : reiniciar.texto(),
       acao: 'Salvar e reiniciar',
       executar: () => salvar(true),
     };
   }
 
-  onMount(carregar);
+  onMount(() => {
+    carregar();
+    api.limitesDaMaquina().then(
+      (l) => (limites = l),
+      () => (limites = null),
+    );
+  });
 </script>
 
 <p class="arquivo">
@@ -113,6 +169,11 @@
       {#each g.chaves as c (idChave(c))}
         {@const id = idChave(c)}
         {@const erro = erros[id]}
+        {@const faixa = dica(c, ctx)}
+        {@const segundos = conversao(c)}
+        {@const vazio = (edicao[id] ?? '').trim() === ''}
+        {@const numerico = c.tipo === 'tamanho' || c.tipo === 'numero'}
+        {@const ajuda = [numerico && vazio ? `Padrão: ${c.padrao}.` : null, faixa, segundos].filter(Boolean).join(' ')}
         <div class="linha" class:alterada={(edicao[id] ?? '').trim() !== (original[id] ?? '')}>
           <div class="nome">
             <label for={id}><code>{c.chave}</code></label>
@@ -131,6 +192,43 @@
                 <option value="">Padrão ({c.padrao})</option>
                 {#each c.opcoes ?? [] as o (o)}<option value={o}>{o}</option>{/each}
               </select>
+            {:else if c.tipo === 'tamanho'}
+              <div class="composto">
+                <input
+                  {id}
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  placeholder="Padrão"
+                  value={partesDoTamanho(edicao[id] ?? '').numero}
+                  oninput={(e) => mudarTamanho(id, e.currentTarget)}
+                  aria-invalid={erro ? 'true' : undefined}
+                  aria-describedby="{id}-desc{ajuda ? ` ${id}-ajuda` : ''}{erro ? ` ${id}-erro` : ''}"
+                />
+                <select
+                  aria-label="Unidade de {c.chave}"
+                  value={unidadeDe(id)}
+                  onchange={(e) => mudarUnidade(id, e.currentTarget.value as 'MB' | 'GB')}
+                >
+                  <option value="MB">MB</option>
+                  <option value="GB">GB</option>
+                </select>
+              </div>
+            {:else if c.tipo === 'numero'}
+              <div class="composto">
+                <input
+                  {id}
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  placeholder="Padrão"
+                  value={edicao[id] ?? ''}
+                  oninput={(e) => mudarNumero(c, e.currentTarget)}
+                  aria-invalid={erro ? 'true' : undefined}
+                  aria-describedby="{id}-desc{ajuda ? ` ${id}-ajuda` : ''}{erro ? ` ${id}-erro` : ''}"
+                />
+                {#if c.unidade}<span class="unidade">{c.unidade}</span>{/if}
+              </div>
             {:else}
               <input
                 {id}
@@ -142,6 +240,7 @@
                 aria-describedby="{id}-desc{erro ? ` ${id}-erro` : ''}"
               />
             {/if}
+            {#if ajuda}<span class="dica" id="{id}-ajuda">{ajuda}</span>{/if}
             {#if erro}<span class="erro" id="{id}-erro">{erro}</span>{/if}
           </div>
         </div>
@@ -241,6 +340,24 @@
     border: 1px solid var(--borda);
     border-radius: var(--raio);
     background: var(--camada-forte);
+  }
+
+  .composto {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .composto input {
+    flex: 1;
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .unidade,
+  .dica {
+    color: var(--texto-2);
+    font-size: 12px;
   }
 
   .controle input[aria-invalid='true'] {
