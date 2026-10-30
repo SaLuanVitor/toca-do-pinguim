@@ -30,7 +30,7 @@
         <tr>
           <th scope="col">Projeto</th>
           <th scope="col" class="numero">Containers ligados</th>
-          <th scope="col" class="numero">Memória</th>
+          <th scope="col" class="numero">RAM</th>
           <th scope="col">Situação</th>
           <th scope="col"><span class="visualmente-oculto">Ação</span></th>
         </tr>

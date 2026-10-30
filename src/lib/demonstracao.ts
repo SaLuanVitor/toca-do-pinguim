@@ -211,6 +211,24 @@ export function criarDemonstracao(): Api {
         nota: String.raw`O Docker Desktop usa a pasta E:\DockerDesktopWSL; este arquivo ficou da pasta anterior e ele não o abre mais. Pode ser apagado com o Docker Desktop fechado.`,
         compactavel: false,
       },
+      {
+        nome: 'Debian',
+        caminho: String.raw`D:\WSL\Debian\ext4.vhdx`,
+        tamanho_bytes: 6.2 * GIB,
+        usado_bytes: null,
+        esparso: false,
+        nota: null,
+        compactavel: true,
+      },
+      {
+        nome: 'Swap do WSL',
+        caminho: String.raw`C:\Users\voce\AppData\Local\Temp\swap.vhdx`,
+        tamanho_bytes: 4.1 * GIB,
+        usado_bytes: null,
+        esparso: false,
+        nota: 'Arquivo no disco que a VM usa como RAM extra quando a RAM acaba. O WSL o recria a cada início, com o tamanho de swap do .wslconfig; para ocupar menos, baixe esse tamanho ou mova o arquivo com swapFile.',
+        compactavel: false,
+      },
     ],
     docker: {
       categorias: [
@@ -227,16 +245,41 @@ export function criarDemonstracao(): Api {
       ],
       sobras: 104,
       sobras_bytes: 13.8 * GIB,
+      projetos: [
+        {
+          nome: 'loja-online',
+          containers: 5,
+          parados: 0,
+          containers_bytes: 0.3 * GIB,
+          imagens_bytes: 2.4 * GIB,
+          volumes: [
+            { nome: 'loja-online_db', bytes: 6.1 * GIB, em_uso: true },
+            { nome: 'loja-online_db-antigo', bytes: 3.2 * GIB, em_uso: false },
+          ],
+        },
+        {
+          nome: 'chat-bot',
+          containers: 4,
+          parados: 4,
+          containers_bytes: 0.9 * GIB,
+          imagens_bytes: 1.7 * GIB,
+          volumes: [
+            { nome: 'chat-bot_kafka', bytes: 1.4 * GIB, em_uso: false },
+            { nome: 'chat-bot_redis', bytes: 0.2 * GIB, em_uso: true },
+          ],
+        },
+        { nome: 'blog', containers: 2, parados: 2, containers_bytes: 0.1 * GIB, imagens_bytes: 0.6 * GIB, volumes: [{ nome: 'blog_uploads', bytes: 0.6 * GIB, em_uso: false }] },
+      ],
     },
     erro_docker: null,
     limpeza: { cache_de_build: false, sobras_de_containers: false, tmp_dias: null, ultima_ms: null },
     distros_ligadas: ['Ubuntu'],
+    distros: ['Debian', 'Ubuntu'],
   };
   const agoraMs = Date.now();
   const analiseDemo: AnalisePastas = {
     distro: 'Ubuntu',
     raiz: [
-      { caminho: '/', bytes: 81 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
       { caminho: '/tmp', bytes: 53 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
       { caminho: '/home', bytes: 17 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
       { caminho: '/root', bytes: 4.4 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
@@ -336,7 +379,14 @@ export function criarDemonstracao(): Api {
       await esperar(600);
       return armazenamento;
     },
-    analisarPastas: async (distro) => {
+    analisarPastas: async (distro, ligarAntes) => {
+      if (ligarAntes) {
+        achar(distro).rodando = true;
+        ligar(distro);
+        publicar();
+        registrar('distro', distro, `${distro} foi ligada`);
+        armazenamento.distros_ligadas = distros.filter((x) => x.rodando && x.nome !== 'docker-desktop').map((x) => x.nome);
+      }
       await esperar(1500);
       return { ...analiseDemo, distro };
     },
@@ -368,6 +418,16 @@ export function criarDemonstracao(): Api {
       registrar('wsl', null, `O app desligou o WSL para compactar o disco de ${disco.nome}`);
       registrar('armazenamento', disco.nome, `O app compactou o disco de ${disco.nome}: de ${(antes / GIB).toFixed(1).replace('.', ',')} GB para ${(depois / GIB).toFixed(1).replace('.', ',')} GB no Windows`);
       return { antes_bytes: antes, depois_bytes: depois };
+    },
+    limparParadosDoProjeto: async (projeto) => {
+      await esperar(700);
+      const p = armazenamento.docker!.projetos.find((x) => x.nome === projeto)!;
+      const liberado = p.containers_bytes;
+      p.containers -= p.parados;
+      p.parados = 0;
+      p.containers_bytes = 0;
+      registrar('armazenamento', 'docker-desktop', `O app apagou os containers parados do projeto ${projeto}: ${(liberado / GIB).toFixed(1).replace('.', ',')} GB liberados`);
+      return liberado;
     },
     definirLimpeza: async (limpeza) => {
       armazenamento.limpeza = { ...limpeza };

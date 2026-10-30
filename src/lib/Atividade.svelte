@@ -16,7 +16,7 @@
   const ROTULOS: Record<TipoEvento, string> = {
     distro: 'Distro',
     processo: 'Processo',
-    memoria: 'Memória',
+    memoria: 'RAM',
     config: 'Configuração',
     wsl: 'WSL',
     docker: 'Docker',
