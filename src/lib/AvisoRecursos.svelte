@@ -10,9 +10,10 @@
 {#if estado.saude}
   <div class="aviso perigo" role="alert">
     <span>
-      <strong>O WSL não está respondendo</strong> desde {hora.format(estado.saude.desde_ms)}{estado.saude.alvo
+      <strong>O WSL não está abrindo sessões novas</strong> desde {hora.format(estado.saude.desde_ms)}{estado.saude.alvo
         ? ` em ${estado.saude.alvo}`
-        : ''}: {estado.saude.motivo}. Desligar o WSL o destrava; todas as distros e os containers param.
+        : ''}: {estado.saude.motivo}. O que já está rodando, como containers e terminais abertos, continua, mas o app não
+      consegue ler as distros. Desligar o WSL o destrava; todas as distros e os containers param.
     </span>
     <button class="botao primario" onclick={desligarWsl} disabled={!!ocupadas.WSL}>{ocupadas.WSL ?? 'Desligar o WSL'}</button>
   </div>

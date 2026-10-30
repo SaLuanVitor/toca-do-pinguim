@@ -3,6 +3,7 @@ import type {
   AnalisePastas,
   Armazenamento,
   Compactacao,
+  SegundoPlano,
   AtalhoTeclado,
   Atualizacao,
   ConteudoWslconfig,
@@ -57,6 +58,8 @@ export interface Api {
   versaoApp(): Promise<string>;
   lerAtalhoTeclado(): Promise<AtalhoTeclado>;
   definirAtalhoTeclado(tecla: string): Promise<void>;
+  lerSegundoPlano(): Promise<SegundoPlano>;
+  definirSegundoPlano(fecharParaBandeja: boolean, iniciarComWindows: boolean): Promise<void>;
   gravarWslconf(distro: string, mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   abrirPastaDeLogs(): Promise<void>;
   limitesDaMaquina(): Promise<Limites>;
@@ -124,6 +127,9 @@ async function conectarTauri(): Promise<Api> {
     versaoApp: async () => (await import('@tauri-apps/api/app')).getVersion(),
     lerAtalhoTeclado: () => invoke('ler_atalho_teclado'),
     definirAtalhoTeclado: (tecla) => invoke('definir_atalho_teclado', { tecla }),
+    lerSegundoPlano: () => invoke('ler_segundo_plano'),
+    definirSegundoPlano: (fecharParaBandeja, iniciarComWindows) =>
+      invoke('definir_segundo_plano', { fecharParaBandeja, iniciarComWindows }),
     gravarWslconf: (distro, mudancas, reiniciar) => invoke('gravar_wslconf', { distro, mudancas, reiniciar }),
     abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
     limitesDaMaquina: () => invoke('limites_da_maquina'),

@@ -47,7 +47,7 @@ pub struct Devolucao {
     pub concluida: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Preferencias {
     #[serde(default)]
     pub devolver_cache_automatico: bool,
@@ -55,6 +55,28 @@ pub struct Preferencias {
     pub gatilho: Gatilho,
     #[serde(default)]
     pub limpeza: LimpezaProgramada,
+    /// Fechar a janela deixa o app na área de notificação, em vez de sair.
+    #[serde(default = "sim")]
+    pub fechar_para_bandeja: bool,
+    /// A notificação que explica onde o app ficou sai uma vez só.
+    #[serde(default)]
+    pub avisou_bandeja: bool,
+}
+
+fn sim() -> bool {
+    true
+}
+
+impl Default for Preferencias {
+    fn default() -> Self {
+        Preferencias {
+            devolver_cache_automatico: false,
+            gatilho: Gatilho::default(),
+            limpeza: LimpezaProgramada::default(),
+            fechar_para_bandeja: true,
+            avisou_bandeja: false,
+        }
+    }
 }
 
 /// Quando a devolução automática dispara. Basta um dos dois.
