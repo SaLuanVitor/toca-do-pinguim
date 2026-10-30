@@ -22,6 +22,11 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - **Containers com problema**, no cartão do Docker: o que falha no próprio healthcheck e o que
   passa de 90% do limite de memória, com botão para reiniciar só esses. Healthcheck falhando
   e reinício em ciclo também viram notificação do Windows.
+- Configurações > Este app tem um interruptor para desligar a busca de atualizações, o único
+  acesso do app à internet, e um botão para procurar na hora.
+- O instalador mostra, antes de instalar, o que o app acessa na rede e o que muda no sistema.
+- README com as seções de privacidade e de política de assinatura, preparando o pedido de
+  assinatura gratuita à SignPath Foundation.
 
 ### Corrigido
 

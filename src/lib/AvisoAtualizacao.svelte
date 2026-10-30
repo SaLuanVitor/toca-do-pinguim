@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Procura versão nova ao abrir e a cada 6 horas. Só baixa quando a pessoa clica: o app
-  // gerencia o WSL e não deve fazer nada pesado por conta própria.
+  // Procura versão nova ao abrir e a cada 6 horas, se a pessoa não desligou a busca em
+  // Configurações > Este app. Só baixa quando ela clica: o app gerencia o WSL e não deve
+  // fazer nada pesado por conta própria.
   import { onMount } from 'svelte';
   import { api } from './api';
   import { estado } from './estado.svelte';
@@ -13,6 +14,7 @@
   let instalando = $state(false);
 
   async function procurar() {
+    if (!estado.procurarAtualizacoes) return;
     try {
       nova = await api.procurarAtualizacao();
     } catch {
@@ -41,8 +43,13 @@
     }
   }
 
+  // Religar a busca procura na hora, sem esperar a próxima rodada.
+  $effect(() => {
+    if (estado.procurarAtualizacoes) procurar();
+    else nova = null;
+  });
+
   onMount(() => {
-    procurar();
     const id = setInterval(procurar, A_CADA_MS);
     return () => clearInterval(id);
   });

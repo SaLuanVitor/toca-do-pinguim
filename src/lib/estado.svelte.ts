@@ -1,3 +1,4 @@
+import { lerPreferencia, salvarPreferencia } from './preferencias';
 import type { Amostra, Distro, Docker, Evento, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
 
 const PONTOS_HISTORICO = 60;
@@ -47,6 +48,8 @@ class Estado {
   /** Filtro da aba Portas e abertura do ajuste de limite, pedidos pela busca. */
   buscaPortas = $state('');
   ajustarLimite = $state(false);
+  /** A busca de versão nova é o único acesso do app à rede, e pode ser desligada. */
+  procurarAtualizacoes = $state(lerPreferencia('procurar-atualizacoes', true));
   #proximoAviso = 1;
 
   /** Todas as distros dividem a mesma VM; a primeira em ordem alfabética fala por ela. */
@@ -126,6 +129,11 @@ class Estado {
     const id = this.#proximoAviso++;
     this.avisos.push({ id, texto });
     setTimeout(() => this.dispensar(id), 8000);
+  }
+
+  definirProcurarAtualizacoes(sim: boolean) {
+    this.procurarAtualizacoes = sim;
+    salvarPreferencia('procurar-atualizacoes', sim);
   }
 
   dispensar(id: number) {

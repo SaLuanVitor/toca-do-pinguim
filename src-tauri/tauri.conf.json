@@ -29,6 +29,7 @@
     }
   },
   "bundle": {
+    "licenseFile": "windows/aviso-de-instalacao.txt",
     "active": true,
     "createUpdaterArtifacts": true,
     "publisher": "SaLuanVitor",
