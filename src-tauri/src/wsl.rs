@@ -16,8 +16,9 @@ use serde::Serialize;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub const PRAZO: Duration = Duration::from_secs(30);
-/// Desligar a VM espera todas as distros terminarem.
-const PRAZO_DESLIGAR: Duration = Duration::from_secs(90);
+/// Desligar a VM espera todas as distros terminarem. Com o WSL travado, medido, levou
+/// 117 s.
+const PRAZO_DESLIGAR: Duration = Duration::from_secs(180);
 /// Acima disto a chamada vai ao log como lenta, mesmo dando certo.
 const LENTA: Duration = Duration::from_secs(5);
 
@@ -131,8 +132,17 @@ pub mod saude {
 
     struct Queda {
         desde: Instant,
+        desde_ms: u64,
         motivo: String,
         falhas: u32,
+    }
+
+    /// A queda mais antiga em curso, para a tela que abre no meio dela.
+    #[derive(Serialize, Clone)]
+    pub struct Situacao {
+        pub alvo: Option<String>,
+        pub motivo: String,
+        pub desde_ms: u64,
     }
 
     pub enum Mudanca {
@@ -159,7 +169,10 @@ pub mod saude {
         }
         warn!("WSL deixou de responder ({}): {motivo}", nome(alvo));
         MUDANCAS.lock().unwrap().push(Mudanca::Caiu { alvo: chave.clone(), motivo: motivo.clone() });
-        quedas.insert(chave, Queda { desde: Instant::now(), motivo, falhas: 1 });
+        let desde_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        quedas.insert(chave, Queda { desde: Instant::now(), desde_ms, motivo, falhas: 1 });
     }
 
     pub fn respondeu(alvo: Option<&str>) {
@@ -175,6 +188,12 @@ pub mod saude {
             q.motivo
         );
         MUDANCAS.lock().unwrap().push(Mudanca::Voltou { alvo: chave, segundos, falhas: q.falhas });
+    }
+
+    pub fn atual() -> Option<Situacao> {
+        let quedas = QUEDAS.lock().unwrap();
+        let (alvo, q) = quedas.as_ref()?.iter().min_by_key(|(_, q)| q.desde)?;
+        Some(Situacao { alvo: alvo.clone(), motivo: q.motivo.clone(), desde_ms: q.desde_ms })
     }
 
     /// Entrega as viradas desde a última chamada.

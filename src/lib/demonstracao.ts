@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { Distro, Evento, Porta, Processo } from './tipos';
+import type { Conteiner, Distro, Evento, Porta, Processo } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -13,6 +13,21 @@ const PORTAS: [number, string, string | null][] = [
   [5432, 'postgres', 'Ubuntu'],
   [22, 'sshd', 'Ubuntu'],
   [1434, '', null],
+];
+
+// Nome, projeto do Compose e memória em MB; quatro projetos, como na máquina medida.
+const CONTEINERES: [string, string | null, number][] = [
+  ['loja-db', 'loja-online', 1763],
+  ['loja-api', 'loja-online', 403],
+  ['loja-redis', 'loja-online', 12],
+  ['loja-nginx', 'loja-online', 9],
+  ['loja-relatorios', 'loja-online', 478],
+  ['bot-api-1', 'chat-bot', 648],
+  ['bot-worker-1', 'chat-bot', 492],
+  ['bot-db-1', 'chat-bot', 71],
+  ['blog-api-1', 'blog', 273],
+  ['blog-db-1', 'blog', 51],
+  ['gitlab-runner', null, 28],
 ];
 
 type Modelo = [nome: string, usuario: string, cmdline: string, carga: number, rssMb: number];
@@ -31,6 +46,7 @@ const MODELOS: Record<string, Modelo[]> = {
     ['sshd', 'root', 'sshd: /usr/sbin/sshd -D [listener]', 0, 7.6],
     ['cron', 'root', '/usr/sbin/cron -f', 0, 2.8],
     ['vim', 'luan', 'vim notas.md', 0.2, 11],
+    ['rsync', 'luan', 'rsync -a /mnt/e/backup/ /home/luan/backup/', 0, 24],
   ],
   'docker-desktop': [
     ['init', 'root', '/init', 0, 1.1],
@@ -66,7 +82,7 @@ export function criarDemonstracao(): Api {
       pid: pid === 1 ? pid++ : (pid += 3 + Math.floor(Math.random() * 40)),
       ppid: 1,
       usuario,
-      estado: carga > 1 ? 'R' : 'S',
+      estado: n === 'rsync' ? 'D' : carga > 1 ? 'R' : 'S',
       nome: n,
       cmdline,
       cpu_pct: carga,
@@ -107,7 +123,8 @@ export function criarDemonstracao(): Api {
         cpus: 8,
         cpu_vm_pct: cpuVm,
         mem_total: 12 * 1024 ** 3,
-        mem_disponivel: 9.1 * 1024 ** 3 - Math.random() * 200 * 1024 ** 2,
+        mem_disponivel: 7.2 * 1024 ** 3 - Math.random() * 200 * 1024 ** 2,
+        mem_livre: 1.4 * 1024 ** 3,
         swap_total: 4 * 1024 ** 3,
         swap_livre: 3.9 * 1024 ** 3,
         processos: lista.map((p) => ({ ...p })),
@@ -124,6 +141,12 @@ export function criarDemonstracao(): Api {
 
   for (const d of distros.filter((d) => d.rodando)) ligar(d.nome);
   agendar();
+  setInterval(() => publicarRecursos(), 5000);
+  // Um processo preso esperando disco, como o vigia do backend o marcaria.
+  const preso = processos.Ubuntu?.find((p) => p.nome === 'rsync');
+  if (preso) {
+    estado.receberSuspeitos('Ubuntu', [{ pid: preso.pid, ppid: 1, nome: preso.nome, motivo: 'aguardando_es', desde_ms: Date.now() - 3 * 60_000 }]);
+  }
   setTimeout(tick, 50);
 
   const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -132,6 +155,44 @@ export function criarDemonstracao(): Api {
     if (!d) throw `distro ${nome} não existe`;
     return d;
   };
+
+  const conteineres: Conteiner[] = CONTEINERES.map(([nome, projeto, mb], i) => ({
+    id: (i + 1).toString(16).padStart(64, 'a'),
+    nome,
+    projeto,
+    estado: 'running',
+    memoria_bytes: mb * 1024 ** 2,
+    limite_bytes: nome === 'loja-relatorios' ? 512 * 1024 ** 2 : 0,
+    reinicios: nome === 'bot-api-1' ? 20 : 0,
+    em_ciclo: nome === 'bot-api-1',
+    saude: nome === 'loja-api' ? 'unhealthy' : nome.includes('db') || nome.includes('mssql') ? 'healthy' : null,
+  }));
+
+  function publicarRecursos() {
+    const wsl = 11.6 * GIB;
+    const docker = distros.find((d) => d.nome === 'docker-desktop')?.rodando ?? false;
+    const disponivel = (docker ? 2.7 : 9) * GIB + Math.random() * 100 * 1024 ** 2;
+    estado.memoriaWindows = {
+      total_bytes: 31.7 * GIB,
+      disponivel_bytes: disponivel,
+      commit_bytes: 42.3 * GIB,
+      commit_limite_bytes: 56 * GIB,
+      wsl_bytes: distros.some((d) => d.rodando) ? wsl : null,
+      pressao: disponivel < 3.17 * GIB,
+    };
+    estado.docker = { ligado: docker, conteineres: docker ? conteineres.map((c) => ({ ...c })) : [], erro: null };
+  }
+
+  async function agirEm(ids: string[], ligar: boolean, rotulo: string) {
+    await esperar(700);
+    for (const c of conteineres.filter((c) => ids.includes(c.id))) {
+      c.estado = ligar ? 'running' : 'exited';
+      c.memoria_bytes = ligar ? (CONTEINERES.find(([n]) => n === c.nome)?.[2] ?? 0) * 1024 ** 2 : 0;
+      c.em_ciclo = false;
+    }
+    publicarRecursos();
+    registrar('docker', 'docker-desktop', `O app ${ligar ? 'ligou' : 'parou'} ${rotulo} (${ids.length} container(s))`);
+  }
 
   let limiteGb = 12;
   let teclaAtalho = '';
@@ -196,6 +257,21 @@ export function criarDemonstracao(): Api {
       agendar();
     },
     listarAtividade: async () => eventosIniciais,
+    estadoRecursos: async () => {
+      publicarRecursos();
+      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null };
+    },
+    pararConteineres: (ids, rotulo) => agirEm(ids, false, rotulo),
+    iniciarConteineres: (ids, rotulo) => agirEm(ids, true, rotulo),
+    reiniciarConteineres: async (ids, rotulo) => {
+      await esperar(900);
+      for (const c of conteineres.filter((c) => ids.includes(c.id))) {
+        if (c.saude === 'unhealthy') c.saude = 'healthy';
+        c.memoria_bytes = Math.min(c.memoria_bytes, 120 * 1024 ** 2);
+      }
+      publicarRecursos();
+      registrar('docker', 'docker-desktop', `O app reiniciou ${rotulo} (${ids.length} container(s))`);
+    },
     resumoMemoria: async () => ({
       limite_bytes: limiteGb * GIB,
       limite_configurado: true,

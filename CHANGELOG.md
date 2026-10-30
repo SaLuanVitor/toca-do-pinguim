@@ -5,6 +5,43 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.7.0] - 2026-10-29
+
+### Adicionado
+
+- **Para onde vai a memória**, em Desempenho: quanto a VM do WSL ocupa no Windows ao lado dos
+  outros programas, e, dentro da VM, quanto é de programas e quanto é cache de arquivos.
+- **Docker por projeto**, em Desempenho: memória e containers ligados de cada projeto do
+  Docker Compose, lidos a cada 15 s, com botão para parar ou ligar o projeto inteiro. Um
+  container que reinicia sem parar aparece em destaque e vai para a Atividade.
+- Aviso e notificação do Windows quando a memória disponível do Windows cai abaixo de 10%,
+  dizendo quanto o WSL ocupa e qual projeto mais usa. O aviso some acima de 15%.
+- Aviso e notificação quando o WSL para de responder, com o botão para desligá-lo.
+- **Processos presos**, na aba Processos: o que está há mais de 1 min esperando disco ou rede
+  sem poder ser interrompido, o zumbi que o processo pai não recolheu em 1 min (com o PID do
+  pai, que é quem precisa ser encerrado) e o que usa um núcleo inteiro há mais de 5 min. Cada
+  um vai uma vez para a Atividade.
+- **Containers com problema**, no cartão do Docker: o que falha no próprio healthcheck e o que
+  passa de 90% do limite de memória, com botão para reiniciar só esses. Healthcheck falhando
+  e reinício em ciclo também viram notificação do Windows.
+- Configurações > Este app tem um interruptor para desligar a busca de atualizações, o único
+  acesso do app à internet, e um botão para procurar na hora.
+- O instalador mostra, antes de instalar, o que o app acessa na rede e o que muda no sistema.
+- README com as seções de privacidade e de política de assinatura, preparando o pedido de
+  assinatura gratuita à SignPath Foundation.
+
+### Alterado
+
+- O cartão Memória, em Desempenho, chamava de "Em uso" só o que os programas usam dentro da
+  VM, e podia mostrar 1 GB com o Gerenciador de Tarefas mostrando 8,6 GB para o `vmmemWSL`.
+  A diferença é cache de arquivos, que o Linux não conta como uso e o Windows cobra da VM. O
+  cartão agora separa programas e kernel, cache e quanto a VM ocupa na RAM do Windows.
+
+### Corrigido
+
+- Desligar o WSL esperava no máximo 90 s. Com o WSL travado, o `wsl --shutdown` levou 117 s,
+  e o app desistia antes de ele terminar. Agora espera até 3 minutos.
+
 ## [0.6.0] - 2026-10-29
 
 ### Segurança
@@ -123,7 +160,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.4.0...v0.5.0

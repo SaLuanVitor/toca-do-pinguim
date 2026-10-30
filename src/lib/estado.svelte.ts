@@ -1,4 +1,5 @@
-import type { Amostra, Distro, Evento, Pagina, Pedido, Porta } from './tipos';
+import { lerPreferencia, salvarPreferencia } from './preferencias';
+import type { Amostra, Distro, Docker, Evento, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
 
 const PONTOS_HISTORICO = 60;
 const EVENTOS_NA_TELA = 500;
@@ -28,6 +29,12 @@ class Estado {
   portasPorDistro = $state.raw<Record<string, Porta[]>>({});
   historico = $state.raw<Ponto[]>([]);
   eventos = $state.raw<Evento[]>([]);
+  memoriaWindows = $state.raw<MemoriaWindows | null>(null);
+  docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null });
+  /** Queda em curso do WSL, ou null quando ele responde. */
+  saude = $state.raw<SituacaoWsl | null>(null);
+  /** Processos com sinal de estar presos, por distro e PID. */
+  suspeitos = $state.raw<Record<string, Map<number, Suspeito>>>({});
   /** Distros cujo agente saiu por ociosidade e que o WSL deve desligar em seguida. */
   ociosas = $state.raw<Set<string>>(new Set());
   avisos = $state<Aviso[]>([]);
@@ -41,6 +48,8 @@ class Estado {
   /** Filtro da aba Portas e abertura do ajuste de limite, pedidos pela busca. */
   buscaPortas = $state('');
   ajustarLimite = $state(false);
+  /** A busca de versão nova é o único acesso do app à rede, e pode ser desligada. */
+  procurarAtualizacoes = $state(lerPreferencia('procurar-atualizacoes', true));
   #proximoAviso = 1;
 
   /** Todas as distros dividem a mesma VM; a primeira em ordem alfabética fala por ela. */
@@ -85,7 +94,15 @@ class Estado {
     this.historico = [...this.historico, { cpu: a.cpu_vm_pct, mem, swap }].slice(-PONTOS_HISTORICO);
   }
 
+  receberSuspeitos(distro: string, lista: Suspeito[]) {
+    this.suspeitos = { ...this.suspeitos, [distro]: new Map(lista.map((s) => [s.pid, s])) };
+  }
+
   agenteParou(distro: string) {
+    if (distro in this.suspeitos) {
+      const { [distro]: _, ...resto } = this.suspeitos;
+      this.suspeitos = resto;
+    }
     if (distro in this.amostras) {
       const { [distro]: _, ...resto } = this.amostras;
       this.amostras = resto;
@@ -112,6 +129,11 @@ class Estado {
     const id = this.#proximoAviso++;
     this.avisos.push({ id, texto });
     setTimeout(() => this.dispensar(id), 8000);
+  }
+
+  definirProcurarAtualizacoes(sim: boolean) {
+    this.procurarAtualizacoes = sim;
+    salvarPreferencia('procurar-atualizacoes', sim);
   }
 
   dispensar(id: number) {

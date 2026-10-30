@@ -25,6 +25,7 @@ export interface Amostra {
   cpu_vm_pct: number;
   mem_total: number;
   mem_disponivel: number;
+  mem_livre: number;
   swap_total: number;
   swap_livre: number;
   processos: Processo[];
@@ -39,7 +40,7 @@ export interface Distro {
   rodando: boolean;
 }
 
-export type TipoEvento = 'distro' | 'processo' | 'memoria' | 'config' | 'wsl';
+export type TipoEvento = 'distro' | 'processo' | 'memoria' | 'config' | 'wsl' | 'docker';
 
 export interface Evento {
   quando_ms: number;
@@ -56,6 +57,59 @@ export interface ResumoMemoria {
   minutos_de_dados: number;
   pico_bytes: number;
   sugestao_bytes: number | null;
+}
+
+export interface MemoriaWindows {
+  total_bytes: number;
+  disponivel_bytes: number;
+  commit_bytes: number;
+  commit_limite_bytes: number;
+  /** O que a VM do WSL ocupa no Windows, cache incluso; null com o WSL desligado. */
+  wsl_bytes: number | null;
+  pressao: boolean;
+}
+
+export interface Conteiner {
+  id: string;
+  nome: string;
+  projeto: string | null;
+  /** Como o Docker diz: running, restarting, exited, paused. */
+  estado: string;
+  memoria_bytes: number;
+  /** 0 quando o container não tem limite de memória. */
+  limite_bytes: number;
+  reinicios: number;
+  em_ciclo: boolean;
+  /** healthy, unhealthy ou starting; null sem healthcheck. */
+  saude: string | null;
+}
+
+/** Processo com sinal de estar preso, vindo do vigia do backend. */
+export interface Suspeito {
+  pid: number;
+  ppid: number;
+  nome: string;
+  motivo: 'aguardando_es' | 'zumbi' | 'cpu_constante';
+  desde_ms: number;
+}
+
+export interface Docker {
+  ligado: boolean;
+  conteineres: Conteiner[];
+  erro: string | null;
+}
+
+/** Queda em curso do WSL; null quando ele responde. */
+export interface SituacaoWsl {
+  alvo: string | null;
+  motivo: string;
+  desde_ms: number;
+}
+
+export interface EstadoRecursos {
+  memoria: MemoriaWindows;
+  docker: Docker;
+  saude: SituacaoWsl | null;
 }
 
 /** Pedido de confirmação para ação que encerra processos em massa. */

@@ -1,30 +1,61 @@
 # Toca do Pinguim
 
-Gerenciador de tarefas para o WSL, no formato do Gerenciador de Tarefas do Windows. Ele
-observa e gerencia sem mudar o ciclo de vida das distros: nenhuma fica ligada por causa
-do app.
+Gerenciador de tarefas para o WSL, no formato do Gerenciador de Tarefas do Windows. Mostra o
+que roda em cada distro, para onde vai a memória da máquina e o que está preso, sem segurar
+nenhuma distro ligada por conta própria.
+
+**[Baixar a versão mais recente](https://github.com/SaLuanVitor/toca-do-pinguim/releases/latest)**:
+instalador ou versão portátil, para Windows 10 e 11 com WSL 2. Ou pelo PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/SaLuanVitor/toca-do-pinguim/main/scripts/instalar.ps1 | iex
+```
+
+O instalador ainda não tem assinatura digital, e o SmartScreen avisa na primeira execução;
+os detalhes estão em [Instalar](#instalar).
 
 > **In English:** a Task Manager-style app for WSL on Windows 10 and 11. It shows processes,
-> CPU, memory and listening ports of every distro, lets you start, stop and restart distros,
-> edits every documented `.wslconfig` and per-distro `/etc/wsl.conf` setting, and logs WSL
-> failures. It never keeps a distro running on its own. Install with
-> `irm https://raw.githubusercontent.com/SaLuanVitor/toca-do-pinguim/main/scripts/instalar.ps1 | iex`.
-> The interface is in Brazilian Portuguese.
+> CPU, memory and listening ports of every distro, where the Windows memory goes (WSL cache,
+> Docker Compose projects), and which containers and processes look stuck. It starts, stops and
+> restarts distros, edits every documented `.wslconfig` and per-distro `/etc/wsl.conf` setting,
+> and logs WSL failures. It never keeps a distro running on its own. The interface is in
+> Brazilian Portuguese.
 
 ![Aba Processos](docs/capturas/processos.png)
 
-| Desempenho | Configurações |
+| Para onde vai a memória e Docker por projeto | Desempenho |
 |---|---|
-| ![Aba Desempenho](docs/capturas/desempenho.png) | ![Aba Configurações](docs/capturas/configuracoes.png) |
+| ![Memória e Docker](docs/capturas/memoria.png) | ![Aba Desempenho](docs/capturas/desempenho.png) |
 
 As capturas são do modo demonstração, com dados simulados.
 
+## O que ele resolve
+
+- **A memória que some no WSL.** A VM do WSL segura memória no Windows até o teto do
+  `.wslconfig`, e boa parte é cache de arquivos. O app mostra quanto é programa, quanto é
+  cache e qual projeto do Docker Compose ocupa mais, e para ou liga um projeto inteiro com um
+  clique. Abaixo de 10% de memória livre no Windows, avisa por notificação.
+- **O que está preso.** Container que falha no próprio healthcheck ou reinicia sem parar,
+  processo esperando disco ou rede, zumbi que ninguém recolhe. Cada um aparece com o motivo,
+  e o container tem botão para reiniciar.
+- **O WSL que trava.** Quando o `wsl.exe` para de responder (`Wsl/Service/0x8007274c`), o app
+  avisa e oferece desligar o WSL, em vez de você descobrir pelo terminal parado.
+- **Sem segurar distro ligada.** O app lê as distros por dentro, mas o agente dele sai quando a
+  sessão dele é a única. Medido: com o app aberto, o agente saiu 2 s depois que uma Debian ficou
+  sem sessão, e o WSL a desligou 16 s depois disso.
+
+Usa WSL no dia a dia? Teste e conte numa [issue](https://github.com/SaLuanVitor/toca-do-pinguim/issues)
+o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
+[CONTRIBUTING](CONTRIBUTING.md).
+
+## Abas
+
 | Aba | O que tem |
 |---|---|
-| Processos | processos de cada distro com CPU e memória; encerramento por SIGTERM ou SIGKILL |
-| Desempenho | gráficos de CPU e memória da VM; limite de memória com pico medido e sugestão |
+| Processos | processos de cada distro com CPU e memória; os presos e os zumbis marcados com o motivo; encerramento por SIGTERM ou SIGKILL |
+| Desempenho | gráficos de CPU e memória da VM; para onde vai a memória do Windows; Docker por projeto, com parar, ligar e reiniciar o que está com problema; limite de memória com pico medido e sugestão |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
-| Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, configuração |
+| Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
 | Distros | iniciar, terminar, reiniciar e desligar o WSL |
 | Configurações | as 42 chaves do `.wslconfig` e as 19 do `/etc/wsl.conf` de cada distro, em grupos, com o padrão de cada uma e validação |
 | Log | o log técnico, por padrão só avisos e erros |
@@ -89,6 +120,21 @@ Não foi medido se um processo solto da sessão (`setsid`) segura uma distro sem
 
 Com a janela minimizada, as amostras param de ir ao front e os agentes passam a ler a
 cada 5 s.
+
+**Memória do Windows e Docker.** A cada 5 s o app lê a memória do Windows e quanto o processo
+`vmmemWSL` ocupa nele, sem precisar de administrador. Abaixo de 10% de memória disponível ele
+avisa na tela e por notificação do Windows, e o aviso some acima de 15%. Com a distro
+`docker-desktop` ligada, a CLI `docker` do Windows é lida a cada 15 s (`ps`, `inspect` e
+`stats`; medido, de 4 a 5 s juntos com 19 containers), e com a janela minimizada só quando
+o aviso de memória está aceso. Parar um projeto é um `docker stop` dos containers dele: nada
+é apagado.
+
+**Processos e containers presos.** O Linux não marca processo como travado; o app aponta
+sinais. Na aba Processos: estado `D` por mais de 1 min (esperando disco ou rede, e encerrar só
+funciona quando a espera termina), zumbi por mais de 1 min e um núcleo inteiro por mais de
+5 min, que pode ser só trabalho pesado, como uma compilação. No Docker: healthcheck falhando e
+memória acima de 90% do limite do container. Notificação do Windows só para os sinais firmes:
+healthcheck falhando e reinício em ciclo.
 
 **Dados.** Em `%APPDATA%\com.luan.tocadopinguim`: `memoria.csv` (pico de memória usada por
 minuto, 30 dias) e `atividade.jsonl` (últimos 1000 eventos). Na primeira abertura, os dois
@@ -169,6 +215,28 @@ com 162), executável de release:
 | App aberto, Debian com uma sessão de 40 s | agente ficou durante a sessão e saiu quando ela fechou; desligou 16 s depois |
 
 Medições únicas, numa máquina; não são dado de campo.
+
+## Privacidade
+
+O único acesso do app à internet é a busca de versão nova, ao abrir e a cada 6 horas: ele
+consulta as versões publicadas em github.com, e o GitHub recebe o endereço IP do computador,
+como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais
+sai da máquina: o log, o histórico de memória e a atividade ficam só nela. O instalador mostra
+este aviso antes de instalar.
+
+## Política de assinatura (code signing policy)
+
+Os instaladores ainda não têm assinatura digital do Windows. O projeto vai pedir assinatura
+gratuita à [SignPath Foundation](https://signpath.org), que assina apenas o que a CI do GitHub
+compila a partir deste repositório, e cada versão só é assinada depois de aprovada à mão.
+
+| Papel | Quem |
+|---|---|
+| Autores e revisores (*committers and reviewers*) | [SaLuanVitor](https://github.com/SaLuanVitor) |
+| Aprovadores (*approvers*) | [SaLuanVitor](https://github.com/SaLuanVitor) |
+
+Toda mudança entra por PR nas branches protegidas, e quem não é autor tem o PR revisado antes
+de entrar.
 
 ## Contribuir
 

@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from './api';
+  import BarraMemoria from './BarraMemoria.svelte';
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
   import { bytes, duracao, pct } from './formato';
   import Grafico from './Grafico.svelte';
   import LimiteMemoria from './LimiteMemoria.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
+  import ProjetosDocker from './ProjetosDocker.svelte';
   import type { ResumoMemoria } from './tipos';
 
   type Coluna = 'nome' | 'processos' | 'cpu' | 'mem' | 'agenteRss' | 'coleta';
@@ -43,6 +45,9 @@
   const mem = $derived(estado.historico.map((p) => p.mem));
   const memUsada = $derived(vm ? vm.mem_total - vm.mem_disponivel : 0);
   const swapUsada = $derived(vm ? vm.swap_total - vm.swap_livre : 0);
+  const cache = $derived(vm ? Math.max(0, vm.mem_disponivel - vm.mem_livre) : 0);
+  const windows = $derived(estado.memoriaWindows);
+  const usadaWindows = $derived(windows ? windows.total_bytes - windows.disponivel_bytes : 0);
   const porDistro = $derived(
     ordem.ordenar(
       Object.entries(estado.amostras).map(([nome, a]) => ({
@@ -96,12 +101,15 @@
         <Grafico
           valores={mem}
           cor="--mem"
-          rotulo="Memória em uso nos últimos 60 segundos: {bytes(memUsada)} de {bytes(vm.mem_total)}"
+          rotulo="Memória usada por programas e kernel nos últimos 60 segundos: {bytes(memUsada)} de {bytes(vm.mem_total)}"
         />
       </div>
       <dl>
-        <div><dt>Em uso</dt><dd>{bytes(memUsada)}</dd></div>
-        <div><dt>Disponível</dt><dd>{bytes(vm.mem_disponivel)}</dd></div>
+        <div><dt>Programas e kernel</dt><dd>{bytes(memUsada)}</dd></div>
+        <div><dt>Cache de arquivos</dt><dd>{bytes(cache)}</dd></div>
+        {#if windows?.wsl_bytes != null}
+          <div><dt>Na RAM do Windows</dt><dd>{bytes(windows.wsl_bytes)}</dd></div>
+        {/if}
         <div><dt>Swap em uso</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
       </dl>
       {#if resumo}
@@ -124,6 +132,38 @@
         </div>
       {/if}
     </section>
+
+    {#if windows}
+      <section class="cartao largo" aria-labelledby="titulo-onde">
+        <div class="cabeca">
+          <h2 id="titulo-onde">Para onde vai a memória</h2>
+          <span>Comprometida no Windows: {bytes(windows.commit_bytes)} de {bytes(windows.commit_limite_bytes)} (RAM mais arquivo de paginação)</span>
+        </div>
+        <BarraMemoria
+          titulo="Windows: {bytes(windows.total_bytes)} de RAM"
+          partes={[
+            { rotulo: 'VM do WSL', bytes: windows.wsl_bytes ?? 0, cor: 'var(--mem)' },
+            { rotulo: 'Outros programas', bytes: usadaWindows - (windows.wsl_bytes ?? 0), cor: 'var(--cpu)' },
+            { rotulo: 'Disponível', bytes: windows.disponivel_bytes, cor: 'var(--borda-forte)' },
+          ]}
+        />
+        <BarraMemoria
+          titulo="Dentro da VM do WSL: {bytes(vm.mem_total)}"
+          partes={[
+            { rotulo: 'Programas e kernel', bytes: memUsada, cor: 'var(--mem)' },
+            { rotulo: 'Cache de arquivos', bytes: cache, cor: 'rgb(var(--calor))' },
+            { rotulo: 'Livre', bytes: vm.mem_livre, cor: 'var(--borda-forte)' },
+          ]}
+        />
+        <p class="nota">
+          O cache guarda arquivos lidos, e o Linux o descarta quando um programa precisa de memória; até lá, o Windows o conta
+          como ocupado pela VM. Para a VM ocupar menos no Windows, baixe o limite de memória dela ou pare os containers que não
+          estiver usando.
+        </p>
+      </section>
+    {/if}
+
+    <ProjetosDocker />
 
     <section class="cartao largo" aria-labelledby="titulo-distros">
       <div class="cabeca">
@@ -163,6 +203,13 @@
 {/if}
 
 <style>
+  .nota {
+    margin: 0;
+    color: var(--texto-2);
+    font-size: 12px;
+    max-width: 90ch;
+  }
+
   .limite {
     display: flex;
     align-items: flex-end;

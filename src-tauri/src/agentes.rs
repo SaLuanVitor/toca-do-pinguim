@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter};
 use crate::atividade::Atividade;
 use crate::config::WslConfig;
 use crate::historico::Historico;
+use crate::travados;
 use crate::wsl::{self, Distro};
 
 /// Gerado por `npm run agente` antes do build do app.
@@ -58,6 +59,12 @@ struct AmostraDistro<'a> {
 }
 
 #[derive(Serialize, Clone)]
+struct SuspeitosDistro<'a> {
+    distro: &'a str,
+    lista: &'a [travados::Suspeito],
+}
+
+#[derive(Serialize, Clone)]
 struct RespostaDistro<'a> {
     distro: &'a str,
     ok: bool,
@@ -81,12 +88,18 @@ pub struct Agentes {
     falhas: Mutex<HashMap<String, (Instant, u32)>>,
     /// Distros cujo agente saiu por ociosidade, com o instante da saída.
     ociosas: Mutex<HashMap<String, Instant>>,
+    /// Distros ligadas na última leitura do supervisor.
+    ligadas: Mutex<HashSet<String>>,
     /// Sinais enviados e ainda sem resposta, por distro, na ordem de envio: o agente
     /// responde na mesma ordem.
     pendentes: Mutex<HashMap<String, VecDeque<(i32, String, i32)>>>,
     pub historico: Mutex<Historico>,
     pub atividade: Mutex<Atividade>,
+    /// Processos presos, por distro.
+    travados: Mutex<HashMap<String, travados::Vigia>>,
     intervalo_ms: AtomicU64,
+    /// Cache de arquivos da VM na última amostra; 0 enquanto nenhuma chegou.
+    cache_vm: AtomicU64,
     espera_ociosidade_ms: AtomicI64,
     pausado: AtomicBool,
     proximo_id: AtomicU64,
@@ -98,10 +111,13 @@ impl Agentes {
             slots: Mutex::new(HashMap::new()),
             falhas: Mutex::new(HashMap::new()),
             ociosas: Mutex::new(HashMap::new()),
+            ligadas: Mutex::new(HashSet::new()),
             pendentes: Mutex::new(HashMap::new()),
             historico: Mutex::new(Historico::abrir(dados.join("memoria.csv"))),
             atividade: Mutex::new(Atividade::abrir(dados.join("atividade.jsonl"))),
+            travados: Mutex::new(HashMap::new()),
             intervalo_ms: AtomicU64::new(1000),
+            cache_vm: AtomicU64::new(0),
             espera_ociosidade_ms: AtomicI64::new(WslConfig::ler().espera_ociosidade_ms()),
             pausado: AtomicBool::new(false),
             proximo_id: AtomicU64::new(1),
@@ -131,6 +147,18 @@ impl Agentes {
         if !self.pausado.load(Ordering::Relaxed) {
             self.repassar_intervalo(ms);
         }
+    }
+
+    pub fn cache_vm(&self) -> Option<u64> {
+        Some(self.cache_vm.load(Ordering::Relaxed)).filter(|&b| b > 0)
+    }
+
+    pub fn pausado(&self) -> bool {
+        self.pausado.load(Ordering::Relaxed)
+    }
+
+    pub fn rodando(&self, distro: &str) -> bool {
+        self.ligadas.lock().unwrap().contains(distro)
     }
 
     pub fn pausar(&self, sim: bool) {
@@ -246,6 +274,9 @@ impl Agentes {
             match serde_json::from_str::<Mensagem>(&linha) {
                 Ok(Mensagem::Amostra(amostra)) => {
                     self.historico.lock().unwrap().registrar(&amostra);
+                    // A VM é uma só: qualquer distro serve para medir o cache dela.
+                    self.cache_vm.store(amostra.mem_disponivel.saturating_sub(amostra.mem_livre), Ordering::Relaxed);
+                    self.vigiar_travados(&app, &distro, &amostra);
                     if !amostra.kernel.is_empty() {
                         let mut atividade = self.atividade.lock().unwrap();
                         for ev in &amostra.kernel {
@@ -287,7 +318,28 @@ impl Agentes {
         }
         drop(slots);
         self.pendentes.lock().unwrap().remove(&distro);
+        self.travados.lock().unwrap().remove(&distro);
         let _ = app.emit("agente_parou", &distro);
+    }
+}
+
+impl Agentes {
+    fn vigiar_travados(&self, app: &AppHandle, distro: &str, amostra: &Amostra) {
+        let leitura = self
+            .travados
+            .lock()
+            .unwrap()
+            .entry(distro.to_string())
+            .or_default()
+            .observar(amostra, Instant::now());
+        for s in &leitura.novos {
+            let texto = travados::descrever(s);
+            info!("[{distro}] {texto}");
+            self.registrar(app, "processo", Some(distro), texto);
+        }
+        if leitura.mudou {
+            let _ = app.emit("suspeitos", SuspeitosDistro { distro, lista: &leitura.suspeitos });
+        }
     }
 }
 
@@ -393,6 +445,7 @@ fn lancar(
 pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
     thread::spawn(move || {
         let mut ultima: Option<Vec<Distro>> = None;
+        let mut travado = false;
         loop {
             agentes
                 .espera_ociosidade_ms
@@ -412,6 +465,7 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                         }
                     }
                     agentes.ociosas.lock().unwrap().retain(|d, _| rodando.contains(d.as_str()));
+                    *agentes.ligadas.lock().unwrap() = rodando.iter().map(|d| d.to_string()).collect();
                     if rodando.is_empty() {
                         agentes.atividade.lock().unwrap().vm_parou();
                     }
@@ -428,7 +482,20 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                     let _ = app.emit("erro", Erro { distro: None, mensagem });
                 }
             }
-            for mudanca in wsl::saude::mudancas() {
+            let mudancas = wsl::saude::mudancas();
+            if !mudancas.is_empty() {
+                let situacao = wsl::saude::atual();
+                if situacao.is_some() && !travado {
+                    crate::recursos::notificar(
+                        &app,
+                        "O WSL parou de responder",
+                        "Abra a Toca do Pinguim para ver o que aconteceu e reiniciar o WSL.",
+                    );
+                }
+                travado = situacao.is_some();
+                let _ = app.emit("saude_wsl", &situacao);
+            }
+            for mudanca in mudancas {
                 let (alvo, texto) = match mudanca {
                     wsl::saude::Mudanca::Caiu { alvo, motivo } => {
                         let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();

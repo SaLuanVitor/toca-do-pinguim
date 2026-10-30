@@ -4,6 +4,7 @@
   import { api, conectar, dentroDoApp } from '#lib/api.js';
   import Atividade from '#lib/Atividade.svelte';
   import AvisoAtualizacao from '#lib/AvisoAtualizacao.svelte';
+  import AvisoRecursos from '#lib/AvisoRecursos.svelte';
   import Configuracoes from '#lib/Configuracoes.svelte';
   import Confirmar from '#lib/Confirmar.svelte';
   import Desempenho from '#lib/Desempenho.svelte';
@@ -118,6 +119,7 @@
     {/if}
     {#if pronto}
       <AvisoAtualizacao />
+      <AvisoRecursos />
       {#if estado.pagina === 'processos'}
         <Processos />
       {:else if estado.pagina === 'desempenho'}

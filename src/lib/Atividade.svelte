@@ -7,6 +7,7 @@
     { id: 'distro', titulo: 'Distros' },
     { id: 'wsl', titulo: 'WSL' },
     { id: 'processo', titulo: 'Processos' },
+    { id: 'docker', titulo: 'Docker' },
     { id: 'memoria', titulo: 'Falta de memória' },
     { id: 'config', titulo: 'Configuração' },
   ];
@@ -17,9 +18,16 @@
     memoria: 'Memória',
     config: 'Configuração',
     wsl: 'WSL',
+    docker: 'Docker',
   };
 
   let filtro = $state<TipoEvento | 'todos'>('todos');
+
+  function alerta(e: Evento): boolean {
+    if (e.tipo === 'memoria') return !e.texto.includes('voltou a ter folga');
+    if (e.tipo === 'wsl') return e.texto.includes('deixou de responder');
+    return e.tipo === 'docker' && e.texto.includes('sem parar');
+  }
 
   const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const data = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -68,7 +76,7 @@
       <h2 id="dia-{g.dia}">{g.dia}</h2>
       <ol>
         {#each g.eventos as e (`${e.quando_ms}|${e.texto}`)}
-          <li class:alerta={e.tipo === 'memoria' || (e.tipo === 'wsl' && e.texto.includes('deixou de responder'))}>
+          <li class:alerta={alerta(e)}>
             <time datetime={new Date(e.quando_ms).toISOString()}>{hora.format(e.quando_ms)}</time>
             <span class="tipo">{ROTULOS[e.tipo] ?? e.tipo}</span>
             <div class="texto">
