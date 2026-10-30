@@ -1,0 +1,606 @@
+<script lang="ts">
+  // Onde está o espaço do WSL e o que dá para liberar. Toda limpeza passa pela confirmação e
+  // vai para a Atividade com o quanto liberou.
+  import { onMount } from 'svelte';
+  import { api } from './api';
+  import { estado } from './estado.svelte';
+  import { bytes } from './formato';
+  import type { AnalisePastas, Armazenamento, LimpezaDocker, LimpezaProgramada, Pasta } from './tipos';
+
+  let dados = $state<Armazenamento | null>(null);
+  let lendo = $state(false);
+  let limpando = $state<string | null>(null);
+  let resultado = $state('');
+
+  let distro = $state('');
+  let analise = $state<AnalisePastas | null>(null);
+  let analisando = $state(false);
+  let marcadas = $state<Record<string, boolean>>({});
+
+  let volumesAbertos = $state(false);
+  let volumesMarcados = $state<Record<string, boolean>>({});
+
+  const data = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  const NOMES: Record<string, string> = {
+    Images: 'Imagens',
+    Containers: 'Containers',
+    'Local Volumes': 'Volumes',
+    'Build Cache': 'Cache de build',
+  };
+
+  async function ler() {
+    lendo = true;
+    try {
+      dados = await api.lerArmazenamento();
+      if (!dados.distros_ligadas.includes(distro)) distro = dados.distros_ligadas[0] ?? '';
+      volumesMarcados = {};
+    } catch (e) {
+      estado.avisar(String(e));
+    } finally {
+      lendo = false;
+    }
+  }
+
+  function categoria(tipo: string) {
+    return dados?.docker?.categorias.find((c) => c.tipo === tipo);
+  }
+
+  function limparDocker(qual: LimpezaDocker, titulo: string, texto: string, volumes: string[] = []) {
+    estado.pedido = {
+      titulo,
+      texto,
+      acao: 'Apagar',
+      executar: async () => {
+        limpando = qual;
+        resultado = '';
+        try {
+          const liberado = await api.limparDocker(qual, volumes);
+          resultado = `${titulo.replace(/\?$/, '')}: ${bytes(liberado)} liberados dentro do disco do Docker.`;
+          await ler();
+        } catch (e) {
+          estado.avisar(String(e));
+        } finally {
+          limpando = null;
+        }
+      },
+    };
+  }
+
+  const volumesEscolhidos = $derived(dados?.docker?.volumes_sem_uso.filter((v) => volumesMarcados[v.nome]) ?? []);
+
+  async function analisar() {
+    if (!distro) return;
+    analisando = true;
+    analise = null;
+    marcadas = {};
+    try {
+      analise = await api.analisarPastas(distro);
+    } catch (e) {
+      estado.avisar(String(e));
+    } finally {
+      analisando = false;
+    }
+  }
+
+  const escolhidas = $derived(analise ? [...analise.tmp, ...analise.caches].filter((p) => marcadas[p.caminho]) : []);
+  const escolhidasBytes = $derived(escolhidas.reduce((s, p) => s + p.bytes, 0));
+
+  function apagarPastas() {
+    if (!analise || escolhidas.length === 0) return;
+    const alvo = analise.distro;
+    const lista = escolhidas.map((p) => p.caminho);
+    estado.pedido = {
+      titulo: `Apagar ${lista.length === 1 ? '1 item' : `${lista.length} itens`} de ${alvo}?`,
+      texto: `Somam ${bytes(escolhidasBytes)}: ${lista.join(', ')}. Entrada do /tmp sai inteira; pasta de cache é esvaziada e o programa gera de novo o que precisar. Não há lixeira: o que estiver no /tmp se perde.`,
+      acao: 'Apagar',
+      executar: async () => {
+        limpando = 'pastas';
+        try {
+          const liberado = await api.apagarPastas(alvo, lista);
+          resultado = `${bytes(liberado)} liberados dentro do disco de ${alvo}.`;
+          if (analise) {
+            analise = {
+              ...analise,
+              tmp: analise.tmp.filter((p) => !lista.includes(p.caminho)),
+              caches: analise.caches.map((p) => (lista.includes(p.caminho) ? { ...p, bytes: 0 } : p)),
+            };
+          }
+          marcadas = {};
+        } catch (e) {
+          estado.avisar(String(e));
+        } finally {
+          limpando = null;
+        }
+      },
+    };
+  }
+
+  async function mudarLimpeza(parcial: Partial<LimpezaProgramada>) {
+    if (!dados) return;
+    const nova = { ...dados.limpeza, ...parcial };
+    try {
+      await api.definirLimpeza(nova);
+      dados = { ...dados, limpeza: nova };
+    } catch (e) {
+      estado.avisar(String(e));
+    }
+  }
+
+  function idade(p: Pasta): string {
+    return p.modificado_ms ? data.format(p.modificado_ms) : '';
+  }
+
+  onMount(ler);
+</script>
+
+<header class="barra">
+  <h1>Armazenamento</h1>
+  <button class="botao" onclick={ler} disabled={lendo}>{lendo ? 'Lendo' : 'Atualizar'}</button>
+</header>
+
+<div class="rolagem">
+  {#if resultado}<p class="resultado" role="status">{resultado}</p>{/if}
+
+  <section class="cartao" aria-labelledby="titulo-discos">
+    <div class="cabeca">
+      <h2 id="titulo-discos">Discos virtuais</h2>
+      <span>Cada distro guarda os arquivos num disco virtual (.vhdx) no Windows</span>
+    </div>
+    {#if !dados}
+      <p class="nota">{lendo ? 'Lendo os discos e o Docker. Pode levar alguns segundos.' : 'Sem dados.'}</p>
+    {:else}
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Disco</th>
+            <th scope="col" class="numero">No Windows</th>
+            <th scope="col" class="numero">Usado por dentro</th>
+            <th scope="col" class="numero">Espaço vazio no arquivo</th>
+            <th scope="col">Arquivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each dados.discos as d (d.caminho)}
+            <tr>
+              <th scope="row">{d.nome}{#if d.esparso}<small>esparso</small>{/if}</th>
+              <td class="numero">{bytes(d.tamanho_bytes)}</td>
+              <td class="numero">{d.usado_bytes !== null ? bytes(d.usado_bytes) : ''}</td>
+              <td class="numero">{d.usado_bytes !== null ? bytes(Math.max(0, d.tamanho_bytes - d.usado_bytes)) : ''}</td>
+              <td class="caminho" title={d.caminho}>{d.caminho}</td>
+            </tr>
+            {#if d.nota}
+              <tr class="nota-linha"><td colspan="5">{d.nota}</td></tr>
+            {/if}
+          {/each}
+        </tbody>
+      </table>
+      <p class="nota">
+        O uso por dentro só aparece com a distro ligada. Apagar algo dentro da distro libera espaço nela, mas o arquivo no Windows
+        não diminui sozinho: o espaço vazio dentro dele só volta ao Windows compactando o disco, com o WSL desligado.
+      </p>
+    {/if}
+  </section>
+
+  <section class="cartao" aria-labelledby="titulo-docker-armazenamento">
+    <div class="cabeca">
+      <h2 id="titulo-docker-armazenamento">Docker</h2>
+      <span>Recuperável segundo o próprio Docker</span>
+    </div>
+    {#if dados && !dados.docker && !dados.erro_docker}
+      <p class="nota">O Docker Desktop não está ligado.</p>
+    {:else if dados?.erro_docker}
+      <p class="nota">Não foi possível ler o Docker: {dados.erro_docker}</p>
+    {:else if dados?.docker}
+      {@const imagens = categoria('Images')}
+      {@const containers = categoria('Containers')}
+      {@const volumes = categoria('Local Volumes')}
+      {@const build = categoria('Build Cache')}
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">O quê</th>
+            <th scope="col" class="numero">Total</th>
+            <th scope="col" class="numero">Recuperável</th>
+            <th scope="col"><span class="visualmente-oculto">Ação</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#if imagens}
+            <tr>
+              <th scope="row">{NOMES[imagens.tipo]} <small>{imagens.quantidade}, {imagens.ativos} em uso</small></th>
+              <td class="numero">{bytes(imagens.total_bytes)}</td>
+              <td class="numero">{bytes(imagens.recuperavel_bytes)}</td>
+              <td class="acao">
+                <button
+                  class="botao"
+                  disabled={!!limpando || imagens.recuperavel_bytes === 0}
+                  onclick={() =>
+                    limparDocker(
+                      'imagens_sem_uso',
+                      'Apagar as imagens sem uso?',
+                      `Apaga as imagens que nenhum container usa, cerca de ${bytes(imagens.recuperavel_bytes)}. Um projeto que precisar de uma delas baixa ou monta de novo, o que leva tempo e rede.`,
+                    )}>{limpando === 'imagens_sem_uso' ? 'Apagando' : 'Apagar sem uso'}</button
+                >
+              </td>
+            </tr>
+          {/if}
+          {#if containers}
+            <tr>
+              <th scope="row">{NOMES[containers.tipo]} <small>{containers.quantidade}, {containers.ativos} rodando</small></th>
+              <td class="numero">{bytes(containers.total_bytes)}</td>
+              <td class="numero">{bytes(containers.recuperavel_bytes)}</td>
+              <td class="acao">
+                <button
+                  class="botao"
+                  disabled={!!limpando || dados.docker.sobras === 0}
+                  title="Containers parados sem projeto do Compose: {dados.docker.sobras}, {bytes(dados.docker.sobras_bytes)}"
+                  onclick={() =>
+                    limparDocker(
+                      'sobras',
+                      'Apagar os containers parados de builds?',
+                      `Apaga ${dados?.docker?.sobras} containers parados que não pertencem a nenhum projeto do Compose, em geral sobras de builds e jobs de CI (${bytes(dados?.docker?.sobras_bytes ?? 0)}). Os containers dos seus projetos ficam, ligados ou parados.`,
+                    )}>{limpando === 'sobras' ? 'Apagando' : `Sobras de builds (${dados.docker.sobras})`}</button
+                >
+                <button
+                  class="botao"
+                  disabled={!!limpando || containers.quantidade === containers.ativos}
+                  onclick={() =>
+                    limparDocker(
+                      'parados',
+                      'Apagar todos os containers parados?',
+                      'Apaga todo container parado, inclusive os de projetos do Compose. Volumes e imagens ficam, mas um projeto parado precisa de docker compose up para recriar os containers dele; o botão Ligar do app deixa de servir para ele.',
+                    )}>{limpando === 'parados' ? 'Apagando' : 'Todos os parados'}</button
+                >
+              </td>
+            </tr>
+          {/if}
+          {#if volumes}
+            <tr>
+              <th scope="row">{NOMES[volumes.tipo]} <small>{volumes.quantidade}, {dados.docker.volumes_sem_uso.length} sem uso</small></th>
+              <td class="numero">{bytes(volumes.total_bytes)}</td>
+              <td class="numero">{bytes(volumes.recuperavel_bytes)}</td>
+              <td class="acao">
+                <button class="botao" aria-expanded={volumesAbertos} onclick={() => (volumesAbertos = !volumesAbertos)}>
+                  {volumesAbertos ? 'Fechar lista' : 'Escolher volumes'}
+                </button>
+              </td>
+            </tr>
+            {#if volumesAbertos}
+              <tr class="lista">
+                <td colspan="4">
+                  <p class="nota">
+                    Volume guarda dados, como o banco de um projeto parado. Só aparecem os que nenhum container usa agora; o que
+                    estiver num volume apagado se perde de vez.
+                  </p>
+                  <ul>
+                    {#each dados.docker.volumes_sem_uso.slice(0, 60) as v (v.nome)}
+                      <li>
+                        <label><input type="checkbox" bind:checked={volumesMarcados[v.nome]} /> <code>{v.nome}</code></label>
+                        <span class="numero">{bytes(v.bytes)}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                  <button
+                    class="botao perigo"
+                    disabled={!!limpando || volumesEscolhidos.length === 0}
+                    onclick={() =>
+                      limparDocker(
+                        'volumes',
+                        `Apagar ${volumesEscolhidos.length} volume(s)?`,
+                        `Apaga ${volumesEscolhidos.map((v) => v.nome).join(', ')}, somando ${bytes(volumesEscolhidos.reduce((s, v) => s + v.bytes, 0))}. Os dados deles se perdem de vez.`,
+                        volumesEscolhidos.map((v) => v.nome),
+                      )}>{limpando === 'volumes' ? 'Apagando' : 'Apagar os marcados'}</button
+                  >
+                </td>
+              </tr>
+            {/if}
+          {/if}
+          {#if build}
+            <tr>
+              <th scope="row">{NOMES[build.tipo]} <small>{build.quantidade} itens</small></th>
+              <td class="numero">{bytes(build.total_bytes)}</td>
+              <td class="numero">{bytes(build.recuperavel_bytes)}</td>
+              <td class="acao">
+                <button
+                  class="botao"
+                  disabled={!!limpando || build.total_bytes === 0}
+                  onclick={() =>
+                    limparDocker(
+                      'cache_de_build',
+                      'Apagar o cache de build?',
+                      'Apaga o cache que nenhum build está usando agora. O próximo build de cada imagem refaz as etapas e demora mais na primeira vez.',
+                    )}>{limpando === 'cache_de_build' ? 'Apagando' : 'Apagar cache'}</button
+                >
+              </td>
+            </tr>
+          {/if}
+        </tbody>
+      </table>
+    {:else}
+      <p class="nota">Lendo.</p>
+    {/if}
+  </section>
+
+  <section class="cartao" aria-labelledby="titulo-pastas">
+    <div class="cabeca">
+      <h2 id="titulo-pastas">Pastas grandes</h2>
+      <span>Dentro de uma distro ligada</span>
+    </div>
+    {#if dados && dados.distros_ligadas.length === 0}
+      <p class="nota">Nenhuma distro ligada. Ligue uma em Distros para analisar as pastas dela.</p>
+    {:else}
+      <div class="analisar">
+        <label>
+          Distro
+          <select bind:value={distro}>
+            {#each dados?.distros_ligadas ?? [] as d (d)}<option value={d}>{d}</option>{/each}
+          </select>
+        </label>
+        <button class="botao" onclick={analisar} disabled={analisando || !distro}>{analisando ? 'Analisando' : 'Analisar'}</button>
+        {#if analisando}<span class="nota">Percorre o disco inteiro da distro; pode levar alguns minutos.</span>{/if}
+      </div>
+      {#if analise}
+        <h3>Maiores pastas da raiz</h3>
+        <ul class="raiz">
+          {#each analise.raiz.slice(1) as p (p.caminho)}<li><code>{p.caminho}</code> <span class="numero">{bytes(p.bytes)}</span></li>{/each}
+        </ul>
+
+        <h3>/tmp</h3>
+        <p class="nota">
+          O /tmp do WSL não se esvazia nem ao reiniciar. Pasta montada por um container rodando aparece bloqueada: apagá-la
+          quebraria o container.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col"><span class="visualmente-oculto">Marcar</span></th>
+              <th scope="col">Pasta</th>
+              <th scope="col" class="numero">Tamanho</th>
+              <th scope="col">Mudou em</th>
+              <th scope="col">Situação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each analise.tmp as p (p.caminho)}
+              <tr class:bloqueada={!p.apagavel}>
+                <td><input type="checkbox" aria-label="Marcar {p.caminho}" disabled={!p.apagavel} bind:checked={marcadas[p.caminho]} /></td>
+                <td class="caminho" title={p.caminho}><code>{p.caminho}</code></td>
+                <td class="numero">{bytes(p.bytes)}</td>
+                <td>{idade(p)}</td>
+                <td>{p.em_uso_por ? `em uso por ${p.em_uso_por}` : ''}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+
+        <h3>Caches</h3>
+        <ul class="raiz">
+          {#each analise.caches as p (p.caminho)}
+            <li>
+              <label><input type="checkbox" disabled={!p.apagavel || p.bytes === 0} bind:checked={marcadas[p.caminho]} /> <code>{p.caminho}</code></label>
+              <span class="numero">{bytes(p.bytes)}</span>
+            </li>
+          {/each}
+        </ul>
+        <div class="analisar">
+          <button class="botao perigo" disabled={!!limpando || escolhidas.length === 0} onclick={apagarPastas}>
+            {limpando === 'pastas' ? 'Apagando' : `Apagar os marcados (${bytes(escolhidasBytes)})`}
+          </button>
+        </div>
+      {/if}
+    {/if}
+  </section>
+
+  <section class="cartao" aria-labelledby="titulo-limpeza">
+    <div class="cabeca">
+      <h2 id="titulo-limpeza">Limpeza programada</h2>
+      <span>Uma vez por semana, com o app aberto</span>
+    </div>
+    {#if dados}
+      <label class="opcao">
+        <input type="checkbox" checked={dados.limpeza.cache_de_build} onchange={(e) => mudarLimpeza({ cache_de_build: e.currentTarget.checked })} />
+        Apagar o cache de build do Docker que nenhum build usa
+      </label>
+      <label class="opcao">
+        <input
+          type="checkbox"
+          checked={dados.limpeza.sobras_de_containers}
+          onchange={(e) => mudarLimpeza({ sobras_de_containers: e.currentTarget.checked })}
+        />
+        Apagar containers parados que não são de nenhum projeto do Compose
+      </label>
+      <label class="opcao">
+        Apagar do /tmp de cada distro ligada o que não muda há
+        <select
+          value={String(dados.limpeza.tmp_dias ?? '')}
+          onchange={(e) => mudarLimpeza({ tmp_dias: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
+        >
+          <option value="">nunca</option>
+          <option value="7">7 dias</option>
+          <option value="14">14 dias</option>
+          <option value="30">30 dias</option>
+        </select>
+      </label>
+      <p class="nota">
+        Pasta montada por container rodando fica de fora. Cada limpeza vai para a Atividade com o quanto liberou.
+        {dados.limpeza.ultima_ms ? `A última foi em ${data.format(dados.limpeza.ultima_ms)}.` : 'Nenhuma rodou ainda.'}
+      </p>
+    {/if}
+  </section>
+</div>
+
+<style>
+  .rolagem {
+    flex: 1;
+    overflow: auto;
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    padding: 0 20px 20px;
+  }
+
+  .cartao {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid var(--borda);
+    border-radius: 8px;
+    background: var(--camada);
+  }
+
+  .cabeca {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .cabeca span,
+  .nota {
+    color: var(--texto-2);
+    font-size: 12px;
+  }
+
+  .nota {
+    margin: 0;
+    max-width: 90ch;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  h3 {
+    margin: 8px 0 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .resultado {
+    margin: 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--ok);
+    border-radius: var(--raio);
+    background: var(--camada-forte);
+    font-size: 13px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th,
+  td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--borda);
+    vertical-align: middle;
+  }
+
+  thead th {
+    color: var(--texto-2);
+    font-weight: 400;
+    font-size: 12px;
+  }
+
+  tbody th {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  small {
+    margin-left: 6px;
+    color: var(--texto-2);
+    font-weight: 400;
+  }
+
+  .numero {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Com max-width 0, a célula ocupa o que sobra da tabela e corta o caminho longo, em vez de
+     alargar a tabela. */
+  .caminho {
+    max-width: 0;
+    width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--texto-2);
+  }
+
+  .acao {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  .acao .botao + .botao {
+    margin-left: 6px;
+  }
+
+  .nota-linha td {
+    color: var(--texto-2);
+    font-size: 12px;
+  }
+
+  .lista ul,
+  .raiz {
+    display: grid;
+    gap: 2px;
+    margin: 6px 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+  }
+
+  .lista li,
+  .raiz li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .lista ul {
+    max-height: 280px;
+    overflow: auto;
+  }
+
+  .bloqueada td {
+    color: var(--texto-2);
+  }
+
+  .analisar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+
+  .analisar select,
+  .opcao select {
+    height: 30px;
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--borda);
+    border-radius: var(--raio);
+    background: var(--camada-forte);
+  }
+
+  .opcao {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+</style>

@@ -5,6 +5,26 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Aba **Armazenamento**: o tamanho de cada disco virtual no Windows, quanto está ocupado dentro
+  e quanto é espaço vazio que o disco não devolveu, incluindo o disco de dados do Docker
+  Desktop e um disco antigo dele que tenha ficado para trás. O Docker aparece por categoria
+  (imagens, containers, volumes, cache de build) com o quanto cada uma libera, e cada limpeza
+  pede confirmação: containers parados vêm por padrão só os que não pertencem a um projeto do
+  Compose, e volumes sem uso são escolhidos um a um. A análise de uma distro, a pedido, mostra
+  as pastas maiores, as entradas do `/tmp` com a data e os caches conhecidos; o que um
+  container ligado monta fica bloqueado. Limpeza semanal opcional, desligada por padrão.
+- Cartão **Limites** em Desempenho: o limite de memória da VM, o número de processadores que
+  ela pode usar (`processors` do `.wslconfig`, salvo para o próximo início ou com reinício) e
+  a devolução automática do cache com dois gatilhos ajustáveis: memória livre do Windows
+  abaixo de uma porcentagem (10% por padrão) ou cache da VM acima de um tamanho.
+
+### Mudado
+
+- A devolução automática do cache saiu de Configurações > Este app e foi para Desempenho >
+  Limites. Quem já a tinha ligada continua com ela ligada e com o gatilho de 10%.
+
 ### Corrigido
 
 - Os campos de Configurações aceitavam qualquer texto. Agora números e tamanhos só aceitam
@@ -17,6 +37,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - A descrição do `debugConsole` diz que ele abre a janela "WSL Debug Console" a cada subida da
   VM, e a confirmação de reiniciar o WSL avisa quando ele está ligado.
 - No modo demonstração, o caminho do `.wslconfig` aparecia com caracteres trocados.
+- Devolver o cache numa VM com muita escrita pendente levava o `sync` a passar de 30 s, e o app
+  avisava que o WSL tinha parado de responder. A devolução agora espera até 5 min e não conta
+  como queda.
+- A leitura do Docker falhava inteira quando um container sumia entre a lista e o `inspect`,
+  como acontece com os de CI. Agora o que sumiu é ignorado.
+- Depois de uma devolução automática que falhava, a seguinte era tentada 5 s depois. Agora o
+  intervalo de 10 minutos conta a partir de cada tentativa.
 
 ## [0.8.1] - 2026-10-29
 

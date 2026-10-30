@@ -44,7 +44,7 @@ export interface Distro {
   rodando: boolean;
 }
 
-export type TipoEvento = 'distro' | 'processo' | 'memoria' | 'config' | 'wsl' | 'docker';
+export type TipoEvento = 'distro' | 'processo' | 'memoria' | 'config' | 'wsl' | 'docker' | 'armazenamento';
 
 export interface Evento {
   quando_ms: number;
@@ -126,7 +126,73 @@ export interface EstadoRecursos {
   saude: SituacaoWsl | null;
   devolucao: Devolucao | null;
   devolver_cache_automatico: boolean;
+  gatilho: Gatilho;
 }
+
+/** Quando a devolução automática do cache dispara; basta um dos dois. */
+export interface Gatilho {
+  minimo_livre_pct: number;
+  /** null não olha o tamanho do cache. */
+  cache_maximo_bytes: number | null;
+}
+
+export interface DiscoVirtual {
+  nome: string;
+  caminho: string;
+  tamanho_bytes: number;
+  /** Só com a distro ligada. */
+  usado_bytes: number | null;
+  esparso: boolean;
+  nota: string | null;
+}
+
+export interface CategoriaDocker {
+  /** Images, Containers, Local Volumes ou Build Cache. */
+  tipo: string;
+  total_bytes: number;
+  recuperavel_bytes: number;
+  quantidade: number;
+  ativos: number;
+}
+
+export interface ResumoDocker {
+  categorias: CategoriaDocker[];
+  volumes_sem_uso: { nome: string; bytes: number }[];
+  sobras: number;
+  sobras_bytes: number;
+}
+
+export interface LimpezaProgramada {
+  cache_de_build: boolean;
+  sobras_de_containers: boolean;
+  tmp_dias: number | null;
+  ultima_ms: number | null;
+}
+
+export interface Armazenamento {
+  discos: DiscoVirtual[];
+  docker: ResumoDocker | null;
+  erro_docker: string | null;
+  limpeza: LimpezaProgramada;
+  distros_ligadas: string[];
+}
+
+export interface Pasta {
+  caminho: string;
+  bytes: number;
+  modificado_ms: number | null;
+  em_uso_por: string | null;
+  apagavel: boolean;
+}
+
+export interface AnalisePastas {
+  distro: string;
+  raiz: Pasta[];
+  tmp: Pasta[];
+  caches: Pasta[];
+}
+
+export type LimpezaDocker = 'sobras' | 'parados' | 'imagens_sem_uso' | 'cache_de_build' | 'volumes';
 
 /** Pedido de confirmação para ação que encerra processos em massa. */
 export interface Pedido {
@@ -136,7 +202,7 @@ export interface Pedido {
   executar: () => void;
 }
 
-export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
+export type Pagina = 'processos' | 'desempenho' | 'armazenamento' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;

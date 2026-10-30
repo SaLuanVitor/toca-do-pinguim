@@ -7,6 +7,7 @@
   import { bytes, duracao, pct } from './formato';
   import Grafico from './Grafico.svelte';
   import LimiteMemoria from './LimiteMemoria.svelte';
+  import Limites from './Limites.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
   import ProjetosDocker from './ProjetosDocker.svelte';
   import type { Devolucao, ResumoMemoria } from './tipos';
@@ -111,6 +112,10 @@
     <span>A VM do WSL só pode ser medida por dentro de uma distro ligada.</span>
     <button class="botao" onclick={() => (estado.pagina = 'distros')}>Ver distros</button>
   </div>
+  <!-- Os limites valem no próximo início, então fazem sentido justo com o WSL desligado. -->
+  <div class="rolagem">
+    <Limites {resumo} onajustar={() => (ajustando = true)} />
+  </div>
 {:else}
   <div class="rolagem">
     <section class="cartao" aria-labelledby="titulo-cpu">
@@ -148,26 +153,9 @@
         {/if}
         <div><dt>Swap em uso</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
       </dl>
-      {#if resumo}
-        <div class="limite">
-          <dl>
-            <div>
-              <dt>Limite {resumo.limite_configurado ? '(.wslconfig)' : '(padrão do WSL)'}</dt>
-              <dd>{bytes(resumo.limite_bytes)}</dd>
-            </div>
-            <div>
-              <dt>Pico medido</dt>
-              <dd>{resumo.minutos_de_dados ? bytes(resumo.pico_bytes) : 'sem dados ainda'}</dd>
-            </div>
-            <div>
-              <dt>Sugestão</dt>
-              <dd>{resumo.sugestao_bytes !== null ? bytes(resumo.sugestao_bytes) : 'após 1 h de uso'}</dd>
-            </div>
-          </dl>
-          <button class="botao" onclick={() => (ajustando = true)}>Ajustar limite</button>
-        </div>
-      {/if}
     </section>
+
+    <Limites {resumo} onajustar={() => (ajustando = true)} />
 
     {#if windows}
       <section class="cartao largo" aria-labelledby="titulo-onde">
@@ -303,16 +291,6 @@
     color: var(--texto-2);
     font-size: 12px;
     max-width: 90ch;
-  }
-
-  .limite {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    padding-top: 12px;
-    border-top: 1px solid var(--borda);
   }
 
   .rolagem {

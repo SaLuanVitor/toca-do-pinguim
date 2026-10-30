@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { api, conectar, dentroDoApp } from '#lib/api.js';
+  import Armazenamento from '#lib/Armazenamento.svelte';
   import Atividade from '#lib/Atividade.svelte';
   import AvisoAtualizacao from '#lib/AvisoAtualizacao.svelte';
   import AvisoRecursos from '#lib/AvisoRecursos.svelte';
@@ -20,6 +21,7 @@
   const PAGINAS: { id: Pagina; titulo: string }[] = [
     { id: 'processos', titulo: 'Processos' },
     { id: 'desempenho', titulo: 'Desempenho' },
+    { id: 'armazenamento', titulo: 'Armazenamento' },
     { id: 'portas', titulo: 'Portas' },
     { id: 'atividade', titulo: 'Atividade' },
     { id: 'distros', titulo: 'Distros' },
@@ -124,6 +126,8 @@
         <Processos />
       {:else if estado.pagina === 'desempenho'}
         <Desempenho />
+      {:else if estado.pagina === 'armazenamento'}
+        <Armazenamento />
       {:else if estado.pagina === 'portas'}
         <Portas />
       {:else if estado.pagina === 'atividade'}

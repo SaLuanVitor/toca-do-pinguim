@@ -1,4 +1,5 @@
 mod agentes;
+mod armazenamento;
 mod atalho;
 mod atividade;
 mod atualizacao;
@@ -130,17 +131,22 @@ struct EstadoRecursos {
     saude: Option<wsl::saude::Situacao>,
     devolucao: Option<cache::Devolucao>,
     devolver_cache_automatico: bool,
+    gatilho: cache::Gatilho,
 }
 
 /// O que as threads de fundo já sabem, para a tela que abre depois do último evento.
 #[tauri::command]
 fn estado_recursos(recursos: State<'_, Arc<Recursos>>) -> EstadoRecursos {
+    // Uma trava só: a guarda de um `lock()` dentro do literal vive até o fim dele, e travar o
+    // mesmo Mutex de novo ali trava o comando para sempre.
+    let prefs = recursos.preferencias.lock().unwrap().clone();
     EstadoRecursos {
         memoria: recursos.memoria.lock().unwrap().clone(),
         docker: recursos.docker.lock().unwrap().clone(),
         saude: wsl::saude::atual(),
         devolucao: recursos.devolucao.lock().unwrap().clone(),
-        devolver_cache_automatico: recursos.preferencias.lock().unwrap().devolver_cache_automatico,
+        devolver_cache_automatico: prefs.devolver_cache_automatico,
+        gatilho: prefs.gatilho,
     }
 }
 
@@ -151,10 +157,150 @@ async fn devolver_cache(app: tauri::AppHandle, agentes: Estado<'_>, recursos: St
     bloqueante(move || cache::devolver(app, agentes, recursos, false)).await
 }
 
+#[derive(Serialize)]
+struct Armazenamento {
+    discos: Vec<armazenamento::DiscoVirtual>,
+    docker: Option<armazenamento::ResumoDocker>,
+    erro_docker: Option<String>,
+    limpeza: cache::LimpezaProgramada,
+    distros_ligadas: Vec<String>,
+}
+
+const DISTRO_DOCKER: &str = "docker-desktop";
+
+/// Discos e resumo do Docker. O `df -v` do Docker leva segundos, então isto só roda quando a
+/// aba Armazenamento pede.
 #[tauri::command]
-fn definir_devolver_cache_automatico(recursos: State<'_, Arc<Recursos>>, sim: bool) -> Result<(), String> {
-    info!("devolver o cache sozinho: {}", if sim { "ligado" } else { "desligado" });
-    recursos.definir_devolver_automatico(sim)
+async fn ler_armazenamento(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Armazenamento, String> {
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        let ligadas = agentes.ligadas();
+        let (docker, erro_docker) = if agentes.rodando(DISTRO_DOCKER) {
+            match armazenamento::resumo_docker() {
+                Ok((resumo, _)) => {
+                    *recursos.volumes_sem_uso.lock().unwrap() = resumo.volumes_sem_uso.clone();
+                    (Some(resumo), None)
+                }
+                Err(e) => (None, Some(e)),
+            }
+        } else {
+            (None, None)
+        };
+        Ok(Armazenamento {
+            discos: armazenamento::discos(&ligadas),
+            docker,
+            erro_docker,
+            limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
+            distros_ligadas: ligadas.into_iter().filter(|d| d != DISTRO_DOCKER).collect(),
+        })
+    })
+    .await
+}
+
+/// Só distro já ligada: analisar não liga nenhuma.
+#[tauri::command]
+async fn analisar_pastas(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, distro: String) -> Result<armazenamento::Analise, String> {
+    if distro == DISTRO_DOCKER || !agentes.rodando(&distro) {
+        return Err(format!("{distro} precisa estar ligada para ser analisada"));
+    }
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        info!("pedido: analisar as pastas de {distro}");
+        let montagens = if agentes.rodando(DISTRO_DOCKER) { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
+        let analise = armazenamento::analisar(&distro, &montagens)?;
+        recursos.analises.lock().unwrap().insert(distro, analise.clone());
+        Ok(analise)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn apagar_pastas(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    distro: String,
+    caminhos: Vec<String>,
+) -> Result<u64, String> {
+    let analise = recursos.analises.lock().unwrap().get(&distro).cloned().ok_or("analise a distro antes de apagar")?;
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        info!("pedido: apagar {} item(ns) de {distro}", caminhos.len());
+        let liberado = armazenamento::apagar(&distro, &caminhos, &analise)?;
+        if let Some(a) = recursos.analises.lock().unwrap().get_mut(&distro) {
+            a.tmp.retain(|p| !caminhos.contains(&p.caminho));
+            for p in a.caches.iter_mut().filter(|p| caminhos.contains(&p.caminho)) {
+                p.bytes = 0;
+            }
+        }
+        agentes.registrar(
+            &app,
+            "armazenamento",
+            Some(&distro),
+            format!("O app apagou {} GB em {distro}: {}", recursos::gb(liberado), caminhos.join(", ")),
+        );
+        Ok(liberado)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn limpar_docker(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    qual: armazenamento::LimpezaDocker,
+    volumes: Vec<String>,
+) -> Result<u64, String> {
+    if !agentes.rodando(DISTRO_DOCKER) {
+        return Err("o Docker Desktop não está ligado".to_string());
+    }
+    let permitidos = recursos.volumes_sem_uso.lock().unwrap().clone();
+    let agentes = Arc::clone(&agentes);
+    bloqueante(move || {
+        info!("pedido: limpar o Docker ({qual:?})");
+        let liberado = armazenamento::limpar_docker(qual, &volumes, &permitidos)?;
+        let oque = match qual {
+            armazenamento::LimpezaDocker::Sobras => "os containers parados de builds".to_string(),
+            armazenamento::LimpezaDocker::Parados => "todos os containers parados".to_string(),
+            armazenamento::LimpezaDocker::ImagensSemUso => "as imagens sem uso".to_string(),
+            armazenamento::LimpezaDocker::CacheDeBuild => "o cache de build".to_string(),
+            armazenamento::LimpezaDocker::Volumes => format!("{} volume(s): {}", volumes.len(), volumes.join(", ")),
+        };
+        agentes.registrar(&app, "armazenamento", Some(DISTRO_DOCKER), format!("O app apagou {oque} do Docker: {} GB liberados", recursos::gb(liberado)));
+        Ok(liberado)
+    })
+    .await
+}
+
+#[tauri::command]
+fn definir_limpeza(recursos: State<'_, Arc<Recursos>>, limpeza: cache::LimpezaProgramada) -> Result<(), String> {
+    if limpeza.tmp_dias.is_some_and(|d| d < 1) {
+        return Err("o /tmp precisa de pelo menos 1 dia".to_string());
+    }
+    info!("limpeza programada: {limpeza:?}");
+    recursos.definir_limpeza(limpeza)
+}
+
+/// Liga ou desliga a devolução automática e define quando ela dispara.
+#[tauri::command]
+fn definir_devolucao(
+    recursos: State<'_, Arc<Recursos>>,
+    automatico: bool,
+    minimo_livre_pct: u8,
+    cache_maximo_gb: Option<f64>,
+) -> Result<(), String> {
+    if !(1..=50).contains(&minimo_livre_pct) {
+        return Err("a memória livre do gatilho precisa ficar entre 1% e 50%".to_string());
+    }
+    let ram = ram_host();
+    let cache_maximo_bytes = match cache_maximo_gb {
+        None => None,
+        Some(gb) if gb >= 0.5 && gb * GIB as f64 <= ram as f64 => Some((gb * GIB as f64) as u64),
+        Some(_) => return Err(format!("o cache máximo precisa ficar entre 0,5 GB e {} GB", ram / GIB)),
+    };
+    info!("devolver o cache sozinho: {automatico}, abaixo de {minimo_livre_pct}% livre ou cache acima de {cache_maximo_gb:?} GB");
+    recursos.definir_devolucao(automatico, cache::Gatilho { minimo_livre_pct, cache_maximo_bytes })
 }
 
 enum AcaoDocker {
@@ -350,7 +496,12 @@ pub fn run() {
             iniciar_conteineres,
             reiniciar_conteineres,
             devolver_cache,
-            definir_devolver_cache_automatico,
+            definir_devolucao,
+            ler_armazenamento,
+            analisar_pastas,
+            apagar_pastas,
+            limpar_docker,
+            definir_limpeza,
             definir_limite_memoria,
             configuracao::ler_wslconfig,
             configuracao::gravar_wslconfig,

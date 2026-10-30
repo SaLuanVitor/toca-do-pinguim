@@ -17,10 +17,15 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::agentes::Agentes;
-use crate::cache::{self, Devolucao, Preferencias};
+use crate::armazenamento::{self, Analise, Volume};
+use crate::cache::{self, Devolucao, LimpezaProgramada, Preferencias};
 use crate::docker::{self, Conteiner};
 
 const PAUSA: Duration = Duration::from_millis(500);
+/// A limpeza programada roda uma vez por semana; a conferência de se já está na hora, a cada
+/// meia hora.
+const SEMANA_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+const A_CADA_LIMPEZA: Duration = Duration::from_secs(30 * 60);
 const A_CADA_MEMORIA: Duration = Duration::from_secs(5);
 const A_CADA_DOCKER: Duration = Duration::from_secs(15);
 const DISTRO_DOCKER: &str = "docker-desktop";
@@ -61,6 +66,10 @@ pub struct Recursos {
     pub devolucao: Mutex<Option<Devolucao>>,
     pub preferencias: Mutex<Preferencias>,
     caminho_preferencias: PathBuf,
+    /// Última análise de pastas de cada distro: só se apaga o que ela marcou como apagável.
+    pub analises: Mutex<std::collections::HashMap<String, Analise>>,
+    /// Volumes sem uso da última leitura do Docker, os únicos que a limpeza aceita.
+    pub volumes_sem_uso: Mutex<Vec<Volume>>,
 }
 
 impl Recursos {
@@ -75,12 +84,32 @@ impl Recursos {
             devolucao: Mutex::new(None),
             preferencias: Mutex::new(Preferencias::ler(&caminho_preferencias)),
             caminho_preferencias,
+            analises: Mutex::default(),
+            volumes_sem_uso: Mutex::default(),
         }
     }
 
-    pub fn definir_devolver_automatico(&self, sim: bool) -> Result<(), String> {
+    /// Grava a limpeza escolhida, mantendo a data da última que rodou.
+    pub fn definir_limpeza(&self, nova: LimpezaProgramada) -> Result<(), String> {
         let mut prefs = self.preferencias.lock().unwrap();
-        let novas = Preferencias { devolver_cache_automatico: sim, ..prefs.clone() };
+        let limpeza = LimpezaProgramada { ultima_ms: prefs.limpeza.ultima_ms, ..nova };
+        let novas = Preferencias { limpeza, ..prefs.clone() };
+        novas.gravar(&self.caminho_preferencias)?;
+        *prefs = novas;
+        Ok(())
+    }
+
+    fn marcar_limpeza(&self, quando_ms: u64) {
+        let mut prefs = self.preferencias.lock().unwrap();
+        prefs.limpeza.ultima_ms = Some(quando_ms);
+        if let Err(e) = prefs.gravar(&self.caminho_preferencias) {
+            warn!("data da limpeza não gravada: {e}");
+        }
+    }
+
+    pub fn definir_devolucao(&self, sim: bool, gatilho: cache::Gatilho) -> Result<(), String> {
+        let mut prefs = self.preferencias.lock().unwrap();
+        let novas = Preferencias { devolver_cache_automatico: sim, gatilho, ..prefs.clone() };
         novas.gravar(&self.caminho_preferencias)?;
         *prefs = novas;
         Ok(())
@@ -230,7 +259,16 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
         let mut problemas_antes: Vec<(String, Problema)> = Vec::new();
         let mut ultima_memoria: Option<Instant> = None;
         let mut ultima_docker: Option<Instant> = None;
+        let mut conferiu_limpeza: Option<Instant> = None;
         loop {
+            if conferiu_limpeza.is_none_or(|t| t.elapsed() >= A_CADA_LIMPEZA) {
+                conferiu_limpeza = Some(Instant::now());
+                let limpeza = recursos.preferencias.lock().unwrap().limpeza.clone();
+                if hora_da_limpeza(&limpeza, agora_ms()) {
+                    let (app, agentes, recursos) = (app.clone(), Arc::clone(&agentes), Arc::clone(&recursos));
+                    thread::spawn(move || limpar_programado(&app, &agentes, &recursos, &limpeza));
+                }
+            }
             if ultima_memoria.is_none_or(|t| t.elapsed() >= A_CADA_MEMORIA) {
                 ultima_memoria = Some(Instant::now());
                 let mut m = medir();
@@ -242,11 +280,15 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 }
                 *recursos.memoria.lock().unwrap() = m.clone();
                 let _ = app.emit("memoria_windows", &m);
-                let automatico = recursos.preferencias.lock().unwrap().devolver_cache_automatico;
+                let (automatico, gatilho) = {
+                    let p = recursos.preferencias.lock().unwrap();
+                    (p.devolver_cache_automatico, p.gatilho.clone())
+                };
                 let desde = recursos.ultima_devolucao.lock().unwrap().map(|t| t.elapsed());
+                let livre = if m.total_bytes > 0 { m.disponivel_bytes as f64 / m.total_bytes as f64 } else { 1.0 };
                 if automatico
                     && !recursos.devolvendo.load(Ordering::Relaxed)
-                    && cache::pode_devolver_sozinho(m.wsl_bytes.is_some(), m.pressao, desde)
+                    && cache::pode_devolver_sozinho(m.wsl_bytes.is_some(), livre, agentes.cache_vm(), &gatilho, desde)
                 {
                     let (app, agentes, recursos) = (app.clone(), Arc::clone(&agentes), Arc::clone(&recursos));
                     thread::spawn(move || {
@@ -282,6 +324,62 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
             thread::sleep(PAUSA);
         }
     });
+}
+
+fn agora_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+fn hora_da_limpeza(l: &LimpezaProgramada, agora: u64) -> bool {
+    l.ligada() && l.ultima_ms.is_none_or(|u| agora.saturating_sub(u) >= SEMANA_MS)
+}
+
+/// Roda o que estiver ligado e possível agora: a parte do Docker só com o Docker de pé, a do
+/// `/tmp` em cada distro já ligada. Só marca a data se alguma parte rodou.
+fn limpar_programado(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, l: &LimpezaProgramada) {
+    let docker = agentes.rodando(DISTRO_DOCKER);
+    let mut feito: Vec<String> = Vec::new();
+    let mut liberado = 0u64;
+    let mut rodou = false;
+    let montagens = if docker { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
+    if docker && l.cache_de_build {
+        rodou = true;
+        match armazenamento::limpar_docker(armazenamento::LimpezaDocker::CacheDeBuild, &[], &[]) {
+            Ok(b) => {
+                liberado += b;
+                feito.push(format!("cache de build do Docker ({} GB)", gb(b)));
+            }
+            Err(e) => warn!("limpeza programada do cache de build falhou: {e}"),
+        }
+    }
+    if docker && l.sobras_de_containers {
+        rodou = true;
+        match armazenamento::limpar_docker(armazenamento::LimpezaDocker::Sobras, &[], &[]) {
+            Ok(b) => {
+                liberado += b;
+                feito.push(format!("containers parados de builds ({} GB)", gb(b)));
+            }
+            Err(e) => warn!("limpeza programada dos containers falhou: {e}"),
+        }
+    }
+    if let Some(dias) = l.tmp_dias {
+        for distro in agentes.ligadas().into_iter().filter(|d| d != DISTRO_DOCKER) {
+            rodou = true;
+            match armazenamento::limpar_tmp_antigo(&distro, dias, &armazenamento::em_uso_na_distro(&distro, &montagens)) {
+                Ok(b) => {
+                    liberado += b;
+                    feito.push(format!("/tmp de {distro} com mais de {dias} dias ({} GB)", gb(b)));
+                }
+                Err(e) => warn!("limpeza programada do /tmp de {distro} falhou: {e}"),
+            }
+        }
+    }
+    if rodou {
+        recursos.marcar_limpeza(agora_ms());
+        let texto = format!("Limpeza programada: {} GB liberados ({})", gb(liberado), feito.join("; "));
+        info!("{texto}");
+        agentes.registrar(app, "armazenamento", None, texto);
+    }
 }
 
 fn avisar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, m: &MemoriaWindows) {
@@ -401,6 +499,19 @@ mod testes {
         let loja = [c("loja-db", 4 * 1024)];
         assert!(explicar_wsl(8 * GIB, Some(2 * GIB), &loja).contains("quem mais usa dentro dele é loja-db"));
         assert_eq!(explicar_wsl(8 * GIB, None, &[]), "O WSL ocupa 8,0 GB.");
+    }
+
+    #[test]
+    fn limpeza_semanal_so_quando_ligada_e_vencida() {
+        let mut l = LimpezaProgramada::default();
+        assert!(!hora_da_limpeza(&l, SEMANA_MS * 10));
+        l.cache_de_build = true;
+        assert!(hora_da_limpeza(&l, 1));
+        l.ultima_ms = Some(1000);
+        assert!(!hora_da_limpeza(&l, 1000 + SEMANA_MS - 1));
+        assert!(hora_da_limpeza(&l, 1000 + SEMANA_MS));
+        let so_tmp = LimpezaProgramada { tmp_dias: Some(14), ..Default::default() };
+        assert!(hora_da_limpeza(&so_tmp, 1));
     }
 
     #[test]

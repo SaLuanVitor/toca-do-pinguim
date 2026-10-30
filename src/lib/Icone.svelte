@@ -17,6 +17,7 @@
     configuracoes: 'M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4',
     log: 'M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 10.5h4.5M6 13h2.5',
     pasta: 'M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z',
+    armazenamento: 'M2 9.5h12v4H2zM2 9.5l2-6.5h8l2 6.5M11.5 11.5h.01',
   } as const;
 
   let { nome, tamanho = 16 }: { nome: keyof typeof CAMINHOS; tamanho?: number } = $props();

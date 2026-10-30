@@ -17,6 +17,7 @@
   const PAGINAS: [Pagina, string][] = [
     ['processos', 'Processos'],
     ['desempenho', 'Desempenho'],
+    ['armazenamento', 'Armazenamento'],
     ['portas', 'Portas'],
     ['atividade', 'Atividade'],
     ['configuracoes', 'Configurações'],
@@ -60,6 +61,16 @@
         },
       },
       casar('ajustar limite de memória ram wslconfig', t),
+    );
+    add(
+      {
+        id: 'a:limites',
+        titulo: 'Limites da VM',
+        detalhe: 'Memória, processadores e devolução automática do cache',
+        categoria: 'Ação',
+        executar: () => (estado.pagina = 'desempenho'),
+      },
+      casar('limites da vm processadores cpu cache devolver sozinho automático', t),
     );
     if (estado.distros.some((d) => d.rodando)) {
       add({ id: 'a:desligar', titulo: 'Desligar o WSL', detalhe: 'Termina todas as distros', categoria: 'Ação', executar: desligarWsl }, casar('desligar o wsl shutdown', t));
