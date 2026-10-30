@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.7.0] - 2026-10-29
+
 ### Adicionado
 
 - **Para onde vai a memória**, em Desempenho: quanto a VM do WSL ocupa no Windows ao lado dos
@@ -27,6 +29,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - O instalador mostra, antes de instalar, o que o app acessa na rede e o que muda no sistema.
 - README com as seções de privacidade e de política de assinatura, preparando o pedido de
   assinatura gratuita à SignPath Foundation.
+
+### Alterado
+
+- O cartão Memória, em Desempenho, chamava de "Em uso" só o que os programas usam dentro da
+  VM, e podia mostrar 1 GB com o Gerenciador de Tarefas mostrando 8,6 GB para o `vmmemWSL`.
+  A diferença é cache de arquivos, que o Linux não conta como uso e o Windows cobra da VM. O
+  cartão agora separa programas e kernel, cache e quanto a VM ocupa na RAM do Windows.
 
 ### Corrigido
 
@@ -151,7 +160,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.4.0...v0.5.0
