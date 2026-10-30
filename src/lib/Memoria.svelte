@@ -131,7 +131,7 @@
         {#if windows?.wsl_bytes != null}
           <div><dt>Na RAM do Windows</dt><dd>{bytes(windows.wsl_bytes)}</dd></div>
         {/if}
-        <div><dt>Swap em uso</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
+        <div><dt>Swap em uso (arquivo no disco)</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
       </dl>
     </section>
 

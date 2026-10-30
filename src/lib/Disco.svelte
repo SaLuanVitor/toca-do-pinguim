@@ -422,7 +422,7 @@
           </tbody>
         </table>
 
-        <h3>Pastas de cache</h3>
+        <h3>Pastas de cache em disco</h3>
         <ul class="raiz">
           {#each analise.caches as p (p.caminho)}
             <li>

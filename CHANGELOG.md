@@ -11,6 +11,10 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   arquivos", "Blocos de disco" e "Arquivos lidos", o que fazia parecer espaço em disco. Agora
   são "Cache: nomes e pastas", "Cache: blocos lidos" e "Cache: conteúdo de arquivos", a barra
   se chama "RAM dentro da VM do WSL", e o texto abaixo diz que tudo ali é RAM.
+- Outros textos que misturavam RAM e disco: a coluna de memória em Processos e no Docker por
+  projeto agora diz RAM, assim como a etiqueta dos eventos de falta de memória na Atividade; a
+  swap aparece como "arquivo no disco"; as pastas de cache da aba Disco são "em disco"; e, em
+  Configurações, `memory`, `swap` e `autoMemoryReclaim` dizem o que é RAM e o que é disco.
 
 ## [0.9.0] - 2026-10-30
 
