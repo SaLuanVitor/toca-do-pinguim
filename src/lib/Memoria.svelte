@@ -131,7 +131,7 @@
         {#if windows?.wsl_bytes != null}
           <div><dt>Na RAM do Windows</dt><dd>{bytes(windows.wsl_bytes)}</dd></div>
         {/if}
-        <div><dt>Swap em uso</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
+        <div><dt>Swap em uso (arquivo no disco)</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
       </dl>
     </section>
 
@@ -141,10 +141,10 @@
       <section class="cartao largo" aria-labelledby="titulo-onde">
         <div class="cabeca">
           <h2 id="titulo-onde">Para onde vai a RAM</h2>
-          <span>Comprometida no Windows: {bytes(windows.commit_bytes)} de {bytes(windows.commit_limite_bytes)} (RAM mais arquivo de paginação)</span>
+          <span>Memória comprometida do Windows: {bytes(windows.commit_bytes)} de {bytes(windows.commit_limite_bytes)}, contando o que pode ir para o arquivo de paginação</span>
         </div>
         <BarraMemoria
-          titulo="Windows: {bytes(windows.total_bytes)} de RAM"
+          titulo="RAM do Windows: {bytes(windows.total_bytes)}"
           partes={[
             { rotulo: 'VM do WSL', bytes: windows.wsl_bytes ?? 0, cor: 'var(--mem)' },
             { rotulo: 'Outros programas', bytes: usadaWindows - (windows.wsl_bytes ?? 0), cor: 'var(--cpu)' },
@@ -152,13 +152,13 @@
           ]}
         />
         <BarraMemoria
-          titulo="Dentro da VM do WSL: {bytes(vm.mem_total)}"
+          titulo="RAM dentro da VM do WSL: {bytes(vm.mem_total)}"
           partes={partes > 0
             ? [
                 { rotulo: 'Programas e kernel', bytes: programas, cor: 'var(--mem)' },
-                { rotulo: 'Tabelas de arquivos', bytes: vm.mem_tabelas, cor: 'rgb(var(--calor))' },
-                { rotulo: 'Blocos de disco', bytes: vm.mem_blocos, cor: 'rgba(var(--calor), 0.65)' },
-                { rotulo: 'Arquivos lidos', bytes: vm.mem_arquivos, cor: 'rgba(var(--calor), 0.4)' },
+                { rotulo: 'Cache: nomes e pastas', bytes: vm.mem_tabelas, cor: 'rgb(var(--calor))' },
+                { rotulo: 'Cache: blocos lidos', bytes: vm.mem_blocos, cor: 'rgba(var(--calor), 0.65)' },
+                { rotulo: 'Cache: conteúdo de arquivos', bytes: vm.mem_arquivos, cor: 'rgba(var(--calor), 0.4)' },
                 { rotulo: 'Livre', bytes: vm.mem_livre, cor: 'var(--borda-forte)' },
               ]
             : [
@@ -168,8 +168,9 @@
               ]}
         />
         <p class="nota">
-          O Linux guarda o que leu do disco: as tabelas com o nome e o tamanho de cada arquivo percorrido, os blocos do disco e o
-          conteúdo dos arquivos. Tudo isso ele descarta quando um programa precisa de memória, mas dentro da VM quase nunca
+          Tudo nesta barra é RAM. As três partes de cache são cópias do que o Linux já leu, para não ler de novo: os nomes e
+          as pastas de cada arquivo percorrido, pedaços lidos do disco e o conteúdo de arquivos abertos. Nada disso ocupa
+          espaço em disco. O Linux descarta o cache quando um programa precisa de memória, mas dentro da VM quase nunca
           falta, e até lá o Windows conta como ocupado.
         </p>
         {#if sobra > 0 && resumo?.sugestao_bytes}

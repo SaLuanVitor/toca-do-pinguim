@@ -48,9 +48,9 @@ export const GRUPOS = ['Recursos', 'Disco', 'Rede', 'Desligamento', 'Memória', 
 
 export const CATALOGO: Chave[] = [
   // Recursos
-  { secao: 'wsl2', chave: 'memory', grupo: 'Recursos', tipo: 'tamanho', padrao: '50% da RAM do Windows', descricao: 'Memória máxima da VM do WSL.', min: GIB, maxMaquina: 'ram' },
+  { secao: 'wsl2', chave: 'memory', grupo: 'Recursos', tipo: 'tamanho', padrao: '50% da RAM do Windows', descricao: 'RAM máxima da VM do WSL.', min: GIB, maxMaquina: 'ram' },
   { secao: 'wsl2', chave: 'processors', grupo: 'Recursos', tipo: 'numero', padrao: 'todos os processadores lógicos', descricao: 'Quantos processadores lógicos a VM usa.', unidade: 'processadores', min: 1, maxMaquina: 'processadores' },
-  { secao: 'wsl2', chave: 'swap', grupo: 'Recursos', tipo: 'tamanho', padrao: '25% da RAM, arredondado para cima em GB', descricao: 'Tamanho da swap da VM; 0 desliga a swap.', min: 0, maxMaquina: 'discoDaSwap' },
+  { secao: 'wsl2', chave: 'swap', grupo: 'Recursos', tipo: 'tamanho', padrao: '25% da RAM, arredondado para cima em GB', descricao: 'Tamanho da swap da VM: um arquivo no disco que a VM usa como RAM extra quando a RAM acaba; 0 desliga a swap.', min: 0, maxMaquina: 'discoDaSwap' },
   { secao: 'wsl2', chave: 'swapFile', grupo: 'Recursos', tipo: 'caminho', padrao: '%Temp%\\swap.vhdx', descricao: 'Onde fica o disco virtual da swap. Mover para outro disco libera o C:.' },
   { secao: 'wsl2', chave: 'gpuSupport', grupo: 'Recursos', tipo: 'bool', padrao: 'ligado', descricao: 'Acesso da VM à GPU do Windows.' },
   { secao: 'wsl2', chave: 'guiApplications', grupo: 'Recursos', tipo: 'bool', padrao: 'ligado', descricao: 'Apps gráficos do Linux (WSLg).' },
@@ -82,7 +82,7 @@ export const CATALOGO: Chave[] = [
   { secao: 'wsl2', chave: 'vmIdleTimeout', grupo: 'Desligamento', tipo: 'numero', padrao: '60000', descricao: 'Tempo sem nenhuma distro até a VM desligar.', unidade: 'ms', min: 0, max: MAX_32, win11: true },
 
   // Memória
-  { secao: 'experimental', chave: 'autoMemoryReclaim', grupo: 'Memória', tipo: 'escolha', opcoes: ['dropCache', 'gradual', 'disabled'], padrao: 'dropCache', descricao: 'Como a VM devolve ao Windows a memória de cache: de uma vez, aos poucos ou nunca. Só age com a VM ociosa.' },
+  { secao: 'experimental', chave: 'autoMemoryReclaim', grupo: 'Memória', tipo: 'escolha', opcoes: ['dropCache', 'gradual', 'disabled'], padrao: 'dropCache', descricao: 'Como a VM devolve ao Windows a RAM do cache de arquivos: de uma vez, aos poucos ou nunca. Só age com a VM ociosa.' },
 
   // Kernel
   { secao: 'wsl2', chave: 'kernel', grupo: 'Kernel', tipo: 'caminho', padrao: 'kernel da Microsoft', descricao: 'Kernel Linux próprio, por caminho do Windows.' },

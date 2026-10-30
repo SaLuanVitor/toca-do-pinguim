@@ -72,7 +72,7 @@
     { id: 'usuario', titulo: 'Usuário', classe: 'c-usuario' },
     { id: 'estado', titulo: 'Status', classe: 'c-estado' },
     { id: 'cpu_pct', titulo: 'CPU', numerica: true, classe: 'c-cpu' },
-    { id: 'rss', titulo: 'Memória', numerica: true, classe: 'c-rss' },
+    { id: 'rss', titulo: 'RAM', numerica: true, classe: 'c-rss' },
     { id: 'cmdline', titulo: 'Linha de comando', classe: 'c-cmd' },
   ]);
 
