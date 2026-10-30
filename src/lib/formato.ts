@@ -31,6 +31,22 @@ const ESTADOS: Record<string, string> = {
   X: 'Encerrado',
 };
 
+const SUSPEITAS: Record<string, string> = {
+  aguardando_es: 'Preso esperando disco ou rede',
+  zumbi: 'Zumbi: o processo pai não o recolheu',
+  cpu_constante: 'Um núcleo inteiro sem parar',
+};
+
+/** "há 3 min", a partir de um instante em milissegundos Unix. */
+export function ha(desdeMs: number): string {
+  const min = Math.max(1, Math.floor((Date.now() - desdeMs) / 60_000));
+  return min < 60 ? `há ${min} min` : `há ${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+export function rotuloSuspeita(motivo: string): string {
+  return SUSPEITAS[motivo] ?? motivo;
+}
+
 export function rotuloEstado(c: string): string {
   return ESTADOS[c] ?? c;
 }

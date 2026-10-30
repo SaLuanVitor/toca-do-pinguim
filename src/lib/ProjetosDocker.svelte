@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { ligarProjeto, ocupadas, pararProjeto } from './acoes.svelte';
+  import { ligarProjeto, ocupadas, pararProjeto, reiniciarComProblema } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
-  import { agrupar } from './projetos';
+  import { agrupar, comProblema, pertoDoLimite, semResposta } from './projetos';
 
   const docker = $derived(estado.docker);
   const projetos = $derived(agrupar(docker.conteineres));
@@ -38,6 +38,8 @@
       <tbody>
         {#each projetos as p (p.chave)}
           {@const ocupado = ocupadas[`docker:${p.chave}`]}
+          {@const semResp = p.conteineres.filter(semResposta)}
+          {@const perto = p.conteineres.filter(pertoDoLimite)}
           <tr class:parado={p.rodando === 0}>
             <th scope="row">
               {p.nome}
@@ -46,7 +48,17 @@
             <td class="numero">{p.rodando} de {p.conteineres.length}</td>
             <td class="numero">{p.rodando ? bytes(p.memoria) : ''}</td>
             <td>
-              {#if p.emCiclo.length}
+              {#if semResp.length}
+                <span class="ciclo">
+                  {semResp.map((c) => c.nome).join(', ')} não {semResp.length === 1 ? 'responde' : 'respondem'} ao healthcheck
+                </span>
+              {/if}
+              {#if perto.length}
+                <span class="ciclo">
+                  {perto.map((c) => `${c.nome} usa ${bytes(c.memoria_bytes)} de ${bytes(c.limite_bytes)}`).join(', ')}
+                </span>
+              {/if}
+              {#if semResp.length || perto.length}{:else if p.emCiclo.length}
                 <span class="ciclo">
                   {#each p.emCiclo as c, i (c.id)}{i ? ', ' : ''}{c.nome}{/each}
                   {p.emCiclo.length === 1 ? 'reinicia' : 'reiniciam'} sem parar ({p.emCiclo
@@ -62,6 +74,9 @@
               {/if}
             </td>
             <td class="acao">
+              {#if p.conteineres.some(comProblema)}
+                <button class="botao" disabled={!!ocupado} onclick={() => reiniciarComProblema(p)}>Reiniciar</button>
+              {/if}
               {#if p.rodando > 0}
                 <button class="botao" disabled={!!ocupado} onclick={() => pararProjeto(p)}>{ocupado ?? 'Parar'}</button>
               {:else}
@@ -156,6 +171,7 @@
   }
 
   .ciclo {
+    display: block;
     color: var(--perigo);
   }
 

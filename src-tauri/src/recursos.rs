@@ -179,7 +179,7 @@ pub fn notificar(app: &AppHandle, titulo: &str, texto: &str) {
 pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
     thread::spawn(move || {
         let mut vigia = docker::Vigia::default();
-        let mut em_ciclo_antes: Vec<String> = Vec::new();
+        let mut problemas_antes: Vec<(String, Problema)> = Vec::new();
         let mut ultima_memoria: Option<Instant> = None;
         let mut ultima_docker: Option<Instant> = None;
         loop {
@@ -211,12 +211,12 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                         Docker { ligado, conteineres: Vec::new(), erro: Some(erro) }
                     }
                 };
-                registrar_ciclos(&app, &agentes, &estado.conteineres, &mut em_ciclo_antes);
+                registrar_problemas(&app, &agentes, &estado.conteineres, &mut problemas_antes);
                 *recursos.docker.lock().unwrap() = estado.clone();
                 let _ = app.emit("docker", &estado);
             } else if !ligado && recursos.docker.lock().unwrap().ligado {
                 ultima_docker = None;
-                em_ciclo_antes.clear();
+                problemas_antes.clear();
                 *recursos.docker.lock().unwrap() = Docker::default();
                 let _ = app.emit("docker", Docker::default());
             }
@@ -244,15 +244,43 @@ fn avisar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, m: &M
     notificar(app, "A memória do Windows está acabando", &texto);
 }
 
-fn registrar_ciclos(app: &AppHandle, agentes: &Agentes, conteineres: &[Conteiner], antes: &mut Vec<String>) {
-    let agora: Vec<String> = conteineres.iter().filter(|c| c.em_ciclo).map(|c| c.id.clone()).collect();
-    for c in conteineres.iter().filter(|c| c.em_ciclo && !antes.contains(&c.id)) {
-        agentes.registrar(
-            app,
-            "docker",
-            Some(DISTRO_DOCKER),
-            format!("O container {} está reiniciando sem parar ({} reinícios)", c.nome, c.reinicios),
-        );
+#[derive(Clone, Copy, PartialEq)]
+enum Problema {
+    Ciclo,
+    SemResposta,
+    PertoDoLimite,
+}
+
+fn problemas(c: &Conteiner) -> Vec<Problema> {
+    [(c.em_ciclo, Problema::Ciclo), (c.sem_resposta(), Problema::SemResposta), (c.perto_do_limite(), Problema::PertoDoLimite)]
+        .into_iter()
+        .filter_map(|(sim, p)| sim.then_some(p))
+        .collect()
+}
+
+/// Cada problema vai uma vez para a Atividade, quando aparece. Notificação só para os sinais
+/// firmes: reinício em ciclo e healthcheck falhando.
+fn registrar_problemas(app: &AppHandle, agentes: &Agentes, conteineres: &[Conteiner], antes: &mut Vec<(String, Problema)>) {
+    let mut agora = Vec::new();
+    for c in conteineres {
+        for p in problemas(c) {
+            agora.push((c.id.clone(), p));
+            if antes.contains(&(c.id.clone(), p)) {
+                continue;
+            }
+            let (texto, notificar_tambem) = match p {
+                Problema::Ciclo => (format!("O container {} está reiniciando sem parar ({} reinícios)", c.nome, c.reinicios), true),
+                Problema::SemResposta => (format!("O container {} não responde ao próprio healthcheck", c.nome), true),
+                Problema::PertoDoLimite => (
+                    format!("O container {} usa {} GB de um limite de {} GB", c.nome, gb(c.memoria_bytes), gb(c.limite_bytes)),
+                    false,
+                ),
+            };
+            agentes.registrar(app, "docker", Some(DISTRO_DOCKER), texto.clone());
+            if notificar_tambem {
+                notificar(app, "Container com problema", &texto);
+            }
+        }
     }
     *antes = agora;
 }
@@ -283,8 +311,10 @@ mod testes {
             projeto: projeto.map(str::to_string),
             estado: "running".to_string(),
             memoria_bytes: mb << 20,
+            limite_bytes: 0,
             reinicios: 0,
             em_ciclo: false,
+            saude: None,
         };
         let lista = [c("a", Some("sigc"), 1700), c("b", Some("sigc"), 700), c("c", Some("vendai"), 2000), c("runner", None, 30)];
         assert_eq!(maior_consumidor(&lista), Some(("sigc".to_string(), 2400 << 20)));

@@ -21,6 +21,7 @@ const CONTEINERES: [string, string | null, number][] = [
   ['sigc-app', 'prefeitura-sigc-semge', 403],
   ['sigc-redis', 'prefeitura-sigc-semge', 12],
   ['sigc-nginx', 'prefeitura-sigc-semge', 9],
+  ['sigc-leitor-pdf', 'prefeitura-sigc-semge', 478],
   ['vendai-backend-1', 'vendai', 648],
   ['vendai-celery-worker-1', 'vendai', 492],
   ['vendai-db-1', 'vendai', 71],
@@ -45,6 +46,7 @@ const MODELOS: Record<string, Modelo[]> = {
     ['sshd', 'root', 'sshd: /usr/sbin/sshd -D [listener]', 0, 7.6],
     ['cron', 'root', '/usr/sbin/cron -f', 0, 2.8],
     ['vim', 'luan', 'vim notas.md', 0.2, 11],
+    ['rsync', 'luan', 'rsync -a /mnt/e/backup/ /home/luan/backup/', 0, 24],
   ],
   'docker-desktop': [
     ['init', 'root', '/init', 0, 1.1],
@@ -80,7 +82,7 @@ export function criarDemonstracao(): Api {
       pid: pid === 1 ? pid++ : (pid += 3 + Math.floor(Math.random() * 40)),
       ppid: 1,
       usuario,
-      estado: carga > 1 ? 'R' : 'S',
+      estado: n === 'rsync' ? 'D' : carga > 1 ? 'R' : 'S',
       nome: n,
       cmdline,
       cpu_pct: carga,
@@ -140,6 +142,11 @@ export function criarDemonstracao(): Api {
   for (const d of distros.filter((d) => d.rodando)) ligar(d.nome);
   agendar();
   setInterval(() => publicarRecursos(), 5000);
+  // Um processo preso esperando disco, como o vigia do backend o marcaria.
+  const preso = processos.Ubuntu?.find((p) => p.nome === 'rsync');
+  if (preso) {
+    estado.receberSuspeitos('Ubuntu', [{ pid: preso.pid, ppid: 1, nome: preso.nome, motivo: 'aguardando_es', desde_ms: Date.now() - 3 * 60_000 }]);
+  }
   setTimeout(tick, 50);
 
   const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -155,8 +162,10 @@ export function criarDemonstracao(): Api {
     projeto,
     estado: 'running',
     memoria_bytes: mb * 1024 ** 2,
+    limite_bytes: nome === 'sigc-leitor-pdf' ? 512 * 1024 ** 2 : 0,
     reinicios: nome === 'vendai-backend-1' ? 20 : 0,
     em_ciclo: nome === 'vendai-backend-1',
+    saude: nome === 'sigc-app' ? 'unhealthy' : nome.includes('db') || nome.includes('mssql') ? 'healthy' : null,
   }));
 
   function publicarRecursos() {
@@ -254,6 +263,15 @@ export function criarDemonstracao(): Api {
     },
     pararConteineres: (ids, rotulo) => agirEm(ids, false, rotulo),
     iniciarConteineres: (ids, rotulo) => agirEm(ids, true, rotulo),
+    reiniciarConteineres: async (ids, rotulo) => {
+      await esperar(900);
+      for (const c of conteineres.filter((c) => ids.includes(c.id))) {
+        if (c.saude === 'unhealthy') c.saude = 'healthy';
+        c.memoria_bytes = Math.min(c.memoria_bytes, 120 * 1024 ** 2);
+      }
+      publicarRecursos();
+      registrar('docker', 'docker-desktop', `O app reiniciou ${rotulo} (${ids.length} container(s))`);
+    },
     resumoMemoria: async () => ({
       limite_bytes: limiteGb * GIB,
       limite_configurado: true,

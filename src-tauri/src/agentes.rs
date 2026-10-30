@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter};
 use crate::atividade::Atividade;
 use crate::config::WslConfig;
 use crate::historico::Historico;
+use crate::travados;
 use crate::wsl::{self, Distro};
 
 /// Gerado por `npm run agente` antes do build do app.
@@ -58,6 +59,12 @@ struct AmostraDistro<'a> {
 }
 
 #[derive(Serialize, Clone)]
+struct SuspeitosDistro<'a> {
+    distro: &'a str,
+    lista: &'a [travados::Suspeito],
+}
+
+#[derive(Serialize, Clone)]
 struct RespostaDistro<'a> {
     distro: &'a str,
     ok: bool,
@@ -88,6 +95,8 @@ pub struct Agentes {
     pendentes: Mutex<HashMap<String, VecDeque<(i32, String, i32)>>>,
     pub historico: Mutex<Historico>,
     pub atividade: Mutex<Atividade>,
+    /// Processos presos, por distro.
+    travados: Mutex<HashMap<String, travados::Vigia>>,
     intervalo_ms: AtomicU64,
     espera_ociosidade_ms: AtomicI64,
     pausado: AtomicBool,
@@ -104,6 +113,7 @@ impl Agentes {
             pendentes: Mutex::new(HashMap::new()),
             historico: Mutex::new(Historico::abrir(dados.join("memoria.csv"))),
             atividade: Mutex::new(Atividade::abrir(dados.join("atividade.jsonl"))),
+            travados: Mutex::new(HashMap::new()),
             intervalo_ms: AtomicU64::new(1000),
             espera_ociosidade_ms: AtomicI64::new(WslConfig::ler().espera_ociosidade_ms()),
             pausado: AtomicBool::new(false),
@@ -257,6 +267,7 @@ impl Agentes {
             match serde_json::from_str::<Mensagem>(&linha) {
                 Ok(Mensagem::Amostra(amostra)) => {
                     self.historico.lock().unwrap().registrar(&amostra);
+                    self.vigiar_travados(&app, &distro, &amostra);
                     if !amostra.kernel.is_empty() {
                         let mut atividade = self.atividade.lock().unwrap();
                         for ev in &amostra.kernel {
@@ -298,7 +309,28 @@ impl Agentes {
         }
         drop(slots);
         self.pendentes.lock().unwrap().remove(&distro);
+        self.travados.lock().unwrap().remove(&distro);
         let _ = app.emit("agente_parou", &distro);
+    }
+}
+
+impl Agentes {
+    fn vigiar_travados(&self, app: &AppHandle, distro: &str, amostra: &Amostra) {
+        let leitura = self
+            .travados
+            .lock()
+            .unwrap()
+            .entry(distro.to_string())
+            .or_default()
+            .observar(amostra, Instant::now());
+        for s in &leitura.novos {
+            let texto = travados::descrever(s);
+            info!("[{distro}] {texto}");
+            self.registrar(app, "processo", Some(distro), texto);
+        }
+        if leitura.mudou {
+            let _ = app.emit("suspeitos", SuspeitosDistro { distro, lista: &leitura.suspeitos });
+        }
     }
 }
 

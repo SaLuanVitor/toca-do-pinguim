@@ -98,6 +98,13 @@ avisa na tela e por notificação do Windows, e o aviso some acima de 15%. Com a
 o aviso de memória está aceso. Parar um projeto é um `docker stop` dos containers dele: nada
 é apagado.
 
+**Processos e containers presos.** O Linux não marca processo como travado; o app aponta
+sinais. Na aba Processos: estado `D` por mais de 1 min (esperando disco ou rede, e encerrar só
+funciona quando a espera termina), zumbi por mais de 1 min e um núcleo inteiro por mais de
+5 min, que pode ser só trabalho pesado, como uma compilação. No Docker: healthcheck falhando e
+memória acima de 90% do limite do container. Notificação do Windows só para os sinais firmes:
+healthcheck falhando e reinício em ciclo.
+
 **Dados.** Em `%APPDATA%\com.luan.tocadopinguim`: `memoria.csv` (pico de memória usada por
 minuto, 30 dias) e `atividade.jsonl` (últimos 1000 eventos). Na primeira abertura, os dois
 são copiados de `%APPDATA%\com.luan.wsltm`, a pasta de quando o app se chamava Gerenciador
