@@ -47,8 +47,11 @@ As capturas são do modo demonstração, com dados simulados.
 - **O que está preso.** Container que falha no próprio healthcheck ou reinicia sem parar,
   processo esperando disco ou rede, zumbi que ninguém recolhe. Cada um aparece com o motivo,
   e o container tem botão para reiniciar.
-- **O WSL que trava.** Quando o `wsl.exe` para de responder (`Wsl/Service/0x8007274c`), o app
-  avisa e oferece desligar o WSL, em vez de você descobrir pelo terminal parado.
+- **O WSL que trava.** Quando o `wsl.exe` para de abrir sessões (`Wsl/Service/0x8007274c`), o app
+  avisa e oferece desligar o WSL, em vez de você descobrir pelo terminal parado. O que já está
+  rodando, como containers, continua; por isso a trava passa despercebida.
+- **Em segundo plano.** Fechar a janela deixa o app na área de notificação, avisando de memória
+  acabando e de WSL travado; ele também pode abrir com o Windows, direto lá.
 - **Sem segurar distro ligada.** O app lê as distros por dentro, mas o agente dele sai quando a
   sessão dele é a única. Medido: com o app aberto, o agente saiu 2 s depois que uma Debian ficou
   sem sessão, e o WSL a desligou 16 s depois disso.

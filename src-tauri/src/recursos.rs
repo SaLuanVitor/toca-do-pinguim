@@ -118,6 +118,25 @@ impl Recursos {
         Ok(())
     }
 
+    pub fn definir_fechar_para_bandeja(&self, sim: bool) -> Result<(), String> {
+        self.mudar_preferencias(|p| p.fechar_para_bandeja = sim)
+    }
+
+    /// Devolve true só na primeira vez, para a notificação de onde o app ficou sair uma vez.
+    pub fn primeira_vez_na_bandeja(&self) -> bool {
+        let ja = self.preferencias.lock().unwrap().avisou_bandeja;
+        !ja && self.mudar_preferencias(|p| p.avisou_bandeja = true).is_ok()
+    }
+
+    fn mudar_preferencias(&self, mudar: impl FnOnce(&mut Preferencias)) -> Result<(), String> {
+        let mut prefs = self.preferencias.lock().unwrap();
+        let mut novas = prefs.clone();
+        mudar(&mut novas);
+        novas.gravar(&self.caminho_preferencias)?;
+        *prefs = novas;
+        Ok(())
+    }
+
     pub fn pedir_atualizacao(&self) {
         self.atualizar_docker.store(true, Ordering::Relaxed);
     }

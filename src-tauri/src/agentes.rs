@@ -208,6 +208,12 @@ impl Agentes {
         self.ociosas.lock().unwrap().remove(distro);
     }
 
+    /// Zera a espera crescente entre tentativas de subir agente: depois que o WSL volta ou é
+    /// desligado, a espera acumulada na queda só atrasaria a leitura.
+    pub fn esquecer_falhas(&self) {
+        self.falhas.lock().unwrap().clear();
+    }
+
     pub fn segurar(&self, sim: bool) {
         self.segurando.store(sim, Ordering::SeqCst);
     }
@@ -295,6 +301,10 @@ impl Agentes {
             let Ok(linha) = linha else { break };
             match serde_json::from_str::<Mensagem>(&linha) {
                 Ok(Mensagem::Amostra(amostra)) => {
+                    // A amostra prova que a distro responde. Sem isso, uma queda de uma
+                    // distro que o app quase não chama por `wsl.exe -d`, como a do Docker,
+                    // ficava no aviso para sempre.
+                    wsl::saude::respondeu(Some(&distro));
                     self.historico.lock().unwrap().registrar(&amostra);
                     // A VM é uma só: qualquer distro serve para medir o cache dela.
                     let partes = amostra.mem_blocos + amostra.mem_arquivos + amostra.mem_tabelas;
@@ -489,6 +499,7 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                         }
                     }
                     agentes.ociosas.lock().unwrap().retain(|d, _| rodando.contains(d.as_str()));
+                    wsl::saude::so_das_ligadas(&rodando);
                     *agentes.ligadas.lock().unwrap() = rodando.iter().map(|d| d.to_string()).collect();
                     if rodando.is_empty() {
                         agentes.atividade.lock().unwrap().vm_parou();
@@ -512,8 +523,8 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                 if situacao.is_some() && !travado {
                     crate::recursos::notificar(
                         &app,
-                        "O WSL parou de responder",
-                        "Abra a Toca do Pinguim para ver o que aconteceu e reiniciar o WSL.",
+                        "O WSL não está abrindo sessões novas",
+                        "O que já está rodando continua. Abra a Toca do Pinguim para desligar o WSL e destravá-lo.",
                     );
                 }
                 travado = situacao.is_some();
@@ -526,9 +537,17 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                         (alvo, format!("O WSL deixou de responder{onde}: {motivo}"))
                     }
                     wsl::saude::Mudanca::Voltou { alvo, segundos, falhas } => {
+                        // Voltou: os agentes sobem já, sem a espera acumulada na queda.
+                        match &alvo {
+                            Some(d) => {
+                                agentes.falhas.lock().unwrap().remove(d);
+                            }
+                            None => agentes.esquecer_falhas(),
+                        }
                         let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();
                         (alvo, format!("O WSL voltou a responder{onde} depois de {segundos} s e {falhas} falha(s)"))
                     }
+                    wsl::saude::Mudanca::Esquecida => continue,
                 };
                 agentes.registrar(&app, "wsl", alvo.as_deref(), texto);
             }

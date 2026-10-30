@@ -4,6 +4,7 @@
   import { onMount } from 'svelte';
   import { api } from './api';
   import { estado } from './estado.svelte';
+  import type { SegundoPlano } from './tipos';
 
   // O Windows aceita a tecla de um atalho com pelo menos dois modificadores.
   const MODIFICADORES = ['Ctrl', 'Alt', 'Shift'] as const;
@@ -18,6 +19,19 @@
   let gravado = $state('');
   let procurando = $state(false);
   let resultadoBusca = $state('');
+  let segundoPlano = $state<SegundoPlano | null>(null);
+
+  async function mudarSegundoPlano(mudanca: Partial<SegundoPlano>) {
+    if (!segundoPlano) return;
+    const novo = { ...segundoPlano, ...mudanca };
+    try {
+      await api.definirSegundoPlano(novo.fechar_para_bandeja, novo.iniciar_com_windows);
+      segundoPlano = novo;
+    } catch (e) {
+      estado.avisar(String(e));
+      segundoPlano = { ...segundoPlano };
+    }
+  }
 
   async function procurarAgora() {
     procurando = true;
@@ -100,6 +114,7 @@
   onMount(() => {
     carregar();
     api.versaoApp().then((v) => (versao = v), () => (versao = 'desconhecida'));
+    api.lerSegundoPlano().then((s) => (segundoPlano = s), (e) => estado.avisar(String(e)));
   });
 </script>
 
@@ -138,11 +153,38 @@
     </div>
   </section>
 
+  <section aria-labelledby="segundo-plano-titulo">
+    <h2 id="segundo-plano-titulo">Segundo plano</h2>
+    {#if segundoPlano}
+      <label class="opcao">
+        <input
+          type="checkbox"
+          checked={segundoPlano.fechar_para_bandeja}
+          onchange={(e) => mudarSegundoPlano({ fechar_para_bandeja: e.currentTarget.checked })}
+        />
+        Ao fechar a janela, continuar na área de notificação
+      </label>
+      <label class="opcao">
+        <input
+          type="checkbox"
+          checked={segundoPlano.iniciar_com_windows}
+          onchange={(e) => mudarSegundoPlano({ iniciar_com_windows: e.currentTarget.checked })}
+        />
+        Abrir com o Windows, direto na área de notificação
+      </label>
+    {/if}
+    <p class="explica">
+      Na área de notificação, ao lado do relógio, o ícone abre a janela com um clique, e o menu dele tem Sair. Com a
+      janela escondida, o app continua avisando de memória acabando e de WSL travado, e lê as distros mais devagar. Ele
+      continua sem segurar nenhuma distro ligada.
+    </p>
+  </section>
+
   <section aria-labelledby="tecla-titulo">
     <h2 id="tecla-titulo">Tecla de atalho</h2>
     <p class="explica">
       Abre o app de qualquer lugar do Windows, mesmo fechado. Com ele já aberto, traz a janela
-      para frente. Quem escuta a tecla é o próprio Windows: nada fica rodando em segundo plano.
+      para frente. Quem escuta a tecla é o próprio Windows, não o app.
     </p>
 
     <div class="linha">

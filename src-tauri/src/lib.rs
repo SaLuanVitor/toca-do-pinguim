@@ -2,6 +2,7 @@ mod agentes;
 mod armazenamento;
 mod atalho;
 mod atividade;
+mod bandeja;
 mod atualizacao;
 mod cache;
 mod compactar;
@@ -115,13 +116,36 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), S
     .await
 }
 
+#[tauri::command]
+fn ler_segundo_plano(recursos: State<'_, Arc<Recursos>>) -> bandeja::SegundoPlano {
+    bandeja::SegundoPlano {
+        fechar_para_bandeja: recursos.preferencias.lock().unwrap().fechar_para_bandeja,
+        iniciar_com_windows: bandeja::iniciar_com_windows(),
+    }
+}
+
+#[tauri::command]
+fn definir_segundo_plano(recursos: State<'_, Arc<Recursos>>, fechar_para_bandeja: bool, iniciar_com_windows: bool) -> Result<(), String> {
+    recursos.definir_fechar_para_bandeja(fechar_para_bandeja)?;
+    if iniciar_com_windows != bandeja::iniciar_com_windows() {
+        bandeja::definir_iniciar_com_windows(iniciar_com_windows)?;
+    }
+    info!("segundo plano: fechar para a bandeja {fechar_para_bandeja}, abrir com o Windows {iniciar_com_windows}");
+    Ok(())
+}
+
 /// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
 /// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
 /// ficam segurados até `soltar_depois`.
 fn desligar_sem_religar(agentes: &Agentes) -> Result<(), String> {
     agentes.segurar(true);
     agentes.parar_todos();
-    wsl::desligar()
+    wsl::desligar()?;
+    // Desligado, o WSL recomeça do zero: a queda registrada e a espera crescente entre
+    // tentativas de subir agente ficaram para trás, e a próxima distro ligada é lida na hora.
+    wsl::saude::esquecer();
+    agentes.esquecer_falhas();
+    Ok(())
 }
 
 /// Solta os agentes quando o supervisor já leu a lista de depois do desligamento.
@@ -570,13 +594,7 @@ pub fn run() {
     tauri::Builder::default()
         // Uma segunda abertura (pela tecla de atalho, pelo menu) só traz esta janela para
         // frente: duas instâncias subiriam dois agentes em cada distro.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(janela) = app.get_webview_window("main") {
-                let _ = janela.unminimize();
-                let _ = janela.show();
-                let _ = janela.set_focus();
-            }
-        }))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| bandeja::mostrar(app)))
         // Logo depois, para o log já pegar o que os outros plugins e o setup registram.
         .plugin(registro::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -597,14 +615,38 @@ pub fn run() {
             app.manage(Arc::clone(&recursos));
             recursos::vigiar(app.handle().clone(), Arc::clone(&agentes), recursos);
             agentes::supervisionar(app.handle().clone(), agentes);
+            bandeja::montar(app)?;
+            // A janela nasce escondida (tauri.conf.json) e só aparece quando não foi o Windows
+            // que abriu o app em segundo plano; assim ela não pisca na abertura.
+            if std::env::args().any(|a| a == bandeja::ARGUMENTO) {
+                info!("aberto em segundo plano, na área de notificação");
+                bandeja::esconder(app.handle());
+            } else {
+                bandeja::mostrar(app.handle());
+            }
             Ok(())
         })
-        .on_window_event(|janela, evento| {
+        .on_window_event(|janela, evento| match evento {
             // Minimizar chega como redimensionamento; restaurar também.
-            if let WindowEvent::Resized(_) = evento {
+            WindowEvent::Resized(_) => {
                 let minimizada = janela.is_minimized().unwrap_or(false);
                 janela.state::<Arc<Agentes>>().pausar(minimizada);
             }
+            WindowEvent::CloseRequested { api, .. } => {
+                let recursos = janela.state::<Arc<Recursos>>();
+                if recursos.preferencias.lock().unwrap().fechar_para_bandeja {
+                    api.prevent_close();
+                    bandeja::esconder(janela.app_handle());
+                    if recursos.primeira_vez_na_bandeja() {
+                        recursos::notificar(
+                            janela.app_handle(),
+                            "A Toca do Pinguim continua aberta",
+                            "Ela fica na área de notificação, ao lado do relógio. Para sair de vez, use Sair no menu do ícone.",
+                        );
+                    }
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             listar_distros,
@@ -642,6 +684,8 @@ pub fn run() {
             registro::abrir_pasta_de_logs,
             atalho::ler_atalho_teclado,
             atalho::definir_atalho_teclado,
+            ler_segundo_plano,
+            definir_segundo_plano,
         ])
         .build(tauri::generate_context!())
         .expect("falha ao montar o app")

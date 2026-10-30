@@ -148,6 +148,11 @@ export interface DiscoVirtual {
   compactavel: boolean;
 }
 
+export interface SegundoPlano {
+  fechar_para_bandeja: boolean;
+  iniciar_com_windows: boolean;
+}
+
 export interface Compactacao {
   antes_bytes: number;
   depois_bytes: number;

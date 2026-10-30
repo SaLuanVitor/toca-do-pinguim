@@ -299,6 +299,7 @@ export function criarDemonstracao(): Api {
 
   let limiteGb = 12;
   let teclaAtalho = '';
+  let segundoPlano = { fechar_para_bandeja: true, iniciar_com_windows: false };
   const wslconfig: [string, string, string][] = [
     ['wsl2', 'memory', '12GB'],
     ['wsl2', 'networkingMode', 'mirrored'],
@@ -514,6 +515,10 @@ export function criarDemonstracao(): Api {
     },
     versaoApp: async () => 'demonstração',
     lerAtalhoTeclado: async () => ({ tecla: teclaAtalho, caminho: 'C:\Users\voce\...\Toca do Pinguim.lnk', existe: teclaAtalho !== '' }),
+    lerSegundoPlano: async () => ({ ...segundoPlano }),
+    definirSegundoPlano: async (fecharParaBandeja, iniciarComWindows) => {
+      segundoPlano = { fechar_para_bandeja: fecharParaBandeja, iniciar_com_windows: iniciarComWindows };
+    },
     definirAtalhoTeclado: async (tecla) => {
       await esperar(300);
       teclaAtalho = tecla;

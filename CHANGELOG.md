@@ -5,6 +5,26 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Segundo plano.** O app ganhou um ícone na área de notificação, entre os ícones ocultos: um
+  clique abre a janela, e o menu dele tem Sair. Fechar a janela deixa o app lá, avisando de
+  memória acabando e de WSL travado, em vez de sair; a primeira vez, uma notificação diz onde ele
+  ficou. Em Configurações > Este app dá para desligar isso e ligar a abertura com o Windows, que
+  sobe o app direto na área de notificação.
+
+### Corrigido
+
+- O aviso de WSL travado ficava na tela para sempre quando a distro afetada era uma que o app
+  quase não chama por `wsl.exe -d`, como a do Docker: ele só saía com uma nova chamada à mesma
+  distro dando certo. Agora sai também quando o agente dela volta a mandar dados, quando ela é
+  desligada ou quando o WSL é desligado pelo app.
+- Depois de uma trava do WSL, o app esperava até 5 min entre tentativas de subir os agentes, e
+  essa espera continuava valendo depois que o WSL voltava ou era desligado; as distros demoravam a
+  aparecer. Agora a espera zera nesses dois casos.
+- O aviso diz o que acontece de fato: o WSL não está abrindo sessões novas, o que já está
+  rodando continua, e o app não consegue ler as distros.
+
 ## [0.10.0] - 2026-10-30
 
 ### Adicionado
