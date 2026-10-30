@@ -135,7 +135,7 @@
 </script>
 
 <header class="barra">
-  <h1>Armazenamento</h1>
+  <h1>Disco</h1>
   <button class="botao" onclick={ler} disabled={lendo}>{lendo ? 'Lendo' : 'Atualizar'}</button>
 </header>
 
@@ -184,7 +184,7 @@
 
   <section class="cartao" aria-labelledby="titulo-docker-armazenamento">
     <div class="cabeca">
-      <h2 id="titulo-docker-armazenamento">Docker</h2>
+      <h2 id="titulo-docker-armazenamento">Espaço do Docker</h2>
       <span>Recuperável segundo o próprio Docker</span>
     </div>
     {#if dados && !dados.docker && !dados.erro_docker}
@@ -374,7 +374,7 @@
           </tbody>
         </table>
 
-        <h3>Caches</h3>
+        <h3>Pastas de cache</h3>
         <ul class="raiz">
           {#each analise.caches as p (p.caminho)}
             <li>

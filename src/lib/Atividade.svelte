@@ -8,8 +8,8 @@
     { id: 'wsl', titulo: 'WSL' },
     { id: 'processo', titulo: 'Processos' },
     { id: 'docker', titulo: 'Docker' },
-    { id: 'armazenamento', titulo: 'Armazenamento' },
-    { id: 'memoria', titulo: 'Falta de memória' },
+    { id: 'armazenamento', titulo: 'Disco' },
+    { id: 'memoria', titulo: 'Falta de RAM' },
     { id: 'config', titulo: 'Configuração' },
   ];
 
@@ -20,7 +20,7 @@
     config: 'Configuração',
     wsl: 'WSL',
     docker: 'Docker',
-    armazenamento: 'Armazenamento',
+    armazenamento: 'Disco',
   };
 
   let filtro = $state<TipoEvento | 'todos'>('todos');

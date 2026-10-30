@@ -1,19 +1,21 @@
 <script lang="ts">
+  // Só o que é RAM: da VM do WSL e do Windows. Espaço em disco fica na aba Disco.
   import { onMount } from 'svelte';
   import { api } from './api';
+  import AvisoMemoria from './AvisoMemoria.svelte';
   import BarraMemoria from './BarraMemoria.svelte';
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
-  import { bytes, duracao, pct } from './formato';
+  import { bytes } from './formato';
   import Grafico from './Grafico.svelte';
   import LimiteMemoria from './LimiteMemoria.svelte';
-  import Limites from './Limites.svelte';
+  import LimitesMemoria from './LimitesMemoria.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
   import ProjetosDocker from './ProjetosDocker.svelte';
   import type { Devolucao, ResumoMemoria } from './tipos';
 
-  type Coluna = 'nome' | 'processos' | 'cpu' | 'mem' | 'agenteRss' | 'coleta';
-  const ordem = new Ordenacao<Coluna>('por-distro', 'nome', (c) => c === 'nome');
+  type Coluna = 'nome' | 'mem' | 'agenteRss';
+  const ordem = new Ordenacao<Coluna>('memoria-por-distro', 'mem', (c) => c === 'nome');
 
   let resumo = $state<ResumoMemoria | null>(null);
   let ajustando = $state(false);
@@ -42,7 +44,6 @@
   });
 
   const vm = $derived(estado.vm);
-  const cpu = $derived(estado.historico.map((p) => p.cpu));
   const mem = $derived(estado.historico.map((p) => p.mem));
   const memUsada = $derived(vm ? vm.mem_total - vm.mem_disponivel : 0);
   const swapUsada = $derived(vm ? vm.swap_total - vm.swap_livre : 0);
@@ -89,22 +90,20 @@
     ordem.ordenar(
       Object.entries(estado.amostras).map(([nome, a]) => ({
         nome,
-        processos: a.processos.length,
-        cpu: a.processos.reduce((s, p) => s + p.cpu_pct, 0),
         mem: a.processos.reduce((s, p) => s + p.rss, 0),
-        agente: a.agente,
+        agenteRss: a.agente.rss,
       })),
-      (d, c) =>
-        c === 'cpu' ? Math.round(d.cpu * 10) : c === 'agenteRss' ? d.agente.rss : c === 'coleta' ? d.agente.coleta_us : d[c],
+      (d, c) => d[c],
       (a, b) => comparar(a.nome, b.nome),
     ),
   );
-  const totalProcessos = $derived(porDistro.reduce((s, d) => s + d.processos, 0));
 </script>
 
 <header class="barra">
-  <h1>Desempenho</h1>
+  <h1>Memória</h1>
 </header>
+
+<AvisoMemoria onajustar={() => (ajustando = true)} />
 
 {#if !vm}
   <div class="vazio">
@@ -114,28 +113,13 @@
   </div>
   <!-- Os limites valem no próximo início, então fazem sentido justo com o WSL desligado. -->
   <div class="rolagem">
-    <Limites {resumo} onajustar={() => (ajustando = true)} />
+    <LimitesMemoria {resumo} onajustar={() => (ajustando = true)} />
   </div>
 {:else}
   <div class="rolagem">
-    <section class="cartao" aria-labelledby="titulo-cpu">
+    <section class="cartao largo" aria-labelledby="titulo-mem">
       <div class="cabeca">
-        <h2 id="titulo-cpu">CPU</h2>
-        <span>VM do WSL · {vm.cpus} processadores</span>
-      </div>
-      <div class="area">
-        <Grafico valores={cpu} cor="--cpu" rotulo="Uso de CPU nos últimos 60 segundos: {pct(vm.cpu_vm_pct)} agora" />
-      </div>
-      <dl>
-        <div><dt>Utilização</dt><dd>{pct(vm.cpu_vm_pct)}</dd></div>
-        <div><dt>Processos</dt><dd>{totalProcessos}</dd></div>
-        <div><dt>Tempo ativo da VM</dt><dd>{duracao(vm.uptime_s)}</dd></div>
-      </dl>
-    </section>
-
-    <section class="cartao" aria-labelledby="titulo-mem">
-      <div class="cabeca">
-        <h2 id="titulo-mem">Memória</h2>
+        <h2 id="titulo-mem">Uso de RAM da VM</h2>
         <span>{bytes(vm.mem_total)} visíveis para a VM</span>
       </div>
       <div class="area">
@@ -147,7 +131,7 @@
       </div>
       <dl>
         <div><dt>Programas e kernel</dt><dd>{bytes(programas)}</dd></div>
-        <div><dt>Cache descartável</dt><dd>{bytes(cache)}</dd></div>
+        <div><dt>Cache de arquivos</dt><dd>{bytes(cache)}</dd></div>
         {#if windows?.wsl_bytes != null}
           <div><dt>Na RAM do Windows</dt><dd>{bytes(windows.wsl_bytes)}</dd></div>
         {/if}
@@ -155,12 +139,12 @@
       </dl>
     </section>
 
-    <Limites {resumo} onajustar={() => (ajustando = true)} />
+    <LimitesMemoria {resumo} onajustar={() => (ajustando = true)} />
 
     {#if windows}
       <section class="cartao largo" aria-labelledby="titulo-onde">
         <div class="cabeca">
-          <h2 id="titulo-onde">Para onde vai a memória</h2>
+          <h2 id="titulo-onde">Para onde vai a RAM</h2>
           <span>Comprometida no Windows: {bytes(windows.commit_bytes)} de {bytes(windows.commit_limite_bytes)} (RAM mais arquivo de paginação)</span>
         </div>
         <BarraMemoria
@@ -183,7 +167,7 @@
               ]
             : [
                 { rotulo: 'Programas e kernel', bytes: programas, cor: 'var(--mem)' },
-                { rotulo: 'Cache descartável', bytes: cache, cor: 'rgb(var(--calor))' },
+                { rotulo: 'Cache de arquivos', bytes: cache, cor: 'rgb(var(--calor))' },
                 { rotulo: 'Livre', bytes: vm.mem_livre, cor: 'var(--borda-forte)' },
               ]}
         />
@@ -196,18 +180,18 @@
           <div class="sugestao" role="note">
             <p>
               <strong>O teto da VM é {bytes(resumo.limite_bytes)}, e o uso real chegou a {bytes(resumo.pico_bytes)}.</strong>
-              O que sobra do teto vira cache. Com {bytes(resumo.sugestao_bytes)}, a VM devolve até {bytes(sobra)} ao Windows de vez.
+              O que sobra do teto vira cache de arquivos. Com {bytes(resumo.sugestao_bytes)}, a VM devolve até {bytes(sobra)} ao Windows de vez.
               O novo limite vale no próximo início do WSL, ou na hora, se você reiniciar.
             </p>
             <button class="botao primario" onclick={() => (ajustando = true)}>Ajustar limite</button>
           </div>
         {/if}
         <div class="devolver">
-          <button class="botao" onclick={devolver} disabled={devolvendo}>{devolvendo ? 'Devolvendo' : 'Devolver cache agora'}</button>
+          <button class="botao" onclick={devolver} disabled={devolvendo}>{devolvendo ? 'Devolvendo' : 'Devolver o cache de arquivos agora'}</button>
           <span role="status">
             {devolucao
               ? resultado(devolucao)
-              : 'Esvazia o cache da VM e mede o efeito 15 s e 2 min depois. Se algo continuar lendo muitos arquivos, parte dele volta.'}
+              : 'Esvazia o cache de arquivos da VM, que está na RAM, e mede o efeito 15 s e 2 min depois. Nada se apaga do disco. Se algo continuar lendo muitos arquivos, parte dele volta.'}
           </span>
         </div>
       </section>
@@ -218,28 +202,22 @@
     <section class="cartao largo" aria-labelledby="titulo-distros">
       <div class="cabeca">
         <h2 id="titulo-distros">Por distro</h2>
-        <span>Soma dos processos de cada uma; memória compartilhada entra uma vez por processo, e o total pode passar do uso real da VM</span>
+        <span>Soma da RAM dos processos de cada uma; memória compartilhada entra uma vez por processo, e o total pode passar do uso real da VM</span>
       </div>
       <table>
         <thead>
           <tr>
             <ColunaOrdenavel {ordem} coluna="nome" titulo="Distro" />
-            <ColunaOrdenavel {ordem} coluna="processos" titulo="Processos" numerica />
-            <ColunaOrdenavel {ordem} coluna="cpu" titulo="CPU" numerica />
-            <ColunaOrdenavel {ordem} coluna="mem" titulo="Memória (soma do RSS)" numerica />
-            <ColunaOrdenavel {ordem} coluna="agenteRss" titulo="Agente: memória" numerica />
-            <ColunaOrdenavel {ordem} coluna="coleta" titulo="Agente: leitura" numerica />
+            <ColunaOrdenavel {ordem} coluna="mem" titulo="RAM (soma do RSS)" numerica />
+            <ColunaOrdenavel {ordem} coluna="agenteRss" titulo="Agente: RAM" numerica />
           </tr>
         </thead>
         <tbody>
           {#each porDistro as d (d.nome)}
             <tr>
               <th scope="row">{d.nome}</th>
-              <td class="numero">{d.processos}</td>
-              <td class="numero">{pct(d.cpu)}</td>
               <td class="numero">{bytes(d.mem)}</td>
-              <td class="numero">{bytes(d.agente.rss)}</td>
-              <td class="numero">{(d.agente.coleta_us / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ms</td>
+              <td class="numero">{bytes(d.agenteRss)}</td>
             </tr>
           {/each}
         </tbody>

@@ -202,7 +202,7 @@ export interface Pedido {
   executar: () => void;
 }
 
-export type Pagina = 'processos' | 'desempenho' | 'armazenamento' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
+export type Pagina = 'processos' | 'processador' | 'memoria' | 'disco' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;

@@ -15,17 +15,17 @@ O instalador ainda não tem assinatura digital, e o SmartScreen avisa na primeir
 os detalhes estão em [Instalar](#instalar).
 
 > **In English:** a Task Manager-style app for WSL on Windows 10 and 11. It shows processes,
-> CPU, memory and listening ports of every distro, where the Windows memory goes (WSL cache,
-> Docker Compose projects), and which containers and processes look stuck. It starts, stops and
-> restarts distros, edits every documented `.wslconfig` and per-distro `/etc/wsl.conf` setting,
-> and logs WSL failures. It never keeps a distro running on its own. The interface is in
+> CPU, memory and listening ports of every distro, where the Windows RAM goes (WSL cache,
+> Docker Compose projects), where the disk space goes, and which containers and processes look
+> stuck. It starts, stops and restarts distros, edits every documented `.wslconfig` and
+> per-distro `/etc/wsl.conf` setting, and logs WSL failures. It never keeps a distro running on its own. The interface is in
 > Brazilian Portuguese.
 
 ![Aba Processos](docs/capturas/processos.png)
 
-| Para onde vai a memória e Docker por projeto | Desempenho |
+| Memória | Disco |
 |---|---|
-| ![Memória e Docker](docs/capturas/memoria.png) | ![Aba Desempenho](docs/capturas/desempenho.png) |
+| ![Aba Memória](docs/capturas/memoria.png) | ![Aba Disco](docs/capturas/disco.png) |
 
 As capturas são do modo demonstração, com dados simulados.
 
@@ -35,9 +35,10 @@ As capturas são do modo demonstração, com dados simulados.
   `.wslconfig`, e boa parte é cache que o Linux só descarta quando falta memória dentro da VM.
   O app mostra quanto é programa, quanto é cache e qual projeto do Docker Compose ocupa mais,
   para ou liga um projeto inteiro com um clique e devolve o cache ao Windows, a pedido ou
-  sozinho. Abaixo de 10% de memória livre no Windows, avisa por notificação. Em Limites, você
-  define o teto de memória e de processadores da VM e quando o cache volta sozinho.
-- **O disco virtual que só cresce.** A aba Armazenamento mostra quanto cada `.vhdx` ocupa no
+  sozinho. Abaixo de 10% de memória livre no Windows, avisa por notificação e diz se quem ocupa
+  é o WSL ou os programas do Windows. Na aba Memória você define o teto de RAM da VM e quando o
+  cache volta sozinho; na aba Processador, quantos processadores ela pode usar.
+- **O disco virtual que só cresce.** A aba Disco mostra quanto cada `.vhdx` ocupa no
   Windows, quanto o Docker libera por categoria e quais pastas de uma distro pesam mais, com
   limpeza a pedido ou semanal.
 - **O que está preso.** Container que falha no próprio healthcheck ou reinicia sem parar,
@@ -58,8 +59,9 @@ o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
 | Aba | O que tem |
 |---|---|
 | Processos | processos de cada distro com CPU e memória; os presos e os zumbis marcados com o motivo; encerramento por SIGTERM ou SIGKILL |
-| Desempenho | gráficos de CPU e memória da VM; para onde vai a memória do Windows; limites de memória e processadores da VM e gatilhos da devolução automática do cache; Docker por projeto, com parar, ligar e reiniciar o que está com problema |
-| Armazenamento | discos virtuais com o tamanho no Windows e o ocupado dentro; limpeza do Docker por categoria; pastas maiores de uma distro; limpeza semanal opcional |
+| Processador | gráfico de CPU da VM; limite de processadores; CPU por distro |
+| Memória | gráfico de RAM da VM; para onde vai a RAM do Windows; teto de memória da VM e gatilhos da devolução automática do cache de arquivos; RAM dos projetos do Docker, com parar, ligar e reiniciar o que está com problema; RAM por distro |
+| Disco | discos virtuais com o tamanho no Windows e o ocupado dentro; limpeza do Docker por categoria; pastas maiores de uma distro; limpeza semanal opcional |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
 | Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
 | Distros | iniciar, terminar, reiniciar e desligar o WSL |
@@ -138,20 +140,22 @@ o aviso de memória está aceso. Parar um projeto é um `docker stop` dos contai
 
 **Devolver o cache.** O botão roda `sync` e `echo 3 > /proc/sys/vm/drop_caches` numa distro
 já ligada, como root, e mede a memória do `vmmemWSL` 15 s e 2 min depois. A opção automática,
-em Desempenho > Limites, faz o mesmo quando a memória livre do Windows fica abaixo da
+na aba Memória, faz o mesmo quando a memória livre do Windows fica abaixo da
 porcentagem escolhida (10% por padrão) ou quando o cache da VM passa do tamanho escolhido, no
 máximo uma vez a cada 10 minutos, e vem desligada; ela fica em `preferencias.json`, na pasta
-de dados do app. O limite de processadores grava a linha `processors` do `.wslconfig` e vale
-quando o WSL reinicia. Medido numa máquina
+de dados do app. O limite de processadores, na aba Processador, grava a linha `processors` do `.wslconfig` e
+vale quando o WSL reinicia. Medido numa máquina
 com um job de CI e 15 containers: 2,9 GB voltaram em 30 s, e 1,3 GB ainda estavam livres
 5 min depois. O que volta rápido são as tabelas de arquivos e os blocos de disco, enquanto
 algo continua percorrendo arquivos. Baixar o limite da VM é o que segura o cache de vez.
 
-**Armazenamento.** O tamanho de cada `.vhdx` vem do arquivo no Windows, e o ocupado vem do
+**Disco.** O tamanho de cada `.vhdx` vem do arquivo no Windows, e o ocupado vem do
 `df` dentro da distro, então só aparece com ela ligada. O Docker é lido por `docker system df`;
 as limpezas são `container prune` (por padrão só os sem rótulo de projeto do Compose),
 `image prune -a`, `builder prune -a` e `volume rm` dos volumes que você marcar. A análise de
-pastas roda `du` como root na distro escolhida e pode levar alguns minutos num disco grande;
+pastas roda um `du` só, como root, na distro escolhida; medido num Ubuntu com 81 GB usados, o
+`du` levou 172 s com o cache de disco quente, e o app desiste em 20 min, com o `du` encerrado
+junto;
 só o que ela listou como removível pode ser apagado, e entrada do `/tmp` montada por um
 container ligado fica bloqueada. Compactar o `.vhdx` para devolver o espaço vazio ao Windows
 ainda não está no app.

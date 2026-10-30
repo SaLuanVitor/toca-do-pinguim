@@ -169,7 +169,7 @@ struct Armazenamento {
 const DISTRO_DOCKER: &str = "docker-desktop";
 
 /// Discos e resumo do Docker. O `df -v` do Docker leva segundos, então isto só roda quando a
-/// aba Armazenamento pede.
+/// aba Disco pede.
 #[tauri::command]
 async fn ler_armazenamento(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Armazenamento, String> {
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));

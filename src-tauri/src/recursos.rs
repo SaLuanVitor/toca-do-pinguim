@@ -227,14 +227,24 @@ pub fn maior_consumidor(conteineres: &[Conteiner]) -> Option<(String, u64)> {
     soma.into_iter().filter(|(_, b)| *b > 0).max_by_key(|(_, b)| *b)
 }
 
-/// O que mais pesa dentro da VM. Quando o cache passa da memória somada dos containers,
-/// apontar o maior container manda olhar para o lugar errado: medido numa máquina, a VM
-/// tinha 10,1 GB de cache e o maior container, 219 MB.
-pub fn explicar_wsl(wsl: u64, cache: Option<u64>, conteineres: &[Conteiner]) -> String {
+/// Quem ocupa a RAM do Windows. O WSL só é apontado quando passa do resto do Windows somado:
+/// medido numa máquina com 31,7 GB, o WSL tinha 8,9 GB, Chrome e outros programas o resto, e
+/// mandar baixar o limite do WSL olhava para o lugar errado. Dentro da VM, quando o cache passa
+/// da memória somada dos containers, apontar o maior container também engana: a VM tinha
+/// 10,1 GB de cache e o maior container, 219 MB.
+pub fn explicar_wsl(usada: u64, wsl: u64, cache: Option<u64>, conteineres: &[Conteiner]) -> String {
+    let outros = usada.saturating_sub(wsl);
+    if wsl < outros {
+        return format!(
+            "A maior parte está com os programas do Windows ({} GB); o WSL ocupa {} GB. Baixar o limite do WSL libera pouco aqui.",
+            gb(outros),
+            gb(wsl)
+        );
+    }
     let docker: u64 = conteineres.iter().map(|c| c.memoria_bytes).sum();
     match (cache, maior_consumidor(conteineres)) {
         (Some(cache), _) if cache >= docker => format!(
-            "O WSL ocupa {} GB, e a maior parte é cache de arquivos ({} GB), que o Linux devolve quando precisa mas o Windows conta como ocupado. Baixar o limite de memória do WSL, em Desempenho, segura esse tamanho.",
+            "O WSL ocupa {} GB, e a maior parte é cache de arquivos ({} GB), que o Linux devolve quando precisa mas o Windows conta como ocupado. Baixar o limite de memória do WSL, na aba Memória, segura esse tamanho.",
             gb(wsl),
             gb(cache)
         ),
@@ -391,7 +401,8 @@ fn avisar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, m: &M
     let mut texto = format!("{} GB livres de {} GB.", gb(m.disponivel_bytes), gb(m.total_bytes));
     if let Some(wsl) = m.wsl_bytes {
         texto.push(' ');
-        texto.push_str(&explicar_wsl(wsl, agentes.cache_vm(), &recursos.docker.lock().unwrap().conteineres));
+        let usada = m.total_bytes.saturating_sub(m.disponivel_bytes);
+        texto.push_str(&explicar_wsl(usada, wsl, agentes.cache_vm(), &recursos.docker.lock().unwrap().conteineres));
     }
     warn!("memória do Windows acabando: {texto}");
     agentes.registrar(app, "memoria", None, format!("A memória do Windows está acabando: {texto}"));
@@ -495,10 +506,17 @@ mod testes {
             saude: None,
         };
         let runner = [c("runner-build", 219)];
-        assert!(explicar_wsl(8 * GIB, Some(10 * GIB), &runner).contains("cache de arquivos (10,0 GB)"));
+        assert!(explicar_wsl(12 * GIB, 8 * GIB, Some(10 * GIB), &runner).contains("cache de arquivos (10,0 GB)"));
         let loja = [c("loja-db", 4 * 1024)];
-        assert!(explicar_wsl(8 * GIB, Some(2 * GIB), &loja).contains("quem mais usa dentro dele é loja-db"));
-        assert_eq!(explicar_wsl(8 * GIB, None, &[]), "O WSL ocupa 8,0 GB.");
+        assert!(explicar_wsl(12 * GIB, 8 * GIB, Some(2 * GIB), &loja).contains("quem mais usa dentro dele é loja-db"));
+        assert_eq!(explicar_wsl(8 * GIB, 8 * GIB, None, &[]), "O WSL ocupa 8,0 GB.");
+    }
+
+    #[test]
+    fn aviso_nao_culpa_o_wsl_quando_o_windows_ocupa_mais() {
+        let texto = explicar_wsl(31 * GIB, 9 * GIB, Some(7 * GIB), &[]);
+        assert!(texto.starts_with("A maior parte está com os programas do Windows (22,0 GB)"), "{texto}");
+        assert!(!texto.contains("cache de arquivos"));
     }
 
     #[test]

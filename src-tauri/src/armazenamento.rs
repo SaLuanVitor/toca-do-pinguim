@@ -18,8 +18,9 @@ const PRAZO_DF: Duration = Duration::from_secs(60);
 /// Medido com a máquina sem memória: o `docker system df` levou 8 e 14 s, e na primeira
 /// leitura da tela, junto com as outras, passou de 60 s.
 const PRAZO_DOCKER: Duration = Duration::from_secs(2 * 60);
-/// O `du` percorre o disco inteiro da distro; com dezenas de GB, leva minutos.
-const PRAZO_ANALISE: Duration = Duration::from_secs(10 * 60);
+/// O `du` percorre o disco inteiro da distro. Medido num Ubuntu com 81 GB usados: 172 s com o
+/// cache de disco quente; com a VM sem RAM livre, a primeira de duas passadas levou 9 min.
+const PRAZO_ANALISE: Duration = Duration::from_secs(20 * 60);
 /// Apagar imagens e cache de build de dezenas de GB leva minutos.
 const PRAZO_LIMPEZA: Duration = Duration::from_secs(15 * 60);
 const ROTULO_PROJETO: &str = "com.docker.compose.project=";
@@ -342,16 +343,20 @@ pub fn limpar_docker(qual: LimpezaDocker, volumes: &[String], permitidos: &[Volu
 /// ou gerar de novo o que precisar.
 const CACHES: [&str; 6] = ["/root/.cache", "/home/*/.cache", "/home/*/.npm", "/home/*/.cargo/registry/cache", "/var/cache/apt/archives", "/var/tmp"];
 
-/// Saída em linhas `R|T|C<TAB>MB<TAB>mtime<TAB>caminho`, para o app não depender de JSON
-/// dentro da distro.
+/// Saída em linhas `R|T|C|M<TAB>MB<TAB>mtime<TAB>caminho`, para o app não depender de JSON
+/// dentro da distro. Um `du` só cobre a raiz e o `/tmp`: com um para cada, o `/tmp` era lido
+/// duas vezes, e as duas passadas somadas passaram de 10 min. As linhas `M` trazem a data de
+/// cada entrada do `/tmp`.
 const SCRIPT_ANALISE: &str = r#"
-du -x -d1 -B1M / 2>/dev/null | sort -rn | sed -n '2,13p' | while IFS="$(printf '\t')" read -r mb p; do printf 'R\t%s\t0\t%s\n' "$mb" "$p"; done
-for p in /tmp/* /tmp/.[!.]*; do [ -e "$p" ] || continue; mb=$(du -xsm "$p" 2>/dev/null | cut -f1); m=$(stat -c %Y "$p" 2>/dev/null); printf 'T\t%s\t%s\t%s\n' "${mb:-0}" "${m:-0}" "$p"; done
+du -x -a -d2 -B1M / 2>/dev/null | awk -F'\t' '$2 ~ /^\/[^\/]+$/ { print "R\t" $1 "\t0\t" $2 } $2 ~ /^\/tmp\/[^\/]+$/ { print "T\t" $1 "\t0\t" $2 }'
+for p in /tmp/* /tmp/.[!.]*; do [ -e "$p" ] || continue; printf 'M\t0\t%s\t%s\n' "$(stat -c %Y "$p" 2>/dev/null)" "$p"; done
 for p in __CACHES__; do [ -d "$p" ] || continue; mb=$(du -xsm "$p" 2>/dev/null | cut -f1); printf 'C\t%s\t0\t%s\n' "${mb:-0}" "$p"; done
 "#;
+const MAIORES_DA_RAIZ: usize = 12;
 
 fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]) -> Analise {
     let mut a = Analise { distro: distro.to_string(), ..Default::default() };
+    let mut datas = std::collections::HashMap::new();
     for linha in texto.lines() {
         let mut c = linha.splitn(4, '\t');
         let (Some(tipo), Some(mb), Some(m), Some(caminho)) = (c.next(), c.next(), c.next(), c.next()) else { continue };
@@ -366,9 +371,20 @@ fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]
             "R" => a.raiz.push(pasta(false)),
             "T" => a.tmp.push(pasta(em_uso_por.is_none())),
             "C" => a.caches.push(pasta(em_uso_por.is_none())),
+            "M" => {
+                datas.insert(caminho.to_string(), modificado_ms);
+            }
             _ => {}
         }
     }
+    for p in &mut a.tmp {
+        if let Some(&m) = datas.get(&p.caminho) {
+            p.modificado_ms = p.modificado_ms.or(m);
+        }
+    }
+    a.raiz.retain(|p| p.caminho != "/");
+    a.raiz.sort_by_key(|p| std::cmp::Reverse(p.bytes));
+    a.raiz.truncate(MAIORES_DA_RAIZ);
     a.tmp.sort_by_key(|p| std::cmp::Reverse(p.bytes));
     a.tmp.truncate(40);
     a.caches.sort_by_key(|p| std::cmp::Reverse(p.bytes));
@@ -377,7 +393,9 @@ fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]
 
 pub fn analisar(distro: &str, montagens: &[(String, String, String)]) -> Result<Analise, String> {
     let script = SCRIPT_ANALISE.replace("__CACHES__", &CACHES.join(" "));
-    let saida = wsl::executar_longo(&["-d", distro, "-u", "root", "--exec", "sh", "-c", &script], PRAZO_ANALISE)?;
+    // O `timeout` de dentro mata o `du` junto: matar só o wsl.exe deixava a varredura rodando.
+    let prazo = (PRAZO_ANALISE.as_secs() - 10).to_string();
+    let saida = wsl::executar_longo(&["-d", distro, "-u", "root", "--exec", "timeout", "-k", "5", &prazo, "sh", "-c", &script], PRAZO_ANALISE)?;
     Ok(ler_analise(distro, &wsl::decodificar(&saida.stdout), montagens))
 }
 
@@ -492,7 +510,7 @@ mod testes {
     #[test]
     fn pasta_montada_por_container_nao_e_apagavel() {
         let montagens = vec![("Ubuntu".to_string(), "/tmp/obra/src".to_string(), "app".to_string())];
-        let texto = "R\t81000\t0\t/\nR\t53000\t0\t/tmp\nT\t30000\t1793200000\t/tmp/obra\nT\t11000\t1793100000\t/tmp/solta\nC\t4400\t0\t/root/.cache\n";
+        let texto = "R\t53000\t0\t/tmp\nR\t17000\t0\t/home\nT\t30000\t0\t/tmp/obra\nT\t11000\t0\t/tmp/solta\nC\t4400\t0\t/root/.cache\nM\t0\t1793200000\t/tmp/obra\nM\t0\t1793100000\t/tmp/solta\n";
         let a = ler_analise("Ubuntu", texto, &montagens);
         assert_eq!(a.raiz.len(), 2);
         assert!(!a.raiz[0].apagavel);
@@ -503,6 +521,34 @@ mod testes {
         // Montagem em outra distro não conta.
         let b = ler_analise("Debian", texto, &montagens);
         assert!(b.tmp.iter().all(|p| p.apagavel));
+    }
+
+    #[test]
+    fn raiz_fica_com_as_maiores_sem_o_total() {
+        let mut texto = String::from("R\t81000\t0\t/\n");
+        for i in 0..20 {
+            texto.push_str(&format!("R\t{i}\t0\t/pasta{i}\n"));
+        }
+        let a = ler_analise("Ubuntu", &texto, &[]);
+        assert_eq!(a.raiz.len(), MAIORES_DA_RAIZ);
+        assert_eq!(a.raiz[0].caminho, "/pasta19");
+        assert!(a.raiz.iter().all(|p| p.caminho != "/"));
+    }
+
+    /// O script roda de verdade num sh com `du` e `awk`, sobre uma árvore montada aqui; só onde
+    /// existe um sh POSIX (no CI do Linux). Confere o filtro de profundidade do awk.
+    #[cfg(unix)]
+    #[test]
+    fn awk_separa_raiz_e_tmp() {
+        let linhas = "10\t/tmp/a\n20\t/tmp\n5\t/home/x\n30\t/home\n90\t/\n1\t/tmp/a/b\n";
+        let filtro = SCRIPT_ANALISE.lines().find(|l| l.starts_with("du ")).unwrap();
+        let awk = &filtro[filtro.find("awk").unwrap()..];
+        let saida = std::process::Command::new("sh")
+            .args(["-c", &format!("printf '{}' | {awk}", linhas.replace('\t', "\\t").replace('\n', "\\n"))])
+            .output()
+            .unwrap();
+        let texto = String::from_utf8(saida.stdout).unwrap();
+        assert_eq!(texto, "T\t10\t0\t/tmp/a\nR\t20\t0\t/tmp\nR\t30\t0\t/home\n");
     }
 
     #[test]

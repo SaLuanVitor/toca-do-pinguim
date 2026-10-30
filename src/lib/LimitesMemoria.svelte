@@ -1,7 +1,6 @@
 <script lang="ts">
-  // Os tetos da VM do WSL num lugar só: memória e processadores, que vão para o .wslconfig, e o
-  // cache que o app devolve sozinho ao Windows.
-  import { onMount } from 'svelte';
+  // O quanto de RAM a VM do WSL pode tirar do Windows: o teto do .wslconfig e o cache de
+  // arquivos que o app devolve sozinho.
   import { api } from './api';
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
@@ -12,14 +11,8 @@
   const GIB = 1024 ** 3;
   const PORCENTAGENS = [5, 10, 15, 20, 25, 30, 40, 50];
 
-  let maquina = $state(0);
-  // '' é o padrão do WSL: todos os processadores lógicos.
-  let processadores = $state('');
-  let gravado = $state('');
-  let salvandoCpu = $state(false);
-
   let cacheGb = $state('');
-  let salvandoCache = $state(false);
+  let salvando = $state(false);
 
   const ramGb = $derived(Math.floor((estado.memoriaWindows?.total_bytes ?? 0) / GIB));
   const cacheValido = $derived.by(() => {
@@ -28,51 +21,15 @@
     return Number.isFinite(n) && n >= 0.5 && (ramGb === 0 || n <= ramGb);
   });
 
-  onMount(async () => {
-    try {
-      const [limites, config] = await Promise.all([api.limitesDaMaquina(), api.lerWslconfig()]);
-      maquina = limites.processadores;
-      const atual = config.valores.find(([s, k]) => s.toLowerCase() === 'wsl2' && k.toLowerCase() === 'processors');
-      processadores = gravado = atual ? atual[2].trim() : '';
-    } catch (e) {
-      estado.avisar(String(e));
-    }
-  });
-
   $effect(() => {
     const maximo = estado.gatilho.cache_maximo_bytes;
     cacheGb = maximo === null ? '' : String(Math.round((maximo / GIB) * 10) / 10).replace('.', ',');
   });
 
-  async function salvarProcessadores(reiniciar: boolean) {
-    salvandoCpu = true;
-    try {
-      await api.gravarWslconfig([{ secao: 'wsl2', chave: 'processors', valor: processadores || null }], reiniciar);
-      gravado = processadores;
-      if (reiniciar) estado.receberDistros(await api.listarDistros());
-    } catch (e) {
-      estado.avisar(String(e));
-    } finally {
-      salvandoCpu = false;
-    }
-  }
-
-  function salvarProcessadoresEReiniciar() {
-    const ligadas = estado.distros.filter((d) => d.rodando).map((d) => d.nome);
-    estado.pedido = {
-      titulo: 'Reiniciar o WSL agora?',
-      texto: ligadas.length
-        ? `Para o novo limite de processadores valer, a VM do WSL precisa reiniciar. Serão terminadas: ${ligadas.join(', ')}.`
-        : 'Nenhuma distro está ligada; o novo limite vale na próxima vez que uma ligar.',
-      acao: 'Salvar e reiniciar',
-      executar: () => salvarProcessadores(true),
-    };
-  }
-
   /** Devolve false quando o app recusou; quem chamou volta o controle ao que vale. */
-  async function salvarCache(automatico: boolean, minimo: number, gb: string): Promise<boolean> {
+  async function salvar(automatico: boolean, minimo: number, gb: string): Promise<boolean> {
     const maximo = gb.trim() === '' ? null : Number(gb.replace(',', '.'));
-    salvandoCache = true;
+    salvando = true;
     try {
       await api.definirDevolucao(automatico, minimo, maximo);
       estado.devolverCacheAutomatico = automatico;
@@ -83,20 +40,20 @@
       estado.gatilho = { ...estado.gatilho };
       return false;
     } finally {
-      salvandoCache = false;
+      salvando = false;
     }
   }
 </script>
 
-<section class="cartao largo" aria-labelledby="titulo-limites">
+<section class="cartao largo" aria-labelledby="titulo-limites-mem">
   <div class="cabeca">
-    <h2 id="titulo-limites">Limites</h2>
-    <span>Quanto a VM do WSL pode tirar do Windows</span>
+    <h2 id="titulo-limites-mem">Limites de memória</h2>
+    <span>Quanta RAM a VM do WSL pode tirar do Windows</span>
   </div>
 
   <div class="grade">
-    <div class="bloco" role="group" aria-labelledby="limite-mem">
-      <h3 id="limite-mem">Memória</h3>
+    <div class="bloco" role="group" aria-labelledby="limite-teto">
+      <h3 id="limite-teto">Teto da VM</h3>
       {#if resumo}
         <dl>
           <div>
@@ -119,58 +76,28 @@
       {/if}
     </div>
 
-    <div class="bloco" role="group" aria-labelledby="limite-cpu">
-      <h3 id="limite-cpu">Processadores</h3>
-      <label class="campo">
-        <span>A VM pode usar</span>
-        <select bind:value={processadores} disabled={!maquina}>
-          <option value="">Todos ({maquina || '?'}, padrão do WSL)</option>
-          {#each Array.from({ length: maquina }, (_, i) => String(i + 1)) as n (n)}
-            <option value={n}>{n} de {maquina}</option>
-          {/each}
-        </select>
-      </label>
-      <p class="explica">
-        Com menos processadores, um build ou um container que dispara não leva a máquina toda: a VM fica com até
-        esse número de núcleos e o resto do Windows continua respondendo.{estado.vm ? ` Hoje a VM vê ${estado.vm.cpus}.` : ''}
-        Vale quando o WSL reiniciar.
-      </p>
-      <div class="acoes">
-        <button
-          class="botao primario"
-          disabled={processadores === gravado || salvandoCpu}
-          onclick={() => salvarProcessadores(false)}
-        >
-          Salvar para o próximo início
-        </button>
-        <button class="botao" disabled={processadores === gravado || salvandoCpu} onclick={salvarProcessadoresEReiniciar}>
-          Salvar e reiniciar o WSL
-        </button>
-      </div>
-    </div>
-
     <div class="bloco" role="group" aria-labelledby="limite-cache">
-      <h3 id="limite-cache">Cache</h3>
+      <h3 id="limite-cache">Cache de arquivos</h3>
       <label class="opcao">
         <input
           type="checkbox"
           checked={estado.devolverCacheAutomatico}
-          disabled={salvandoCache}
+          disabled={salvando}
           onchange={async (e) => {
             const caixa = e.currentTarget;
-            if (!(await salvarCache(caixa.checked, estado.gatilho.minimo_livre_pct, cacheGb))) caixa.checked = !caixa.checked;
+            if (!(await salvar(caixa.checked, estado.gatilho.minimo_livre_pct, cacheGb))) caixa.checked = !caixa.checked;
           }}
         />
-        Devolver o cache da VM sozinho
+        Devolver o cache de arquivos ao Windows sozinho
       </label>
       <label class="campo">
-        <span>Quando a memória livre do Windows ficar abaixo de</span>
+        <span>Quando a RAM livre do Windows ficar abaixo de</span>
         <select
           value={estado.gatilho.minimo_livre_pct}
-          disabled={!estado.devolverCacheAutomatico || salvandoCache}
+          disabled={!estado.devolverCacheAutomatico || salvando}
           onchange={async (e) => {
             const lista = e.currentTarget;
-            if (!(await salvarCache(true, Number(lista.value), cacheGb))) lista.value = String(estado.gatilho.minimo_livre_pct);
+            if (!(await salvar(true, Number(lista.value), cacheGb))) lista.value = String(estado.gatilho.minimo_livre_pct);
           }}
         >
           {#each PORCENTAGENS as p (p)}
@@ -179,25 +106,25 @@
         </select>
       </label>
       <label class="campo">
-        <span>Ou quando o cache da VM passar de (GB, vazio para não olhar)</span>
+        <span>Ou quando o cache de arquivos da VM passar de (GB, vazio para não olhar)</span>
         <input
           type="text"
           inputmode="decimal"
           value={cacheGb}
           placeholder="não olhar"
           aria-invalid={!cacheValido}
-          disabled={!estado.devolverCacheAutomatico || salvandoCache}
+          disabled={!estado.devolverCacheAutomatico || salvando}
           oninput={(e) => (cacheGb = e.currentTarget.value = e.currentTarget.value.replace(/[^\d,.]/g, ''))}
-          onchange={() => cacheValido && salvarCache(true, estado.gatilho.minimo_livre_pct, cacheGb)}
+          onchange={() => cacheValido && salvar(true, estado.gatilho.minimo_livre_pct, cacheGb)}
         />
       </label>
       {#if !cacheValido}
         <p class="erro" role="alert">Use um número de 0,5 a {ramGb} GB, ou deixe vazio.</p>
       {/if}
       <p class="explica">
-        Basta um dos dois. No máximo uma vez a cada 10 minutos, com o resultado na Atividade. Nada se perde: a VM só
-        relê do disco o que precisar. Devolver não impede o cache de crescer de novo; para a VM ocupar menos de vez,
-        baixe o limite de memória.
+        Basta um dos dois. No máximo uma vez a cada 10 minutos, com o resultado na Atividade. São arquivos que o Linux guardou
+        na RAM; nada se apaga do disco, a VM só relê o que precisar. O cache volta a crescer; para a VM ocupar menos de vez,
+        baixe o teto.
       </p>
     </div>
   </div>
@@ -242,7 +169,7 @@
 
   .grade {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 20px;
   }
 
