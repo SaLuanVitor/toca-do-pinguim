@@ -15,6 +15,11 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - Aviso e notificação do Windows quando a memória disponível do Windows cai abaixo de 10%,
   dizendo quanto o WSL ocupa e qual projeto mais usa. O aviso some acima de 15%.
 - Aviso e notificação quando o WSL para de responder, com o botão para desligá-lo.
+- Configurações > Este app tem um interruptor para desligar a busca de atualizações, o único
+  acesso do app à internet, e um botão para procurar na hora.
+- O instalador mostra, antes de instalar, o que o app acessa na rede e o que muda no sistema.
+- README com as seções de privacidade e de política de assinatura, preparando o pedido de
+  assinatura gratuita à SignPath Foundation.
 
 ### Corrigido
 

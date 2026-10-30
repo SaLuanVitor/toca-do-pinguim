@@ -27,4 +27,6 @@ console.log(`${secao}
 | \`THIRD-PARTY-NOTICES.md\` | licenças das bibliotecas de terceiros incluídas no app |
 
 Requer Windows 10 ou 11 x64 com WSL 2. Ainda sem assinatura digital: o SmartScreen avisa na
-primeira execução, e o caminho é "Mais informações" e depois "Executar assim mesmo".`);
+primeira execução, e o caminho é "Mais informações" e depois "Executar assim mesmo".
+
+[Política de assinatura (code signing policy)](https://github.com/SaLuanVitor/toca-do-pinguim#política-de-assinatura-code-signing-policy) · [Privacidade](https://github.com/SaLuanVitor/toca-do-pinguim#privacidade)`);

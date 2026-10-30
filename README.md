@@ -178,6 +178,28 @@ com 162), executável de release:
 
 Medições únicas, numa máquina; não são dado de campo.
 
+## Privacidade
+
+O único acesso do app à internet é a busca de versão nova, ao abrir e a cada 6 horas: ele
+consulta as versões publicadas em github.com, e o GitHub recebe o endereço IP do computador,
+como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais
+sai da máquina: o log, o histórico de memória e a atividade ficam só nela. O instalador mostra
+este aviso antes de instalar.
+
+## Política de assinatura (code signing policy)
+
+Os instaladores ainda não têm assinatura digital do Windows. O projeto vai pedir assinatura
+gratuita à [SignPath Foundation](https://signpath.org), que assina apenas o que a CI do GitHub
+compila a partir deste repositório, e cada versão só é assinada depois de aprovada à mão.
+
+| Papel | Quem |
+|---|---|
+| Autores e revisores (*committers and reviewers*) | [SaLuanVitor](https://github.com/SaLuanVitor) |
+| Aprovadores (*approvers*) | [SaLuanVitor](https://github.com/SaLuanVitor) |
+
+Toda mudança entra por PR nas branches protegidas, e quem não é autor tem o PR revisado antes
+de entrar.
+
 ## Contribuir
 
 Veja o [CONTRIBUTING.md](CONTRIBUTING.md). Falha de segurança se relata em particular, como
