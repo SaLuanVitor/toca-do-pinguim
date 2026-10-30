@@ -24,6 +24,8 @@ const PRAZO_ANALISE: Duration = Duration::from_secs(20 * 60);
 /// Apagar imagens e cache de build de dezenas de GB leva minutos.
 const PRAZO_LIMPEZA: Duration = Duration::from_secs(15 * 60);
 const ROTULO_PROJETO: &str = "com.docker.compose.project=";
+/// Abaixo disso, desligar o WSL e pedir administrador não compensa.
+const MINIMO_PARA_COMPACTAR: u64 = 1 << 30;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct DiscoVirtual {
@@ -37,6 +39,8 @@ pub struct DiscoVirtual {
     /// Explica um disco que ninguém usa mais, como o de dados do Docker que ficou para trás
     /// quando o Docker Desktop mudou de pasta.
     pub nota: Option<String>,
+    /// Esparso o Windows já encolhe sozinho; o que ficou para trás é para apagar, não compactar.
+    pub compactavel: bool,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -168,6 +172,7 @@ pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
                 caminho: e.path().display().to_string(),
                 tamanho_bytes: tamanho,
                 esparso: esparso(&e.path()),
+                compactavel: false,
                 nota: None,
             });
         }
@@ -181,6 +186,7 @@ pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
             tamanho_bytes: std::fs::metadata(&atual).map_or(0, |m| m.len()),
             usado_bytes: if ligada("docker-desktop") { usado("docker-desktop", "/mnt/docker-desktop-disk") } else { None },
             esparso: esparso(&atual),
+            compactavel: false,
             nota: None,
         });
         if let Some(antigo) = padrao.filter(|p| p.is_file() && *p != atual) {
@@ -190,12 +196,16 @@ pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
                 tamanho_bytes: std::fs::metadata(&antigo).map_or(0, |m| m.len()),
                 usado_bytes: None,
                 esparso: esparso(&antigo),
+                compactavel: false,
                 nota: Some(format!(
                     "O Docker Desktop usa a pasta {}; este arquivo ficou da pasta anterior e ele não o abre mais. Pode ser apagado com o Docker Desktop fechado.",
                     atual.parent().and_then(Path::parent).map_or(String::new(), |p| p.display().to_string())
                 )),
             });
         }
+    }
+    for d in &mut lista {
+        d.compactavel = !d.esparso && d.nota.is_none() && d.tamanho_bytes >= MINIMO_PARA_COMPACTAR;
     }
     lista
 }

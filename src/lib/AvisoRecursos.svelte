@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Aviso que vale em qualquer aba. O de RAM acabando fica só na aba Memória, e a entrada dela
-  // no menu ganha um sinal enquanto ele estiver ativo.
+  // Aviso que vale em qualquer página. O de RAM acabando fica só em Desempenho > Memória, e a
+  // entrada Desempenho no menu ganha um sinal enquanto ele estiver ativo.
   import { desligarWsl, ocupadas } from './acoes.svelte';
   import { estado } from './estado.svelte';
 

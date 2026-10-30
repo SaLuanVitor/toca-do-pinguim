@@ -18,14 +18,14 @@ os detalhes estão em [Instalar](#instalar).
 > CPU, memory and listening ports of every distro, where the Windows RAM goes (WSL cache,
 > Docker Compose projects), where the disk space goes, and which containers and processes look
 > stuck. It starts, stops and restarts distros, edits every documented `.wslconfig` and
-> per-distro `/etc/wsl.conf` setting, and logs WSL failures. It never keeps a distro running on its own. The interface is in
-> Brazilian Portuguese.
+> per-distro `/etc/wsl.conf` setting, and logs WSL failures. It never keeps a distro running
+> on its own. The interface is in Brazilian Portuguese.
 
 ![Aba Processos](docs/capturas/processos.png)
 
-| Memória | Disco |
+| Desempenho: Memória | Desempenho: Disco |
 |---|---|
-| ![Aba Memória](docs/capturas/memoria.png) | ![Aba Disco](docs/capturas/disco.png) |
+| ![Desempenho, aba Memória](docs/capturas/memoria.png) | ![Desempenho, aba Disco](docs/capturas/disco.png) |
 
 As capturas são do modo demonstração, com dados simulados.
 
@@ -36,11 +36,13 @@ As capturas são do modo demonstração, com dados simulados.
   O app mostra quanto é programa, quanto é cache e qual projeto do Docker Compose ocupa mais,
   para ou liga um projeto inteiro com um clique e devolve o cache ao Windows, a pedido ou
   sozinho. Abaixo de 10% de memória livre no Windows, avisa por notificação e diz se quem ocupa
-  é o WSL ou os programas do Windows. Na aba Memória você define o teto de RAM da VM e quando o
-  cache volta sozinho; na aba Processador, quantos processadores ela pode usar.
-- **O disco virtual que só cresce.** A aba Disco mostra quanto cada `.vhdx` ocupa no
+  é o WSL ou os programas do Windows. Em Desempenho > Memória você define o teto de RAM da VM e
+  quando o cache volta sozinho; em Desempenho > Processamento, quantos processadores ela pode
+  usar.
+- **O disco virtual que só cresce.** Desempenho > Disco mostra quanto cada `.vhdx` ocupa no
   Windows, quanto o Docker libera por categoria e quais pastas de uma distro pesam mais, com
-  limpeza a pedido ou semanal.
+  limpeza a pedido ou semanal. Compactar o disco devolve ao Windows o espaço que o Linux já
+  liberou por dentro.
 - **O que está preso.** Container que falha no próprio healthcheck ou reinicia sem parar,
   processo esperando disco ou rede, zumbi que ninguém recolhe. Cada um aparece com o motivo,
   e o container tem botão para reiniciar.
@@ -59,9 +61,7 @@ o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
 | Aba | O que tem |
 |---|---|
 | Processos | processos de cada distro com CPU e memória; os presos e os zumbis marcados com o motivo; encerramento por SIGTERM ou SIGKILL |
-| Processador | gráfico de CPU da VM; limite de processadores; CPU por distro |
-| Memória | gráfico de RAM da VM; para onde vai a RAM do Windows; teto de memória da VM e gatilhos da devolução automática do cache de arquivos; RAM dos projetos do Docker, com parar, ligar e reiniciar o que está com problema; RAM por distro |
-| Disco | discos virtuais com o tamanho no Windows e o ocupado dentro; limpeza do Docker por categoria; pastas maiores de uma distro; limpeza semanal opcional |
+| Desempenho | três abas. **Processamento:** gráfico de CPU da VM, limite de processadores, CPU por distro. **Memória:** gráfico de RAM da VM, para onde vai a RAM do Windows, teto de memória da VM e gatilhos da devolução automática do cache de arquivos, RAM dos projetos do Docker (com parar, ligar e reiniciar o que está com problema) e RAM por distro. **Disco:** discos virtuais com o tamanho no Windows e o ocupado dentro, compactação, limpeza do Docker por categoria, pastas maiores de uma distro e limpeza semanal opcional |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
 | Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
 | Distros | iniciar, terminar, reiniciar e desligar o WSL |
@@ -140,10 +140,10 @@ o aviso de memória está aceso. Parar um projeto é um `docker stop` dos contai
 
 **Devolver o cache.** O botão roda `sync` e `echo 3 > /proc/sys/vm/drop_caches` numa distro
 já ligada, como root, e mede a memória do `vmmemWSL` 15 s e 2 min depois. A opção automática,
-na aba Memória, faz o mesmo quando a memória livre do Windows fica abaixo da
+em Desempenho > Memória, faz o mesmo quando a memória livre do Windows fica abaixo da
 porcentagem escolhida (10% por padrão) ou quando o cache da VM passa do tamanho escolhido, no
 máximo uma vez a cada 10 minutos, e vem desligada; ela fica em `preferencias.json`, na pasta
-de dados do app. O limite de processadores, na aba Processador, grava a linha `processors` do `.wslconfig` e
+de dados do app. O limite de processadores, em Desempenho > Processamento, grava a linha `processors` do `.wslconfig` e
 vale quando o WSL reinicia. Medido numa máquina
 com um job de CI e 15 containers: 2,9 GB voltaram em 30 s, e 1,3 GB ainda estavam livres
 5 min depois. O que volta rápido são as tabelas de arquivos e os blocos de disco, enquanto
@@ -157,8 +157,15 @@ pastas roda um `du` só, como root, na distro escolhida; medido num Ubuntu com 8
 `du` levou 172 s com o cache de disco quente, e o app desiste em 20 min, com o `du` encerrado
 junto;
 só o que ela listou como removível pode ser apagado, e entrada do `/tmp` montada por um
-container ligado fica bloqueada. Compactar o `.vhdx` para devolver o espaço vazio ao Windows
-ainda não está no app.
+container ligado fica bloqueada.
+
+**Compactar o disco.** O `.vhdx` cresce e não encolhe sozinho. O botão Compactar roda
+`fstrim` na distro, se ela estiver ligada, desliga o WSL e roda o `diskpart` (`attach vdisk
+readonly`, `compact vdisk`, `detach vdisk`) como administrador, então o Windows pede a
+permissão. É o caminho que existe no Windows 11 Home, que não tem `Optimize-VHD`. O Docker
+Desktop precisa estar fechado, porque ele religa o WSL logo depois do desligamento e prende o
+disco. Disco esparso não aparece com o botão, porque o Windows já o encolhe sozinho. Nada dentro
+do disco é apagado, e o WSL fica desligado no fim.
 
 **Processos e containers presos.** O Linux não marca processo como travado; o app aponta
 sinais. Na aba Processos: estado `D` por mais de 1 min (esperando disco ou rede, e encerrar só

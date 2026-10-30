@@ -7,7 +7,7 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ### Adicionado
 
-- Aba **Disco**: o tamanho de cada disco virtual no Windows, quanto está ocupado dentro
+- Aba **Disco**, em Desempenho: o tamanho de cada disco virtual no Windows, quanto está ocupado dentro
   e quanto é espaço vazio que o disco não devolveu, incluindo o disco de dados do Docker
   Desktop e um disco antigo dele que tenha ficado para trás. O Docker aparece por categoria
   (imagens, containers, volumes, cache de build) com o quanto cada uma libera, e cada limpeza
@@ -15,20 +15,24 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   Compose, e volumes sem uso são escolhidos um a um. A análise de uma distro, a pedido, mostra
   as pastas maiores, as entradas do `/tmp` com a data e os caches conhecidos; o que um
   container ligado monta fica bloqueado. Limpeza semanal opcional, desligada por padrão.
-- Limite de processadores da VM, na aba Processador: grava `processors` no `.wslconfig`, para o
+- **Compactar** um disco virtual em Desempenho > Disco: devolve ao Windows o espaço que o Linux já
+  liberou por dentro. Desliga o WSL, roda o `diskpart` como administrador (o Windows pede a
+  permissão) e mostra o tamanho antes e depois. Pede o Docker Desktop fechado.
+- Limite de processadores da VM, em Desempenho > Processamento: grava `processors` no `.wslconfig`, para o
   próximo início ou com reinício.
-- Devolução automática do cache de arquivos com dois gatilhos ajustáveis, na aba Memória: RAM
+- Devolução automática do cache de arquivos com dois gatilhos ajustáveis, em Desempenho > Memória: RAM
   livre do Windows abaixo de uma porcentagem (10% por padrão) ou cache da VM acima de um
   tamanho.
 
 ### Mudado
 
-- A aba Desempenho virou duas, **Processador** e **Memória**, e cada uma só mostra o que é
-  dela: o teto de RAM e a devolução do cache ficam em Memória, o limite de processadores em
-  Processador, e a tabela por distro foi dividida entre as duas. Espaço em disco fica na aba
-  Disco. O aviso de RAM acabando aparece só na aba Memória, e a entrada dela no menu ganha um
-  sinal enquanto ele estiver ativo.
-- A devolução automática do cache saiu de Configurações > Este app e foi para a aba Memória.
+- Desempenho ganhou três abas, **Processamento**, **Memória** e **Disco**, e cada uma só mostra
+  o que é dela: o teto de RAM e a devolução do cache ficam em Memória, o limite de
+  processadores em Processamento, e a tabela por distro foi dividida entre as duas. O aviso de
+  RAM acabando aparece só em Memória; a entrada Desempenho no menu e a aba Memória ganham um
+  sinal enquanto ele estiver ativo. As abas mudam com as setas do teclado.
+- A devolução automática do cache saiu de Configurações > Este app e foi para Desempenho >
+  Memória.
   Quem já a tinha ligada continua com ela ligada e com o gatilho de 10%.
 
 ### Corrigido

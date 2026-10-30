@@ -158,6 +158,11 @@ pub fn memoria_da_vm() -> Option<u64> {
     memoria_fisica_de("vmmemWSL")
 }
 
+/// Pelo nome da imagem, com a extensão: "Docker Desktop.exe".
+pub fn processo_rodando(nome: &str) -> bool {
+    memoria_fisica_de(nome).is_some()
+}
+
 fn memoria_fisica_de(processo: &str) -> Option<u64> {
     use windows_sys::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessInformation};
     use windows_sys::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION;
@@ -244,7 +249,7 @@ pub fn explicar_wsl(usada: u64, wsl: u64, cache: Option<u64>, conteineres: &[Con
     let docker: u64 = conteineres.iter().map(|c| c.memoria_bytes).sum();
     match (cache, maior_consumidor(conteineres)) {
         (Some(cache), _) if cache >= docker => format!(
-            "O WSL ocupa {} GB, e a maior parte é cache de arquivos ({} GB), que o Linux devolve quando precisa mas o Windows conta como ocupado. Baixar o limite de memória do WSL, na aba Memória, segura esse tamanho.",
+            "O WSL ocupa {} GB, e a maior parte é cache de arquivos ({} GB), que o Linux devolve quando precisa mas o Windows conta como ocupado. Baixar o limite de memória do WSL, em Desempenho > Memória, segura esse tamanho.",
             gb(wsl),
             gb(cache)
         ),

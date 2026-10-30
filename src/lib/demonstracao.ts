@@ -199,9 +199,9 @@ export function criarDemonstracao(): Api {
 
   const armazenamento: Armazenamento = {
     discos: [
-      { nome: 'Ubuntu', caminho: String.raw`C:\Users\voce\AppData\Local\Packages\Ubuntu\LocalState\ext4.vhdx`, tamanho_bytes: 112 * GIB, usado_bytes: 81 * GIB, esparso: false, nota: null },
-      { nome: 'docker-desktop', caminho: String.raw`E:\DockerDesktopWSL\main\ext4.vhdx`, tamanho_bytes: 0.1 * GIB, usado_bytes: null, esparso: false, nota: null },
-      { nome: 'Docker (dados)', caminho: String.raw`E:\DockerDesktopWSL\disk\docker_data.vhdx`, tamanho_bytes: 199 * GIB, usado_bytes: 177 * GIB, esparso: false, nota: null },
+      { nome: 'Ubuntu', caminho: String.raw`C:\Users\voce\AppData\Local\Packages\Ubuntu\LocalState\ext4.vhdx`, tamanho_bytes: 112 * GIB, usado_bytes: 81 * GIB, esparso: false, nota: null, compactavel: true },
+      { nome: 'docker-desktop', caminho: String.raw`E:\DockerDesktopWSL\main\ext4.vhdx`, tamanho_bytes: 0.1 * GIB, usado_bytes: null, esparso: false, nota: null, compactavel: false },
+      { nome: 'Docker (dados)', caminho: String.raw`E:\DockerDesktopWSL\disk\docker_data.vhdx`, tamanho_bytes: 199 * GIB, usado_bytes: 177 * GIB, esparso: false, nota: null, compactavel: true },
       {
         nome: 'Docker (dados, antigo)',
         caminho: String.raw`C:\Users\voce\AppData\Local\Docker\wsl\disk\docker_data.vhdx`,
@@ -209,6 +209,7 @@ export function criarDemonstracao(): Api {
         usado_bytes: null,
         esparso: false,
         nota: String.raw`O Docker Desktop usa a pasta E:\DockerDesktopWSL; este arquivo ficou da pasta anterior e ele não o abre mais. Pode ser apagado com o Docker Desktop fechado.`,
+        compactavel: false,
       },
     ],
     docker: {
@@ -355,6 +356,18 @@ export function criarDemonstracao(): Api {
       cat.recuperavel_bytes = 0;
       registrar('armazenamento', 'docker-desktop', `O app limpou o Docker: ${(liberado / GIB).toFixed(1).replace('.', ',')} GB liberados`);
       return liberado;
+    },
+    compactarDisco: async (caminho) => {
+      await esperar(2500);
+      const disco = armazenamento.discos.find((d) => d.caminho === caminho)!;
+      const antes = disco.tamanho_bytes;
+      const depois = disco.usado_bytes !== null ? disco.usado_bytes + 0.4 * GIB : antes;
+      disco.tamanho_bytes = depois;
+      for (const d of distros) d.rodando = false;
+      publicar();
+      registrar('wsl', null, `O app desligou o WSL para compactar o disco de ${disco.nome}`);
+      registrar('armazenamento', disco.nome, `O app compactou o disco de ${disco.nome}: de ${(antes / GIB).toFixed(1).replace('.', ',')} GB para ${(depois / GIB).toFixed(1).replace('.', ',')} GB no Windows`);
+      return { antes_bytes: antes, depois_bytes: depois };
     },
     definirLimpeza: async (limpeza) => {
       armazenamento.limpeza = { ...limpeza };

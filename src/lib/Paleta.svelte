@@ -3,7 +3,7 @@
   import { desligarWsl, iniciar, reiniciar, terminar } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import { pct } from './formato';
-  import type { Pagina } from './tipos';
+  import type { AbaDesempenho, Pagina } from './tipos';
 
   interface Item {
     id: string;
@@ -17,16 +17,24 @@
   // O terceiro campo só entra na busca: quem procura "cpu" ou "armazenamento" acha a aba.
   const PAGINAS: [Pagina, string, string][] = [
     ['processos', 'Processos', ''],
-    ['processador', 'Processador', 'cpu desempenho'],
-    ['memoria', 'Memória', 'ram desempenho'],
-    ['disco', 'Disco', 'armazenamento espaço'],
+    ['desempenho', 'Desempenho', ''],
     ['portas', 'Portas', ''],
     ['atividade', 'Atividade', ''],
     ['configuracoes', 'Configurações', ''],
     ['log', 'Log', ''],
     ['distros', 'Distros', ''],
   ];
+  const ABAS: [AbaDesempenho, string, string][] = [
+    ['processamento', 'Processamento', 'cpu processador'],
+    ['memoria', 'Memória', 'ram'],
+    ['disco', 'Disco', 'armazenamento espaço'],
+  ];
   const MAXIMO = 12;
+
+  function irPara(aba: AbaDesempenho) {
+    estado.pagina = 'desempenho';
+    estado.abaDesempenho = aba;
+  }
   const PROCESSOS_NO_MAXIMO = 8;
 
   let dialogo: HTMLDialogElement;
@@ -51,6 +59,18 @@
     for (const [p, nome, extra] of PAGINAS) {
       add({ id: `p:${p}`, titulo: `Ir para ${nome}`, detalhe: '', categoria: 'Página', executar: () => (estado.pagina = p) }, casar(`${nome} ir para ${extra}`, t));
     }
+    for (const [aba, nome, extra] of ABAS) {
+      add(
+        {
+          id: `d:${aba}`,
+          titulo: `Ir para Desempenho: ${nome}`,
+          detalhe: '',
+          categoria: 'Página',
+          executar: () => irPara(aba),
+        },
+        casar(`${nome} desempenho ${extra}`, t),
+      );
+    }
     add(
       {
         id: 'a:limite',
@@ -58,7 +78,7 @@
         detalhe: 'Sugestão a partir do uso medido',
         categoria: 'Ação',
         executar: () => {
-          estado.pagina = 'memoria';
+          irPara('memoria');
           estado.ajustarLimite = true;
         },
       },
@@ -70,7 +90,7 @@
         titulo: 'Limite de processadores',
         detalhe: 'Quantos processadores a VM do WSL pode usar',
         categoria: 'Ação',
-        executar: () => (estado.pagina = 'processador'),
+        executar: () => irPara('processamento'),
       },
       casar('limite de processadores cpu núcleos wslconfig', t),
     );
@@ -80,7 +100,7 @@
         titulo: 'Devolver o cache de arquivos sozinho',
         detalhe: 'RAM da VM que volta ao Windows quando falta',
         categoria: 'Ação',
-        executar: () => (estado.pagina = 'memoria'),
+        executar: () => irPara('memoria'),
       },
       casar('devolver cache de arquivos ram sozinho automático', t),
     );
