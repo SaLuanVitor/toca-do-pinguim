@@ -99,10 +99,6 @@
   );
 </script>
 
-<header class="barra">
-  <h1>Memória</h1>
-</header>
-
 <AvisoMemoria onajustar={() => (ajustando = true)} />
 
 {#if !vm}

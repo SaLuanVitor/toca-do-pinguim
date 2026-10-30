@@ -102,6 +102,9 @@ pub struct Agentes {
     cache_vm: AtomicU64,
     espera_ociosidade_ms: AtomicI64,
     pausado: AtomicBool,
+    /// Enquanto o app desliga o WSL, nenhum agente sobe: uma leitura da lista feita antes do
+    /// `--shutdown` ainda mostra a distro ligada, e subir o agente nela religa a VM.
+    segurando: AtomicBool,
     proximo_id: AtomicU64,
 }
 
@@ -120,6 +123,7 @@ impl Agentes {
             cache_vm: AtomicU64::new(0),
             espera_ociosidade_ms: AtomicI64::new(WslConfig::ler().espera_ociosidade_ms()),
             pausado: AtomicBool::new(false),
+            segurando: AtomicBool::new(false),
             proximo_id: AtomicU64::new(1),
         })
     }
@@ -204,6 +208,10 @@ impl Agentes {
         self.ociosas.lock().unwrap().remove(distro);
     }
 
+    pub fn segurar(&self, sim: bool) {
+        self.segurando.store(sim, Ordering::SeqCst);
+    }
+
     pub fn parar_todos(&self) {
         let nomes: Vec<String> = self.slots.lock().unwrap().keys().cloned().collect();
         for nome in nomes {
@@ -218,6 +226,9 @@ impl Agentes {
     /// Sobe o agente de `distro` se ainda não houver um. Não espera: a instalação e a
     /// partida rodam numa thread, e o resultado chega por evento.
     pub fn garantir(self: &Arc<Self>, app: &AppHandle, distro: &str) {
+        if self.segurando.load(Ordering::SeqCst) {
+            return;
+        }
         if let Some((quando, seguidas)) = self.falhas.lock().unwrap().get(distro) {
             if quando.elapsed() < espera_apos_falhas(*seguidas) {
                 return;

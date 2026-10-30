@@ -5,7 +5,7 @@
   import { api } from './api';
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
-  import type { AnalisePastas, Armazenamento, LimpezaDocker, LimpezaProgramada, Pasta } from './tipos';
+  import type { AnalisePastas, Armazenamento, DiscoVirtual, LimpezaDocker, LimpezaProgramada, Pasta } from './tipos';
 
   let dados = $state<Armazenamento | null>(null);
   let lendo = $state(false);
@@ -16,6 +16,8 @@
   let analise = $state<AnalisePastas | null>(null);
   let analisando = $state(false);
   let marcadas = $state<Record<string, boolean>>({});
+
+  let compactando = $state<string | null>(null);
 
   let volumesAbertos = $state(false);
   let volumesMarcados = $state<Record<string, boolean>>({});
@@ -62,6 +64,45 @@
           estado.avisar(String(e));
         } finally {
           limpando = null;
+        }
+      },
+    };
+  }
+
+  function compactar(d: DiscoVirtual) {
+    if (estado.docker.ligado) {
+      estado.avisar('Feche o Docker Desktop antes de compactar: ele religa o WSL logo depois e prende o disco.');
+      return;
+    }
+    const ligadas = estado.distros.filter((x) => x.rodando).map((x) => x.nome);
+    const vazio = d.usado_bytes !== null ? Math.max(0, d.tamanho_bytes - d.usado_bytes) : null;
+    estado.pedido = {
+      titulo: `Compactar o disco de ${d.nome}?`,
+      texto: [
+        ligadas.length
+          ? `O WSL inteiro será desligado, e ${ligadas.join(', ')} ${ligadas.length === 1 ? 'para' : 'param'}.`
+          : 'O WSL já está desligado.',
+        'O Windows vai pedir permissão de administrador para o diskpart, e a compactação pode levar vários minutos; não ligue nenhuma distro até ela acabar.',
+        vazio !== null ? `Pode devolver até ${bytes(vazio)} ao Windows.` : 'Quanto volta só se sabe no fim.',
+        'Nada dentro do disco é apagado.',
+      ].join(' '),
+      acao: 'Desligar e compactar',
+      executar: async () => {
+        compactando = d.caminho;
+        resultado = `Compactando o disco de ${d.nome}: aceite o pedido de administrador do Windows. Pode levar vários minutos.`;
+        try {
+          const r = await api.compactarDisco(d.caminho);
+          const devolvido = Math.max(0, r.antes_bytes - r.depois_bytes);
+          resultado = devolvido
+            ? `Disco de ${d.nome} compactado: de ${bytes(r.antes_bytes)} para ${bytes(r.depois_bytes)}, ${bytes(devolvido)} devolvidos ao Windows. O WSL ficou desligado.`
+            : `O disco de ${d.nome} não tinha espaço a devolver. O WSL ficou desligado.`;
+          estado.receberDistros(await api.listarDistros());
+          await ler();
+        } catch (e) {
+          resultado = '';
+          estado.avisar(String(e));
+        } finally {
+          compactando = null;
         }
       },
     };
@@ -134,12 +175,10 @@
   onMount(ler);
 </script>
 
-<header class="barra">
-  <h1>Disco</h1>
-  <button class="botao" onclick={ler} disabled={lendo}>{lendo ? 'Lendo' : 'Atualizar'}</button>
-</header>
-
 <div class="rolagem">
+  <div class="topo">
+    <button class="botao" onclick={ler} disabled={lendo}>{lendo ? 'Lendo' : 'Atualizar'}</button>
+  </div>
   {#if resultado}<p class="resultado" role="status">{resultado}</p>{/if}
 
   <section class="cartao" aria-labelledby="titulo-discos">
@@ -158,6 +197,7 @@
             <th scope="col" class="numero">Usado por dentro</th>
             <th scope="col" class="numero">Espaço vazio no arquivo</th>
             <th scope="col">Arquivo</th>
+            <th scope="col"><span class="visualmente-oculto">Ação</span></th>
           </tr>
         </thead>
         <tbody>
@@ -168,16 +208,24 @@
               <td class="numero">{d.usado_bytes !== null ? bytes(d.usado_bytes) : ''}</td>
               <td class="numero">{d.usado_bytes !== null ? bytes(Math.max(0, d.tamanho_bytes - d.usado_bytes)) : ''}</td>
               <td class="caminho" title={d.caminho}>{d.caminho}</td>
+              <td class="acao">
+                {#if d.compactavel}
+                  <button class="botao" disabled={!!compactando} onclick={() => compactar(d)}
+                    >{compactando === d.caminho ? 'Compactando' : 'Compactar'}</button
+                  >
+                {/if}
+              </td>
             </tr>
             {#if d.nota}
-              <tr class="nota-linha"><td colspan="5">{d.nota}</td></tr>
+              <tr class="nota-linha"><td colspan="6">{d.nota}</td></tr>
             {/if}
           {/each}
         </tbody>
       </table>
       <p class="nota">
         O uso por dentro só aparece com a distro ligada. Apagar algo dentro da distro libera espaço nela, mas o arquivo no Windows
-        não diminui sozinho: o espaço vazio dentro dele só volta ao Windows compactando o disco, com o WSL desligado.
+        não diminui sozinho: o espaço vazio dentro dele só volta ao Windows compactando o disco. Compactar desliga o WSL e
+        precisa do Docker Desktop fechado.
       </p>
     {/if}
   </section>
@@ -438,6 +486,11 @@
     align-content: start;
     gap: 12px;
     padding: 0 20px 20px;
+  }
+
+  .topo {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .cartao {

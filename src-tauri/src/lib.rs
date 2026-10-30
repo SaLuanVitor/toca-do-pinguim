@@ -4,6 +4,7 @@ mod atalho;
 mod atividade;
 mod atualizacao;
 mod cache;
+mod compactar;
 mod config;
 mod configuracao;
 mod docker;
@@ -105,12 +106,31 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), S
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
         info!("pedido: desligar o WSL");
-        agentes.parar_todos();
-        wsl::desligar()?;
+        let resultado = desligar_sem_religar(&agentes);
+        soltar_depois(&agentes);
+        resultado?;
         agentes.registrar(&app, "wsl", None, "O app desligou o WSL".to_string());
         Ok(())
     })
     .await
+}
+
+/// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
+/// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
+/// ficam segurados até `soltar_depois`.
+fn desligar_sem_religar(agentes: &Agentes) -> Result<(), String> {
+    agentes.segurar(true);
+    agentes.parar_todos();
+    wsl::desligar()
+}
+
+/// Solta os agentes quando o supervisor já leu a lista de depois do desligamento.
+fn soltar_depois(agentes: &Arc<Agentes>) {
+    let agentes = Arc::clone(agentes);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        agentes.segurar(false);
+    });
 }
 
 #[tauri::command]
@@ -240,6 +260,72 @@ async fn apagar_pastas(
             format!("O app apagou {} GB em {distro}: {}", recursos::gb(liberado), caminhos.join(", ")),
         );
         Ok(liberado)
+    })
+    .await
+}
+
+#[derive(Serialize)]
+struct Compactacao {
+    antes_bytes: u64,
+    depois_bytes: u64,
+}
+
+static COMPACTANDO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Desliga o WSL inteiro e compacta um disco que a aba Disco listou. O `fstrim` antes, com a
+/// distro ainda ligada, marca como livre o que o ext4 não marcou ao apagar.
+#[tauri::command]
+async fn compactar_disco(app: tauri::AppHandle, agentes: Estado<'_>, caminho: String) -> Result<Compactacao, String> {
+    use std::sync::atomic::Ordering;
+    let agentes = Arc::clone(&agentes);
+    bloqueante(move || {
+        let disco = armazenamento::discos(&[])
+            .into_iter()
+            .find(|d| d.caminho == caminho)
+            .ok_or("esse disco não está mais na lista; atualize a aba Disco")?;
+        if !disco.compactavel {
+            return Err(format!("o disco de {} não precisa ser compactado", disco.nome));
+        }
+        if compactar::docker_aberto() {
+            return Err("feche o Docker Desktop antes de compactar: ele religa o WSL e prende o disco".to_string());
+        }
+        if COMPACTANDO.swap(true, Ordering::SeqCst) {
+            return Err("já há um disco sendo compactado".to_string());
+        }
+        let resultado = (|| {
+            info!("pedido: compactar {}", disco.caminho);
+            if disco.nome != DISTRO_DOCKER && agentes.rodando(&disco.nome) {
+                // Por `sh -c`: o `--exec` direto não tem o /usr/sbin no PATH e não acha o fstrim.
+                match wsl::executar_longo(&["-d", &disco.nome, "-u", "root", "--exec", "sh", "-c", "fstrim -v /"], std::time::Duration::from_secs(5 * 60)) {
+                    Ok(s) => info!(
+                        "fstrim em {}: {:?} {} {}",
+                        disco.nome,
+                        s.status.code(),
+                        wsl::decodificar(&s.stdout).trim(),
+                        wsl::decodificar(&s.stderr).trim()
+                    ),
+                    Err(e) => warn!("fstrim em {}: {e}", disco.nome),
+                }
+            }
+            desligar_sem_religar(&agentes)?;
+            agentes.registrar(&app, "wsl", None, format!("O app desligou o WSL para compactar o disco de {}", disco.nome));
+            let (antes, depois) = compactar::compactar(Path::new(&disco.caminho))?;
+            agentes.registrar(
+                &app,
+                "armazenamento",
+                Some(&disco.nome),
+                format!(
+                    "O app compactou o disco de {}: de {} GB para {} GB no Windows",
+                    disco.nome,
+                    recursos::gb(antes),
+                    recursos::gb(depois)
+                ),
+            );
+            Ok(Compactacao { antes_bytes: antes, depois_bytes: depois })
+        })();
+        soltar_depois(&agentes);
+        COMPACTANDO.store(false, Ordering::SeqCst);
+        resultado
     })
     .await
 }
@@ -500,6 +586,7 @@ pub fn run() {
             ler_armazenamento,
             analisar_pastas,
             apagar_pastas,
+            compactar_disco,
             limpar_docker,
             definir_limpeza,
             definir_limite_memoria,

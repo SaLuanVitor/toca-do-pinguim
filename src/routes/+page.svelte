@@ -7,23 +7,19 @@
   import AvisoRecursos from '#lib/AvisoRecursos.svelte';
   import Configuracoes from '#lib/Configuracoes.svelte';
   import Confirmar from '#lib/Confirmar.svelte';
-  import Disco from '#lib/Disco.svelte';
+  import Desempenho from '#lib/Desempenho.svelte';
   import Distros from '#lib/Distros.svelte';
   import Log from '#lib/Log.svelte';
-  import Memoria from '#lib/Memoria.svelte';
   import { estado } from '#lib/estado.svelte.js';
   import Icone from '#lib/Icone.svelte';
   import Paleta from '#lib/Paleta.svelte';
   import Portas from '#lib/Portas.svelte';
-  import Processador from '#lib/Processador.svelte';
   import Processos from '#lib/Processos.svelte';
   import type { Pagina } from '#lib/tipos.js';
 
   const PAGINAS: { id: Pagina; titulo: string }[] = [
     { id: 'processos', titulo: 'Processos' },
-    { id: 'processador', titulo: 'Processador' },
-    { id: 'memoria', titulo: 'Memória' },
-    { id: 'disco', titulo: 'Disco' },
+    { id: 'desempenho', titulo: 'Desempenho' },
     { id: 'portas', titulo: 'Portas' },
     { id: 'atividade', titulo: 'Atividade' },
     { id: 'distros', titulo: 'Distros' },
@@ -103,7 +99,7 @@
       >
         <Icone nome={p.id} />
         <span class="rotulo">{p.titulo}</span>
-        {#if p.id === 'memoria' && estado.memoriaWindows?.pressao}
+        {#if p.id === 'desempenho' && estado.memoriaWindows?.pressao}
           <span class="alerta" role="img" aria-label="RAM do Windows acabando"></span>
         {/if}
       </button>
@@ -129,12 +125,8 @@
       <AvisoRecursos />
       {#if estado.pagina === 'processos'}
         <Processos />
-      {:else if estado.pagina === 'processador'}
-        <Processador />
-      {:else if estado.pagina === 'memoria'}
-        <Memoria />
-      {:else if estado.pagina === 'disco'}
-        <Disco />
+      {:else if estado.pagina === 'desempenho'}
+        <Desempenho />
       {:else if estado.pagina === 'portas'}
         <Portas />
       {:else if estado.pagina === 'atividade'}

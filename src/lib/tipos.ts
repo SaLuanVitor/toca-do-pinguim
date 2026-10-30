@@ -144,6 +144,13 @@ export interface DiscoVirtual {
   usado_bytes: number | null;
   esparso: boolean;
   nota: string | null;
+  /** Falso no esparso, no que ficou para trás e no menor que 1 GB. */
+  compactavel: boolean;
+}
+
+export interface Compactacao {
+  antes_bytes: number;
+  depois_bytes: number;
 }
 
 export interface CategoriaDocker {
@@ -202,7 +209,9 @@ export interface Pedido {
   executar: () => void;
 }
 
-export type Pagina = 'processos' | 'processador' | 'memoria' | 'disco' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
+export type AbaDesempenho = 'processamento' | 'memoria' | 'disco';
+
+export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;

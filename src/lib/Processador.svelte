@@ -27,10 +27,6 @@
   const totalProcessos = $derived(porDistro.reduce((s, d) => s + d.processos, 0));
 </script>
 
-<header class="barra">
-  <h1>Processador</h1>
-</header>
-
 {#if !vm}
   <div class="vazio">
     <strong>Nenhuma distro em execução</strong>

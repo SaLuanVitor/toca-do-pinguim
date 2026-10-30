@@ -2,6 +2,7 @@ import type {
   Amostra,
   AnalisePastas,
   Armazenamento,
+  Compactacao,
   AtalhoTeclado,
   Atualizacao,
   ConteudoWslconfig,
@@ -43,6 +44,7 @@ export interface Api {
   analisarPastas(distro: string): Promise<AnalisePastas>;
   apagarPastas(distro: string, caminhos: string[]): Promise<number>;
   limparDocker(qual: LimpezaDocker, volumes: string[]): Promise<number>;
+  compactarDisco(caminho: string): Promise<Compactacao>;
   definirLimpeza(limpeza: LimpezaProgramada): Promise<void>;
   procurarAtualizacao(): Promise<Atualizacao | null>;
   instalarAtualizacao(): Promise<void>;
@@ -108,6 +110,7 @@ async function conectarTauri(): Promise<Api> {
     analisarPastas: (distro) => invoke('analisar_pastas', { distro }),
     apagarPastas: (distro, caminhos) => invoke('apagar_pastas', { distro, caminhos }),
     limparDocker: (qual, volumes) => invoke('limpar_docker', { qual, volumes }),
+    compactarDisco: (caminho) => invoke('compactar_disco', { caminho }),
     definirLimpeza: (limpeza) => invoke('definir_limpeza', { limpeza }),
     procurarAtualizacao: () => invoke('procurar_atualizacao'),
     instalarAtualizacao: () => invoke('instalar_atualizacao'),
