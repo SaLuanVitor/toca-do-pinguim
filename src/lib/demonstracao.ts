@@ -275,6 +275,14 @@ export function criarDemonstracao(): Api {
         registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
       }, 8000);
     },
+    limitesDaMaquina: async () => ({
+      ram_bytes: 31.7 * GIB,
+      processadores: 8,
+      discos: [
+        { letra: 'C', livre_bytes: 15.4 * GIB },
+        { letra: 'E', livre_bytes: 359.6 * GIB },
+      ],
+    }),
     definirDevolverCacheAutomatico: async (sim) => {
       estado.devolverCacheAutomatico = sim;
     },
@@ -327,7 +335,7 @@ export function criarDemonstracao(): Api {
     ],
     abrirPastaDeLogs: async () => {},
     lerWslconfig: async () => ({
-      caminho: 'C:\Users\voce\.wslconfig',
+      caminho: String.raw`C:\Users\voce\.wslconfig`,
       existe: true,
       valores: wslconfig.map((v) => [...v] as [string, string, string]),
     }),

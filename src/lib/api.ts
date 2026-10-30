@@ -7,6 +7,7 @@ import type {
   Distro,
   Docker,
   EstadoRecursos,
+  Limites,
   Evento,
   MemoriaWindows,
   MudancaWslconfig,
@@ -46,6 +47,7 @@ export interface Api {
   definirAtalhoTeclado(tecla: string): Promise<void>;
   gravarWslconf(distro: string, mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   abrirPastaDeLogs(): Promise<void>;
+  limitesDaMaquina(): Promise<Limites>;
 }
 
 export const dentroDoApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -104,6 +106,7 @@ async function conectarTauri(): Promise<Api> {
     definirAtalhoTeclado: (tecla) => invoke('definir_atalho_teclado', { tecla }),
     gravarWslconf: (distro, mudancas, reiniciar) => invoke('gravar_wslconf', { distro, mudancas, reiniciar }),
     abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
+    limitesDaMaquina: () => invoke('limites_da_maquina'),
   };
 }
 

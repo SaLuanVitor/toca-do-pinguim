@@ -38,7 +38,7 @@ pub(crate) async fn bloqueante<T: Send + 'static>(
         .map_err(|e| e.to_string())?
 }
 
-fn ram_host() -> u64 {
+pub(crate) fn ram_host() -> u64 {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     // SAFETY: estrutura zerada com `dwLength` preenchido, como a API exige.
     let mut m: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
@@ -356,6 +356,7 @@ pub fn run() {
             configuracao::gravar_wslconfig,
             configuracao::ler_wslconf,
             configuracao::gravar_wslconf,
+            configuracao::limites_da_maquina,
             atualizacao::procurar_atualizacao,
             atualizacao::instalar_atualizacao,
             atualizacao::abrir_pagina_da_versao,

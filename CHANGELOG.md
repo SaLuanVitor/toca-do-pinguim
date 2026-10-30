@@ -5,6 +5,19 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+
+- Os campos de Configurações aceitavam qualquer texto. Agora números e tamanhos só aceitam
+  dígitos, o tamanho tem a unidade (MB ou GB) numa lista, e cada campo mostra a faixa
+  aceita a partir da máquina: `memory` de 1 GB até a RAM do Windows, `processors` até os
+  processadores lógicos, `swap` até o espaço livre do disco onde ela fica. Tempos mostram o
+  valor em segundos, e lista de portas, IP, módulos do kernel, nome de máquina e usuário do
+  Linux são conferidos pelo formato. O backend recusa também memória e processadores fora do
+  limite.
+- A descrição do `debugConsole` diz que ele abre a janela "WSL Debug Console" a cada subida da
+  VM, e a confirmação de reiniciar o WSL avisa quando ele está ligado.
+- No modo demonstração, o caminho do `.wslconfig` aparecia com caracteres trocados.
+
 ## [0.8.1] - 2026-10-29
 
 ### Corrigido

@@ -162,6 +162,13 @@ export interface MudancaWslconfig {
   valor: string | null;
 }
 
+/** O que a máquina comporta, para limitar os campos de configuração. */
+export interface Limites {
+  ram_bytes: number;
+  processadores: number;
+  discos: { letra: string; livre_bytes: number }[];
+}
+
 export interface AtalhoTeclado {
   /** No formato do Windows, como Alt+Ctrl+P; vazio sem tecla. */
   tecla: string;
