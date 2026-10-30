@@ -137,7 +137,7 @@
         checked={estado.procurarAtualizacoes}
         onchange={(e) => estado.definirProcurarAtualizacoes(e.currentTarget.checked)}
       />
-      Procurar versão nova ao abrir o app e a cada 6 horas
+      Procurar versão nova ao abrir o app, a cada hora e ao voltar para ele
     </label>
     <p class="explica">
       A busca é o único acesso do app à internet: ele consulta as versões em github.com, e o GitHub

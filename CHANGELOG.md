@@ -5,6 +5,12 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+
+- Com o app aberto, uma versão nova só aparecia em até 6 horas ou ao reabrir. Agora ele procura
+  a cada hora e também quando você volta para a janela, se a última busca tiver mais de 15
+  minutos.
+
 ## [0.8.0] - 2026-10-29
 
 ### Adicionado
