@@ -59,6 +59,33 @@ pub struct Volume {
     pub bytes: u64,
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct VolumeProjeto {
+    pub nome: String,
+    pub bytes: u64,
+    /// Algum container, ligado ou parado, ainda o usa.
+    pub em_uso: bool,
+}
+
+/// O espaço em disco de um projeto do Docker Compose.
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+pub struct ProjetoDocker {
+    pub nome: String,
+    pub containers: u32,
+    pub parados: u32,
+    /// Camada gravável dos containers do projeto.
+    pub containers_bytes: u64,
+    /// Só a parte das imagens que nenhum outro projeto usa.
+    pub imagens_bytes: u64,
+    pub volumes: Vec<VolumeProjeto>,
+}
+
+impl ProjetoDocker {
+    fn total(&self) -> u64 {
+        self.containers_bytes + self.imagens_bytes + self.volumes.iter().map(|v| v.bytes).sum::<u64>()
+    }
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct ResumoDocker {
     pub categorias: Vec<Categoria>,
@@ -67,6 +94,8 @@ pub struct ResumoDocker {
     /// Containers parados sem projeto do Compose: em geral, sobras de builds.
     pub sobras: u64,
     pub sobras_bytes: u64,
+    /// Do que mais ocupa para o que menos ocupa.
+    pub projetos: Vec<ProjetoDocker>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -204,10 +233,53 @@ pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
             });
         }
     }
+    for swap in arquivos_de_swap() {
+        lista.push(DiscoVirtual {
+            nome: "Swap do WSL".to_string(),
+            caminho: swap.display().to_string(),
+            tamanho_bytes: std::fs::metadata(&swap).map_or(0, |m| m.len()),
+            usado_bytes: None,
+            esparso: esparso(&swap),
+            compactavel: false,
+            nota: Some(
+                "Arquivo no disco que a VM usa como RAM extra quando a RAM acaba. O WSL o recria a cada início, com o tamanho de swap do .wslconfig; para ocupar menos, baixe esse tamanho ou mova o arquivo com swapFile."
+                    .to_string(),
+            ),
+        });
+    }
     for d in &mut lista {
         d.compactavel = !d.esparso && d.nota.is_none() && d.tamanho_bytes >= MINIMO_PARA_COMPACTAR;
     }
     lista
+}
+
+/// O `swapFile` do .wslconfig ou, sem ele, o padrão do WSL. A documentação diz `%Temp%\swap.vhdx`,
+/// mas o WSL 2.6.1 grava numa subpasta com GUID, `%Temp%\<GUID>\swap.vhdx` (medido), então as
+/// duas formas são procuradas. Quem escreve o caminho no .wslconfig costuma dobrar as barras.
+fn arquivos_de_swap() -> Vec<PathBuf> {
+    if let Some(v) = crate::config::WslConfig::ler().obter("wsl2", "swapFile") {
+        return Some(caminho_do_wslconfig(&v)).filter(|p| p.is_file()).into_iter().collect();
+    }
+    let temp = std::env::temp_dir();
+    let mut achados: Vec<PathBuf> = Some(temp.join("swap.vhdx")).filter(|p| p.is_file()).into_iter().collect();
+    for pasta in std::fs::read_dir(&temp).into_iter().flatten().flatten() {
+        let arquivo = pasta.path().join("swap.vhdx");
+        if pasta.file_type().is_ok_and(|t| t.is_dir()) && arquivo.is_file() {
+            achados.push(arquivo);
+        }
+    }
+    achados
+}
+
+fn caminho_do_wslconfig(valor: &str) -> PathBuf {
+    PathBuf::from(valor.trim().trim_matches('"').replace(r"\\", r"\"))
+}
+
+/// Todas as distros registradas, ligadas ou não, menos as internas do Docker Desktop.
+pub fn distros_registradas() -> Vec<String> {
+    let mut nomes: Vec<String> = registradas().into_iter().map(|r| r.nome).filter(|n| !n.starts_with("docker-desktop")).collect();
+    nomes.sort();
+    nomes
 }
 
 // --- Docker ------------------------------------------------------------------
@@ -253,6 +325,58 @@ struct Detalhe {
     sobras_bytes: u64,
     /// (distro, pasta montada, container)
     montagens: Vec<(String, String, String)>,
+    projetos: Vec<ProjetoDocker>,
+}
+
+/// Valor de um rótulo na lista `chave=valor,chave=valor` que o Docker devolve.
+fn rotulo<'a>(rotulos: &'a str, chave: &str) -> Option<&'a str> {
+    rotulos.split(',').find_map(|par| par.strip_prefix(chave)?.strip_prefix('=')).filter(|v| !v.is_empty())
+}
+
+/// Agrupa containers, volumes e imagens pelo rótulo de projeto do Compose. A imagem entra no
+/// projeto só quando todos os containers que a usam são dele, e só com a parte que ela não
+/// divide com outras imagens: assim nada é contado duas vezes.
+fn projetos_docker(json: &serde_json::Value) -> Vec<ProjetoDocker> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let texto = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let mut projetos: BTreeMap<String, ProjetoDocker> = BTreeMap::new();
+    let mut usos: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
+    for c in json["Containers"].as_array().into_iter().flatten() {
+        let rotulos = texto(c, "Labels");
+        let projeto = rotulo(&rotulos, ROTULO_PROJETO.trim_end_matches('=')).map(str::to_string);
+        usos.entry(texto(c, "Image")).or_default().insert(projeto.clone());
+        let Some(nome) = projeto else { continue };
+        let p = projetos.entry(nome.clone()).or_insert_with(|| ProjetoDocker { nome, ..Default::default() });
+        p.containers += 1;
+        if texto(c, "State") != "running" {
+            p.parados += 1;
+        }
+        p.containers_bytes += bytes_do_docker(&texto(c, "Size"));
+    }
+    for v in json["Volumes"].as_array().into_iter().flatten() {
+        let rotulos = texto(v, "Labels");
+        let Some(nome) = rotulo(&rotulos, ROTULO_PROJETO.trim_end_matches('=')) else { continue };
+        let p = projetos.entry(nome.to_string()).or_insert_with(|| ProjetoDocker { nome: nome.to_string(), ..Default::default() });
+        p.volumes.push(VolumeProjeto { nome: texto(v, "Name"), bytes: bytes_do_docker(&texto(v, "Size")), em_uso: texto(v, "Links") != "0" });
+    }
+    for i in json["Images"].as_array().into_iter().flatten() {
+        let (repositorio, etiqueta) = (texto(i, "Repository"), texto(i, "Tag"));
+        let nomes = [format!("{repositorio}:{etiqueta}"), if etiqueta == "latest" { repositorio.clone() } else { String::new() }, texto(i, "ID")];
+        let donos: BTreeSet<&Option<String>> = nomes.iter().filter(|n| !n.is_empty()).filter_map(|n| usos.get(n)).flatten().collect();
+        let dono = match donos.into_iter().collect::<Vec<_>>()[..] {
+            [Some(d)] => Some(d.clone()),
+            _ => None,
+        };
+        if let Some(p) = dono.and_then(|d| projetos.get_mut(&d)) {
+            p.imagens_bytes += bytes_do_docker(&texto(i, "UniqueSize"));
+        }
+    }
+    let mut lista: Vec<ProjetoDocker> = projetos.into_values().collect();
+    for p in &mut lista {
+        p.volumes.sort_by_key(|v| std::cmp::Reverse(v.bytes));
+    }
+    lista.sort_by_key(|p| std::cmp::Reverse(p.total()));
+    lista
 }
 
 fn ler_detalhe(texto: &str) -> Detalhe {
@@ -276,7 +400,7 @@ fn ler_detalhe(texto: &str) -> Detalhe {
             sobras_bytes += bytes_do_docker(&texto_de(c, "Size"));
         }
     }
-    Detalhe { volumes_sem_uso: volumes, sobras, sobras_bytes, montagens }
+    Detalhe { volumes_sem_uso: volumes, sobras, sobras_bytes, montagens, projetos: projetos_docker(&json) }
 }
 
 /// O Docker Desktop marca as pastas de uma distro montadas num container com rótulos como
@@ -299,7 +423,13 @@ pub fn resumo_docker() -> Result<(ResumoDocker, Vec<(String, String, String)>), 
     let categorias = ler_categorias(&docker::executar(&["system", "df", "--format", "{{json .}}"], PRAZO_DOCKER)?);
     let detalhe = ler_detalhe(&docker::executar(&["system", "df", "-v", "--format", "{{json .}}"], PRAZO_ANALISE)?);
     Ok((
-        ResumoDocker { categorias, volumes_sem_uso: detalhe.volumes_sem_uso, sobras: detalhe.sobras, sobras_bytes: detalhe.sobras_bytes },
+        ResumoDocker {
+            categorias,
+            volumes_sem_uso: detalhe.volumes_sem_uso,
+            sobras: detalhe.sobras,
+            sobras_bytes: detalhe.sobras_bytes,
+            projetos: detalhe.projetos,
+        },
         detalhe.montagens,
     ))
 }
@@ -341,17 +471,45 @@ pub fn limpar_docker(qual: LimpezaDocker, volumes: &[String], permitidos: &[Volu
             return Ok(liberado);
         }
     };
-    Ok(saida
+    Ok(liberado_pelo_docker(&saida))
+}
+
+fn liberado_pelo_docker(saida: &str) -> u64 {
+    saida
         .lines()
         .find_map(|l| l.strip_prefix("Total reclaimed space:").or_else(|| l.strip_prefix("Total:")))
-        .map_or(0, |v| bytes_do_docker(v.trim())))
+        .map_or(0, |v| bytes_do_docker(v.trim()))
+}
+
+/// Apaga os containers parados de um projeto da última leitura. O nome vai num filtro, não
+/// como argumento solto, e só se for um dos projetos lidos.
+pub fn limpar_parados_do_projeto(projeto: &str, conhecidos: &[ProjetoDocker]) -> Result<u64, String> {
+    if !volume_valido(projeto) || !conhecidos.iter().any(|p| p.nome == projeto && p.parados > 0) {
+        return Err(format!("{projeto} não tem containers parados na última leitura; atualize a tela"));
+    }
+    let filtro = format!("label={}{projeto}", ROTULO_PROJETO);
+    Ok(liberado_pelo_docker(&docker::executar(&["container", "prune", "-f", "--filter", &filtro], PRAZO_LIMPEZA)?))
 }
 
 // --- Pastas dentro da distro ----------------------------------------------------
 
 /// Pastas que guardam cache e podem ser esvaziadas: apagar o conteúdo só faz o programa baixar
 /// ou gerar de novo o que precisar.
-const CACHES: [&str; 6] = ["/root/.cache", "/home/*/.cache", "/home/*/.npm", "/home/*/.cargo/registry/cache", "/var/cache/apt/archives", "/var/tmp"];
+/// `~/.cache` já cobre pip, uv, yarn e outros que seguem o padrão XDG. O cache de módulos do Go
+/// fica de fora: os arquivos dele são só de leitura, e apagar com `find -delete` falha no meio.
+const CACHES: [&str; 11] = [
+    "/root/.cache",
+    "/root/.npm",
+    "/home/*/.cache",
+    "/home/*/.npm",
+    "/home/*/.cargo/registry/cache",
+    "/home/*/.local/share/pnpm/store",
+    "/home/*/.m2/repository",
+    "/home/*/.gradle/caches",
+    "/var/cache/apt/archives",
+    "/var/lib/snapd/cache",
+    "/var/tmp",
+];
 
 /// Saída em linhas `R|T|C|M<TAB>MB<TAB>mtime<TAB>caminho`, para o app não depender de JSON
 /// dentro da distro. Um `du` só cobre a raiz e o `/tmp`: com um para cada, o `/tmp` era lido
@@ -531,6 +689,50 @@ mod testes {
         // Montagem em outra distro não conta.
         let b = ler_analise("Debian", texto, &montagens);
         assert!(b.tmp.iter().all(|p| p.apagavel));
+    }
+
+    #[test]
+    fn projeto_soma_containers_volumes_e_so_as_imagens_que_sao_dele() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+            "Containers": [
+                {"Names":"loja-web-1","Image":"loja-web","State":"running","Size":"10MB","Labels":"com.docker.compose.project=loja,x=y"},
+                {"Names":"loja-db-1","Image":"postgres:16","State":"exited","Size":"5MB","Labels":"com.docker.compose.project=loja"},
+                {"Names":"blog-db-1","Image":"postgres:16","State":"running","Size":"1MB","Labels":"com.docker.compose.project=blog"},
+                {"Names":"avulso","Image":"alpine","State":"exited","Size":"1MB","Labels":""}],
+            "Volumes": [
+                {"Name":"loja_dados","Links":"1","Size":"2GB","Labels":"com.docker.compose.project=loja,com.docker.compose.volume=dados"},
+                {"Name":"loja_velho","Links":"0","Size":"300MB","Labels":"com.docker.compose.project=loja"},
+                {"Name":"anonimo","Links":"0","Size":"1GB","Labels":"com.docker.volume.anonymous="}],
+            "Images": [
+                {"Repository":"loja-web","Tag":"latest","ID":"sha256:a","UniqueSize":"200MB"},
+                {"Repository":"postgres","Tag":"16","ID":"sha256:b","UniqueSize":"400MB"}]
+        }"#,
+        )
+        .unwrap();
+        let p = projetos_docker(&json);
+        assert_eq!(p.iter().map(|x| x.nome.as_str()).collect::<Vec<_>>(), ["loja", "blog"]);
+        let loja = &p[0];
+        assert_eq!((loja.containers, loja.parados), (2, 1));
+        assert_eq!(loja.containers_bytes, 15_000_000);
+        // O postgres:16 é usado também pelo blog, então não entra em nenhum dos dois.
+        assert_eq!(loja.imagens_bytes, 200_000_000);
+        assert_eq!(loja.volumes.iter().map(|v| (v.nome.as_str(), v.em_uso)).collect::<Vec<_>>(), [("loja_dados", true), ("loja_velho", false)]);
+        assert_eq!(p[1].imagens_bytes, 0);
+    }
+
+    #[test]
+    fn parados_so_de_projeto_lido_e_com_nome_valido() {
+        let lidos = vec![ProjetoDocker { nome: "loja".into(), parados: 1, ..Default::default() }, ProjetoDocker { nome: "blog".into(), ..Default::default() }];
+        assert!(limpar_parados_do_projeto("outro", &lidos).is_err());
+        assert!(limpar_parados_do_projeto("blog", &lidos).is_err());
+        assert!(limpar_parados_do_projeto("--all", &lidos).is_err());
+    }
+
+    #[test]
+    fn caminho_da_swap_aceita_barras_dobradas_e_aspas() {
+        assert_eq!(caminho_do_wslconfig(r#""D:\\WSL\\swap.vhdx""#), PathBuf::from(r"D:\WSL\swap.vhdx"));
+        assert_eq!(caminho_do_wslconfig(r"D:\WSL\swap.vhdx"), PathBuf::from(r"D:\WSL\swap.vhdx"));
     }
 
     #[test]

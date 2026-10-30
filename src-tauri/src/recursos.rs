@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::agentes::Agentes;
-use crate::armazenamento::{self, Analise, Volume};
+use crate::armazenamento::{self, Analise, ProjetoDocker, Volume};
 use crate::cache::{self, Devolucao, LimpezaProgramada, Preferencias};
 use crate::docker::{self, Conteiner};
 
@@ -70,6 +70,8 @@ pub struct Recursos {
     pub analises: Mutex<std::collections::HashMap<String, Analise>>,
     /// Volumes sem uso da última leitura do Docker, os únicos que a limpeza aceita.
     pub volumes_sem_uso: Mutex<Vec<Volume>>,
+    /// Projetos do Compose da última leitura do Docker, os únicos que a limpeza por projeto aceita.
+    pub projetos_docker: Mutex<Vec<ProjetoDocker>>,
 }
 
 impl Recursos {
@@ -86,6 +88,7 @@ impl Recursos {
             caminho_preferencias,
             analises: Mutex::default(),
             volumes_sem_uso: Mutex::default(),
+            projetos_docker: Mutex::default(),
         }
     }
 

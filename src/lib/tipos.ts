@@ -167,6 +167,26 @@ export interface ResumoDocker {
   volumes_sem_uso: { nome: string; bytes: number }[];
   sobras: number;
   sobras_bytes: number;
+  /** Do que mais ocupa para o que menos ocupa. */
+  projetos: ProjetoDocker[];
+}
+
+export interface VolumeProjeto {
+  nome: string;
+  bytes: number;
+  /** Algum container, ligado ou parado, ainda o usa. */
+  em_uso: boolean;
+}
+
+/** O espaço em disco de um projeto do Docker Compose. */
+export interface ProjetoDocker {
+  nome: string;
+  containers: number;
+  parados: number;
+  containers_bytes: number;
+  /** Só a parte das imagens que nenhum outro projeto usa. */
+  imagens_bytes: number;
+  volumes: VolumeProjeto[];
 }
 
 export interface LimpezaProgramada {
@@ -182,6 +202,8 @@ export interface Armazenamento {
   erro_docker: string | null;
   limpeza: LimpezaProgramada;
   distros_ligadas: string[];
+  /** Todas as registradas, ligadas ou não. */
+  distros: string[];
 }
 
 export interface Pasta {
