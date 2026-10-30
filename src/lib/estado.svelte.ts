@@ -1,5 +1,5 @@
 import { lerPreferencia, salvarPreferencia } from './preferencias';
-import type { Amostra, Distro, Evento, Pagina, Pedido, Porta } from './tipos';
+import type { Amostra, Distro, Docker, Evento, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl } from './tipos';
 
 const PONTOS_HISTORICO = 60;
 const EVENTOS_NA_TELA = 500;
@@ -29,6 +29,10 @@ class Estado {
   portasPorDistro = $state.raw<Record<string, Porta[]>>({});
   historico = $state.raw<Ponto[]>([]);
   eventos = $state.raw<Evento[]>([]);
+  memoriaWindows = $state.raw<MemoriaWindows | null>(null);
+  docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null });
+  /** Queda em curso do WSL, ou null quando ele responde. */
+  saude = $state.raw<SituacaoWsl | null>(null);
   /** Distros cujo agente saiu por ociosidade e que o WSL deve desligar em seguida. */
   ociosas = $state.raw<Set<string>>(new Set());
   avisos = $state<Aviso[]>([]);

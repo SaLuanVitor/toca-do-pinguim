@@ -35,6 +35,10 @@ pub struct Amostra {
     pub cpu_vm_pct: f32,
     pub mem_total: u64,
     pub mem_disponivel: u64,
+    /// Memória sem uso nenhum. A diferença para `mem_disponivel` é cache que o kernel
+    /// descarta quando precisa, mas que até lá a VM segura no Windows.
+    #[serde(default)]
+    pub mem_livre: u64,
     pub swap_total: u64,
     pub swap_livre: u64,
     /// Só os processos desta distro: cada uma tem o próprio namespace de PID.

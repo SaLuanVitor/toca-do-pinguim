@@ -7,11 +7,24 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ### Adicionado
 
+- **Para onde vai a memória**, em Desempenho: quanto a VM do WSL ocupa no Windows ao lado dos
+  outros programas, e, dentro da VM, quanto é de programas e quanto é cache de arquivos.
+- **Docker por projeto**, em Desempenho: memória e containers ligados de cada projeto do
+  Docker Compose, lidos a cada 15 s, com botão para parar ou ligar o projeto inteiro. Um
+  container que reinicia sem parar aparece em destaque e vai para a Atividade.
+- Aviso e notificação do Windows quando a memória disponível do Windows cai abaixo de 10%,
+  dizendo quanto o WSL ocupa e qual projeto mais usa. O aviso some acima de 15%.
+- Aviso e notificação quando o WSL para de responder, com o botão para desligá-lo.
 - Configurações > Este app tem um interruptor para desligar a busca de atualizações, o único
   acesso do app à internet, e um botão para procurar na hora.
 - O instalador mostra, antes de instalar, o que o app acessa na rede e o que muda no sistema.
 - README com as seções de privacidade e de política de assinatura, preparando o pedido de
   assinatura gratuita à SignPath Foundation.
+
+### Corrigido
+
+- Desligar o WSL esperava no máximo 90 s. Com o WSL travado, o `wsl --shutdown` levou 117 s,
+  e o app desistia antes de ele terminar. Agora espera até 3 minutos.
 
 ## [0.6.0] - 2026-10-29
 

@@ -81,6 +81,8 @@ pub struct Agentes {
     falhas: Mutex<HashMap<String, (Instant, u32)>>,
     /// Distros cujo agente saiu por ociosidade, com o instante da saída.
     ociosas: Mutex<HashMap<String, Instant>>,
+    /// Distros ligadas na última leitura do supervisor.
+    ligadas: Mutex<HashSet<String>>,
     /// Sinais enviados e ainda sem resposta, por distro, na ordem de envio: o agente
     /// responde na mesma ordem.
     pendentes: Mutex<HashMap<String, VecDeque<(i32, String, i32)>>>,
@@ -98,6 +100,7 @@ impl Agentes {
             slots: Mutex::new(HashMap::new()),
             falhas: Mutex::new(HashMap::new()),
             ociosas: Mutex::new(HashMap::new()),
+            ligadas: Mutex::new(HashSet::new()),
             pendentes: Mutex::new(HashMap::new()),
             historico: Mutex::new(Historico::abrir(dados.join("memoria.csv"))),
             atividade: Mutex::new(Atividade::abrir(dados.join("atividade.jsonl"))),
@@ -131,6 +134,14 @@ impl Agentes {
         if !self.pausado.load(Ordering::Relaxed) {
             self.repassar_intervalo(ms);
         }
+    }
+
+    pub fn pausado(&self) -> bool {
+        self.pausado.load(Ordering::Relaxed)
+    }
+
+    pub fn rodando(&self, distro: &str) -> bool {
+        self.ligadas.lock().unwrap().contains(distro)
     }
 
     pub fn pausar(&self, sim: bool) {
@@ -393,6 +404,7 @@ fn lancar(
 pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
     thread::spawn(move || {
         let mut ultima: Option<Vec<Distro>> = None;
+        let mut travado = false;
         loop {
             agentes
                 .espera_ociosidade_ms
@@ -412,6 +424,7 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                         }
                     }
                     agentes.ociosas.lock().unwrap().retain(|d, _| rodando.contains(d.as_str()));
+                    *agentes.ligadas.lock().unwrap() = rodando.iter().map(|d| d.to_string()).collect();
                     if rodando.is_empty() {
                         agentes.atividade.lock().unwrap().vm_parou();
                     }
@@ -428,7 +441,20 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                     let _ = app.emit("erro", Erro { distro: None, mensagem });
                 }
             }
-            for mudanca in wsl::saude::mudancas() {
+            let mudancas = wsl::saude::mudancas();
+            if !mudancas.is_empty() {
+                let situacao = wsl::saude::atual();
+                if situacao.is_some() && !travado {
+                    crate::recursos::notificar(
+                        &app,
+                        "O WSL parou de responder",
+                        "Abra a Toca do Pinguim para ver o que aconteceu e reiniciar o WSL.",
+                    );
+                }
+                travado = situacao.is_some();
+                let _ = app.emit("saude_wsl", &situacao);
+            }
+            for mudanca in mudancas {
                 let (alvo, texto) = match mudanca {
                     wsl::saude::Mudanca::Caiu { alvo, motivo } => {
                         let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();

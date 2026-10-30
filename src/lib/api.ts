@@ -1,4 +1,17 @@
-import type { Amostra, AtalhoTeclado, Atualizacao, ConteudoWslconfig, Distro, Evento, MudancaWslconfig, ResumoMemoria } from './tipos';
+import type {
+  Amostra,
+  AtalhoTeclado,
+  Atualizacao,
+  ConteudoWslconfig,
+  Distro,
+  Docker,
+  EstadoRecursos,
+  Evento,
+  MemoriaWindows,
+  MudancaWslconfig,
+  ResumoMemoria,
+  SituacaoWsl,
+} from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
 
@@ -13,6 +26,9 @@ export interface Api {
   listarAtividade(): Promise<Evento[]>;
   resumoMemoria(): Promise<ResumoMemoria>;
   definirLimiteMemoria(gb: number, reiniciar: boolean): Promise<void>;
+  estadoRecursos(): Promise<EstadoRecursos>;
+  pararConteineres(ids: string[], rotulo: string): Promise<void>;
+  iniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   procurarAtualizacao(): Promise<Atualizacao | null>;
   instalarAtualizacao(): Promise<void>;
   abrirPaginaDaVersao(versao: string): Promise<void>;
@@ -45,6 +61,9 @@ async function conectarTauri(): Promise<Api> {
   await listen<string>('agente_parou', (e) => estado.agenteParou(e.payload));
   await listen<string>('distro_ociosa', (e) => estado.distroOciosa(e.payload));
   await listen<Evento>('atividade', (e) => estado.receberEvento(e.payload));
+  await listen<MemoriaWindows>('memoria_windows', (e) => (estado.memoriaWindows = e.payload));
+  await listen<Docker>('docker', (e) => (estado.docker = e.payload));
+  await listen<SituacaoWsl | null>('saude_wsl', (e) => (estado.saude = e.payload));
   await listen<{ distro: string | null; mensagem: string }>('erro', (e) =>
     estado.avisar(e.payload.distro ? `${e.payload.distro}: ${e.payload.mensagem}` : e.payload.mensagem),
   );
@@ -60,6 +79,9 @@ async function conectarTauri(): Promise<Api> {
     listarAtividade: () => invoke('listar_atividade'),
     resumoMemoria: () => invoke('resumo_memoria'),
     definirLimiteMemoria: (gb, reiniciar) => invoke('definir_limite_memoria', { gb, reiniciar }),
+    estadoRecursos: () => invoke('estado_recursos'),
+    pararConteineres: (ids, rotulo) => invoke('parar_conteineres', { ids, rotulo }),
+    iniciarConteineres: (ids, rotulo) => invoke('iniciar_conteineres', { ids, rotulo }),
     procurarAtualizacao: () => invoke('procurar_atualizacao'),
     instalarAtualizacao: () => invoke('instalar_atualizacao'),
     abrirPaginaDaVersao: (versao) => invoke('abrir_pagina_da_versao', { versao }),
@@ -83,6 +105,10 @@ export async function conectar() {
   try {
     estado.receberDistros(await api.listarDistros());
     estado.receberEventos(await api.listarAtividade());
+    const recursos = await api.estadoRecursos();
+    estado.memoriaWindows = recursos.memoria.total_bytes ? recursos.memoria : null;
+    estado.docker = recursos.docker;
+    estado.saude = recursos.saude;
   } catch (e) {
     estado.avisar(String(e));
   }
