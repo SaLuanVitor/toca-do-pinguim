@@ -41,9 +41,10 @@ export interface Api {
   devolverCache(): Promise<void>;
   definirDevolucao(automatico: boolean, minimoLivrePct: number, cacheMaximoGb: number | null): Promise<void>;
   lerArmazenamento(): Promise<Armazenamento>;
-  analisarPastas(distro: string): Promise<AnalisePastas>;
+  analisarPastas(distro: string, ligar: boolean): Promise<AnalisePastas>;
   apagarPastas(distro: string, caminhos: string[]): Promise<number>;
   limparDocker(qual: LimpezaDocker, volumes: string[]): Promise<number>;
+  limparParadosDoProjeto(projeto: string): Promise<number>;
   compactarDisco(caminho: string): Promise<Compactacao>;
   definirLimpeza(limpeza: LimpezaProgramada): Promise<void>;
   procurarAtualizacao(): Promise<Atualizacao | null>;
@@ -107,9 +108,10 @@ async function conectarTauri(): Promise<Api> {
     definirDevolucao: (automatico, minimoLivrePct, cacheMaximoGb) =>
       invoke('definir_devolucao', { automatico, minimoLivrePct, cacheMaximoGb }),
     lerArmazenamento: () => invoke('ler_armazenamento'),
-    analisarPastas: (distro) => invoke('analisar_pastas', { distro }),
+    analisarPastas: (distro, ligar) => invoke('analisar_pastas', { distro, ligar }),
     apagarPastas: (distro, caminhos) => invoke('apagar_pastas', { distro, caminhos }),
     limparDocker: (qual, volumes) => invoke('limpar_docker', { qual, volumes }),
+    limparParadosDoProjeto: (projeto) => invoke('limpar_parados_do_projeto', { projeto }),
     compactarDisco: (caminho) => invoke('compactar_disco', { caminho }),
     definirLimpeza: (limpeza) => invoke('definir_limpeza', { limpeza }),
     procurarAtualizacao: () => invoke('procurar_atualizacao'),

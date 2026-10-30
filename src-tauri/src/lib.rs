@@ -184,6 +184,8 @@ struct Armazenamento {
     erro_docker: Option<String>,
     limpeza: cache::LimpezaProgramada,
     distros_ligadas: Vec<String>,
+    /// Todas as registradas, ligadas ou não, para a análise de pastas.
+    distros: Vec<String>,
 }
 
 const DISTRO_DOCKER: &str = "docker-desktop";
@@ -199,6 +201,7 @@ async fn ler_armazenamento(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos
             match armazenamento::resumo_docker() {
                 Ok((resumo, _)) => {
                     *recursos.volumes_sem_uso.lock().unwrap() = resumo.volumes_sem_uso.clone();
+                    *recursos.projetos_docker.lock().unwrap() = resumo.projetos.clone();
                     (Some(resumo), None)
                 }
                 Err(e) => (None, Some(e)),
@@ -212,16 +215,26 @@ async fn ler_armazenamento(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos
             erro_docker,
             limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
             distros_ligadas: ligadas.into_iter().filter(|d| d != DISTRO_DOCKER).collect(),
+            distros: armazenamento::distros_registradas(),
         })
     })
     .await
 }
 
-/// Só distro já ligada: analisar não liga nenhuma.
+/// Distro desligada só é analisada com `ligar`, que a tela pede depois de confirmar. O app não
+/// a mantém ligada: terminada a análise, o WSL a desliga sozinho quando ela fica ociosa.
 #[tauri::command]
-async fn analisar_pastas(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, distro: String) -> Result<armazenamento::Analise, String> {
-    if distro == DISTRO_DOCKER || !agentes.rodando(&distro) {
-        return Err(format!("{distro} precisa estar ligada para ser analisada"));
+async fn analisar_pastas(
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    distro: String,
+    ligar: bool,
+) -> Result<armazenamento::Analise, String> {
+    if distro.starts_with(DISTRO_DOCKER) || !armazenamento::distros_registradas().contains(&distro) {
+        return Err(format!("{distro} não é uma distro que dê para analisar"));
+    }
+    if !ligar && !agentes.rodando(&distro) {
+        return Err(format!("{distro} está desligada; confirme para ligá-la e analisar"));
     }
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
@@ -326,6 +339,32 @@ async fn compactar_disco(app: tauri::AppHandle, agentes: Estado<'_>, caminho: St
         soltar_depois(&agentes);
         COMPACTANDO.store(false, Ordering::SeqCst);
         resultado
+    })
+    .await
+}
+
+#[tauri::command]
+async fn limpar_parados_do_projeto(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    projeto: String,
+) -> Result<u64, String> {
+    if !agentes.rodando(DISTRO_DOCKER) {
+        return Err("o Docker Desktop não está ligado".to_string());
+    }
+    let conhecidos = recursos.projetos_docker.lock().unwrap().clone();
+    let agentes = Arc::clone(&agentes);
+    bloqueante(move || {
+        info!("pedido: apagar os containers parados do projeto {projeto}");
+        let liberado = armazenamento::limpar_parados_do_projeto(&projeto, &conhecidos)?;
+        agentes.registrar(
+            &app,
+            "armazenamento",
+            Some(DISTRO_DOCKER),
+            format!("O app apagou os containers parados do projeto {projeto}: {} GB liberados", recursos::gb(liberado)),
+        );
+        Ok(liberado)
     })
     .await
 }
@@ -588,6 +627,7 @@ pub fn run() {
             apagar_pastas,
             compactar_disco,
             limpar_docker,
+            limpar_parados_do_projeto,
             definir_limpeza,
             definir_limite_memoria,
             configuracao::ler_wslconfig,

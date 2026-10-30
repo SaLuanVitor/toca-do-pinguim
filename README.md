@@ -39,9 +39,10 @@ As capturas são do modo demonstração, com dados simulados.
   é o WSL ou os programas do Windows. Em Desempenho > Memória você define o teto de RAM da VM e
   quando o cache volta sozinho; em Desempenho > Processamento, quantos processadores ela pode
   usar.
-- **O disco virtual que só cresce.** Desempenho > Disco mostra quanto cada `.vhdx` ocupa no
-  Windows, quanto o Docker libera por categoria e quais pastas de uma distro pesam mais, com
-  limpeza a pedido ou semanal. Compactar o disco devolve ao Windows o espaço que o Linux já
+- **O disco virtual que só cresce.** Desempenho > Disco acha sozinho os discos de toda distro
+  instalada, a swap e o disco do Docker, e mostra quanto cada um ocupa no Windows, quais pastas
+  de uma distro pesam mais e, com Docker, quanto cada projeto ocupa e o que dá para liberar,
+  com limpeza a pedido ou semanal. Compactar o disco devolve ao Windows o espaço que o Linux já
   liberou por dentro.
 - **O que está preso.** Container que falha no próprio healthcheck ou reinicia sem parar,
   processo esperando disco ou rede, zumbi que ninguém recolhe. Cada um aparece com o motivo,
@@ -61,7 +62,7 @@ o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
 | Aba | O que tem |
 |---|---|
 | Processos | processos de cada distro com CPU e memória; os presos e os zumbis marcados com o motivo; encerramento por SIGTERM ou SIGKILL |
-| Desempenho | três abas. **Processamento:** gráfico de CPU da VM, limite de processadores, CPU por distro. **Memória:** gráfico de RAM da VM, para onde vai a RAM do Windows, teto de memória da VM e gatilhos da devolução automática do cache de arquivos, RAM dos projetos do Docker (com parar, ligar e reiniciar o que está com problema) e RAM por distro. **Disco:** discos virtuais com o tamanho no Windows e o ocupado dentro, compactação, limpeza do Docker por categoria, pastas maiores de uma distro e limpeza semanal opcional |
+| Desempenho | três abas. **Processamento:** gráfico de CPU da VM, limite de processadores, CPU por distro. **Memória:** gráfico de RAM da VM, para onde vai a RAM do Windows, teto de memória da VM e gatilhos da devolução automática do cache de arquivos, RAM dos projetos do Docker (com parar, ligar e reiniciar o que está com problema) e RAM por distro. **Disco:** discos virtuais com o tamanho no Windows e o ocupado dentro, compactação, pastas maiores de qualquer distro instalada, espaço do Docker por categoria e por projeto do Compose, e limpeza semanal opcional |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
 | Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
 | Distros | iniciar, terminar, reiniciar e desligar o WSL |
@@ -149,11 +150,18 @@ com um job de CI e 15 containers: 2,9 GB voltaram em 30 s, e 1,3 GB ainda estava
 5 min depois. O que volta rápido é o cache de nomes e pastas e o de blocos lidos, enquanto
 algo continua percorrendo arquivos. Baixar o limite da VM é o que segura o cache de vez.
 
-**Disco.** O tamanho de cada `.vhdx` vem do arquivo no Windows, e o ocupado vem do
-`df` dentro da distro, então só aparece com ela ligada. O Docker é lido por `docker system df`;
+**Disco.** As distros vêm do registro do WSL (`HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`),
+então aparece toda distro instalada, em qualquer pasta, inclusive as que Rancher Desktop e Podman
+registram. O tamanho de cada `.vhdx` vem do arquivo no Windows, e o ocupado vem do `df` dentro
+da distro, então só aparece com ela ligada. A swap vem do `swapFile` do `.wslconfig` ou, sem
+ele, do `%Temp%`. O Docker é lido por `docker system df`;
 as limpezas são `container prune` (por padrão só os sem rótulo de projeto do Compose),
-`image prune -a`, `builder prune -a` e `volume rm` dos volumes que você marcar. A análise de
-pastas roda um `du` só, como root, na distro escolhida; medido num Ubuntu com 81 GB usados, o
+`image prune -a`, `builder prune -a` e `volume rm` dos volumes que você marcar. Por projeto, o
+app soma containers, volumes e a parte única das imagens que só aquele projeto usa, e apaga
+os containers parados dele (`container prune` com o rótulo do projeto) ou os volumes que
+nenhum container usa. A análise de
+pastas roda um `du` só, como root, na distro escolhida; distro desligada só é ligada com
+confirmação, e o WSL a desliga sozinho quando ela fica ociosa; medido num Ubuntu com 81 GB usados, o
 `du` levou 172 s com o cache de disco quente, e o app desiste em 20 min, com o `du` encerrado
 junto;
 só o que ela listou como removível pode ser apagado, e entrada do `/tmp` montada por um

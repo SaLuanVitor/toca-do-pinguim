@@ -5,8 +5,22 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Em Desempenho > Disco, o **espaço do Docker por projeto do Compose**: containers, imagens que
+  só aquele projeto usa e volumes, com o total. Dá para apagar os containers parados e os
+  volumes sem uso de um projeto, com confirmação.
+- A swap do WSL aparece entre os discos. O WSL 2.6.1 a grava em `%Temp%\<GUID>\swap.vhdx`, e
+  não no `%Temp%\swap.vhdx` da documentação; o app procura nos dois e respeita o `swapFile`.
+- A análise de pastas lista todas as distros instaladas. Uma desligada aparece como tal, e
+  "Ligar e analisar" a liga, com confirmação, só para a análise; o WSL a desliga sozinho
+  depois.
+- Mais pastas de cache na análise: pnpm, Maven, Gradle, snap e o npm do root.
+
 ### Mudado
 
+- A aba Disco segue a ordem discos, dentro de uma distro, Docker e limpeza programada. O
+  Docker e os itens dele na limpeza programada só aparecem em quem tem Docker.
 - Em Desempenho > Memória, a barra de dentro da VM chamava as partes do cache de "Tabelas de
   arquivos", "Blocos de disco" e "Arquivos lidos", o que fazia parecer espaço em disco. Agora
   são "Cache: nomes e pastas", "Cache: blocos lidos" e "Cache: conteúdo de arquivos", a barra
@@ -15,6 +29,10 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   projeto agora diz RAM, assim como a etiqueta dos eventos de falta de memória na Atividade; a
   swap aparece como "arquivo no disco"; as pastas de cache da aba Disco são "em disco"; e, em
   Configurações, `memory`, `swap` e `autoMemoryReclaim` dizem o que é RAM e o que é disco.
+
+### Corrigido
+
+- A lista "Maiores pastas da raiz" escondia a maior pasta, que costuma ser o `/tmp`.
 
 ## [0.9.0] - 2026-10-30
 
