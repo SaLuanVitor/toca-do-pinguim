@@ -5,6 +5,14 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- Configurações > Este app tem um interruptor para desligar a busca de atualizações, o único
+  acesso do app à internet, e um botão para procurar na hora.
+- O instalador mostra, antes de instalar, o que o app acessa na rede e o que muda no sistema.
+- README com as seções de privacidade e de política de assinatura, preparando o pedido de
+  assinatura gratuita à SignPath Foundation.
+
 ## [0.6.0] - 2026-10-29
 
 ### Segurança

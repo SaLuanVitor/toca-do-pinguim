@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Preferências do próprio app. Por ora, a tecla de atalho do Windows que abre a Toca do
-  // Pinguim, gravada no atalho do menu Iniciar.
+  // Preferências do próprio app: a busca de atualizações e a tecla de atalho do Windows que
+  // abre a Toca do Pinguim, gravada no atalho do menu Iniciar.
   import { onMount } from 'svelte';
   import { api } from './api';
   import { estado } from './estado.svelte';
@@ -16,6 +16,21 @@
   let aviso = $state('');
   let salvando = $state(false);
   let gravado = $state('');
+  let procurando = $state(false);
+  let resultadoBusca = $state('');
+
+  async function procurarAgora() {
+    procurando = true;
+    resultadoBusca = '';
+    try {
+      const nova = await api.procurarAtualizacao();
+      resultadoBusca = nova ? `Versão ${nova.versao} disponível.` : 'Você já está na versão mais recente.';
+    } catch (e) {
+      resultadoBusca = `Não foi possível procurar: ${e}`;
+    } finally {
+      procurando = false;
+    }
+  }
 
   /** "Alt+Ctrl+P" do Windows vira "Ctrl+Alt+P": a ordem de quem lê. */
   function normalizar(tecla: string): string {
@@ -102,6 +117,27 @@
     </p>
   </section>
 
+  <section aria-labelledby="privacidade-titulo">
+    <h2 id="privacidade-titulo">Atualizações e privacidade</h2>
+    <label class="opcao">
+      <input
+        type="checkbox"
+        checked={estado.procurarAtualizacoes}
+        onchange={(e) => estado.definirProcurarAtualizacoes(e.currentTarget.checked)}
+      />
+      Procurar versão nova ao abrir o app e a cada 6 horas
+    </label>
+    <p class="explica">
+      A busca é o único acesso do app à internet: ele consulta as versões em github.com, e o GitHub
+      recebe o endereço IP deste computador, como em qualquer visita a um site. Nada mais sai daqui.
+      O log, o histórico de memória e a atividade ficam só nesta máquina.
+    </p>
+    <div class="acoes">
+      <button class="botao" onclick={procurarAgora} disabled={procurando}>{procurando ? 'Procurando' : 'Procurar agora'}</button>
+      {#if resultadoBusca}<span role="status">{resultadoBusca}</span>{/if}
+    </div>
+  </section>
+
   <section aria-labelledby="tecla-titulo">
     <h2 id="tecla-titulo">Tecla de atalho</h2>
     <p class="explica">
@@ -176,6 +212,14 @@
     color: var(--texto-2);
     font-size: 13px;
     padding-top: 6px;
+  }
+
+  .opcao {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
   }
 
   .captura {
