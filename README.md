@@ -146,7 +146,7 @@ máximo uma vez a cada 10 minutos, e vem desligada; ela fica em `preferencias.js
 de dados do app. O limite de processadores, em Desempenho > Processamento, grava a linha `processors` do `.wslconfig` e
 vale quando o WSL reinicia. Medido numa máquina
 com um job de CI e 15 containers: 2,9 GB voltaram em 30 s, e 1,3 GB ainda estavam livres
-5 min depois. O que volta rápido são as tabelas de arquivos e os blocos de disco, enquanto
+5 min depois. O que volta rápido é o cache de nomes e pastas e o de blocos lidos, enquanto
 algo continua percorrendo arquivos. Baixar o limite da VM é o que segura o cache de vez.
 
 **Disco.** O tamanho de cada `.vhdx` vem do arquivo no Windows, e o ocupado vem do

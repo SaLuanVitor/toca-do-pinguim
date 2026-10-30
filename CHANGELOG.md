@@ -5,6 +5,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Mudado
+
+- Em Desempenho > Memória, a barra de dentro da VM chamava as partes do cache de "Tabelas de
+  arquivos", "Blocos de disco" e "Arquivos lidos", o que fazia parecer espaço em disco. Agora
+  são "Cache: nomes e pastas", "Cache: blocos lidos" e "Cache: conteúdo de arquivos", a barra
+  se chama "RAM dentro da VM do WSL", e o texto abaixo diz que tudo ali é RAM.
+
 ## [0.9.0] - 2026-10-30
 
 ### Adicionado
