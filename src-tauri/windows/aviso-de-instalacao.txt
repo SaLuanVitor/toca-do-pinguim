@@ -2,7 +2,7 @@
 
 PRIVACIDADE
 
-O único acesso do app à internet é a busca de versão nova: ao abrir e a cada 6 horas, ele consulta as versões publicadas em github.com, e o GitHub recebe o endereço IP deste computador, como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais sai deste computador: o log, o histórico de memória e a atividade ficam só nele.
+O único acesso do app à internet é a busca de versão nova: ao abrir, a cada hora e ao voltar para a janela, ele consulta as versões publicadas em github.com, e o GitHub recebe o endereço IP deste computador, como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais sai deste computador: o log, o histórico de memória e a atividade ficam só nele.
 
 O QUE O APP MUDA NO SISTEMA
 

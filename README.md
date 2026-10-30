@@ -73,8 +73,9 @@ informações" e depois "Executar assim mesmo". O que mudou em cada versão est�
 [CHANGELOG](CHANGELOG.md).
 
 Instalado pelo instalador, o app avisa quando sai versão nova e se atualiza com um clique.
-Ele procura ao abrir e a cada 6 horas, e não baixa nada sem você pedir. O instalador baixado
-é conferido contra uma assinatura própria do projeto antes de rodar.
+Ele procura ao abrir, a cada hora e quando você volta para a janela, e não baixa nada sem você
+pedir. O instalador baixado é conferido contra uma assinatura própria do projeto antes de
+rodar.
 
 A instalação é só para o seu usuário e não pede administrador. Pelo PowerShell:
 
@@ -194,8 +195,14 @@ A versão mora no `package.json`. O `tauri.conf.json` lê de lá, e o
 4. Na `main` atualizada, crie e envie a tag: `git tag -a vX.Y.Z -m "Toca do Pinguim X.Y.Z"` e
    envie só ela ao remoto.
 5. O workflow Publicar confere que a tag está na `main` e bate com a versão, gera os pacotes,
-   assina o instalador e abre uma release em rascunho com as notas do CHANGELOG. Revise e
-   publique pela página de Releases.
+   assina o instalador e abre uma release em rascunho com as notas do CHANGELOG.
+6. Antes de publicar, baixe o instalador do rascunho e passe no Windows Defender:
+   `gh release download vX.Y.Z -p "*setup.exe"` e
+   `& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <instalador> -DisableRemediation`.
+   Os instaladores publicados da 0.7.0 e da 0.8.0 foram acusados como
+   `Trojan:Win32/Bearfoos.A!ml`, sem assinatura digital, enquanto o mesmo código montado de
+   novo passava limpo. Só publique pela página de Releases se a verificação disser
+   `found no threats`.
 
 Rodar o Publicar à mão, pela aba Actions, gera os pacotes sem assinatura, como artefato, sem
 release.
@@ -227,9 +234,9 @@ Medições únicas, numa máquina; não são dado de campo.
 
 ## Privacidade
 
-O único acesso do app à internet é a busca de versão nova, ao abrir e a cada 6 horas: ele
-consulta as versões publicadas em github.com, e o GitHub recebe o endereço IP do computador,
-como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais
+O único acesso do app à internet é a busca de versão nova, ao abrir, a cada hora e ao voltar
+para a janela: ele consulta as versões publicadas em github.com, e o GitHub recebe o endereço
+IP do computador, como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais
 sai da máquina: o log, o histórico de memória e a atividade ficam só nela. O instalador mostra
 este aviso antes de instalar.
 

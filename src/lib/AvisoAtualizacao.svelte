@@ -1,13 +1,18 @@
 <script lang="ts">
-  // Procura versão nova ao abrir e a cada 6 horas, se a pessoa não desligou a busca em
-  // Configurações > Este app. Só baixa quando ela clica: o app gerencia o WSL e não deve
-  // fazer nada pesado por conta própria.
+  // Procura versão nova ao abrir, a cada hora e quando a pessoa volta para a janela, se não
+  // desligou a busca em Configurações > Este app. Com o app aberto o dia todo, a busca de 6
+  // em 6 horas deixava a versão nova escondida até reabrir. Só baixa quando ela clica: o app
+  // gerencia o WSL e não deve fazer nada pesado por conta própria.
   import { onMount } from 'svelte';
   import { api } from './api';
   import { estado } from './estado.svelte';
   import type { Atualizacao } from './tipos';
 
-  const A_CADA_MS = 6 * 60 * 60 * 1000;
+  const A_CADA_MS = 60 * 60 * 1000;
+  /** Ao voltar para a janela, procura de novo só se a última busca passou disto. */
+  const AO_VOLTAR_MS = 15 * 60 * 1000;
+
+  let ultima = 0;
 
   let nova = $state<Atualizacao | null>(null);
   let dispensada = $state<string | null>(null);
@@ -15,6 +20,7 @@
 
   async function procurar() {
     if (!estado.procurarAtualizacoes) return;
+    ultima = Date.now();
     try {
       nova = await api.procurarAtualizacao();
     } catch {
@@ -43,6 +49,10 @@
     }
   }
 
+  function aoVoltar() {
+    if (document.visibilityState === 'visible' && Date.now() - ultima >= AO_VOLTAR_MS) procurar();
+  }
+
   // Religar a busca procura na hora, sem esperar a próxima rodada.
   $effect(() => {
     if (estado.procurarAtualizacoes) procurar();
@@ -54,6 +64,9 @@
     return () => clearInterval(id);
   });
 </script>
+
+<svelte:window onfocus={aoVoltar} />
+<svelte:document onvisibilitychange={aoVoltar} />
 
 {#if nova && dispensada !== nova.versao}
   <div class="aviso" role="status">
