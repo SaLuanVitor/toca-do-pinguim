@@ -2,6 +2,7 @@ mod agentes;
 mod atalho;
 mod atividade;
 mod atualizacao;
+mod cache;
 mod config;
 mod configuracao;
 mod docker;
@@ -127,6 +128,8 @@ struct EstadoRecursos {
     memoria: recursos::MemoriaWindows,
     docker: recursos::Docker,
     saude: Option<wsl::saude::Situacao>,
+    devolucao: Option<cache::Devolucao>,
+    devolver_cache_automatico: bool,
 }
 
 /// O que as threads de fundo já sabem, para a tela que abre depois do último evento.
@@ -136,7 +139,22 @@ fn estado_recursos(recursos: State<'_, Arc<Recursos>>) -> EstadoRecursos {
         memoria: recursos.memoria.lock().unwrap().clone(),
         docker: recursos.docker.lock().unwrap().clone(),
         saude: wsl::saude::atual(),
+        devolucao: recursos.devolucao.lock().unwrap().clone(),
+        devolver_cache_automatico: recursos.preferencias.lock().unwrap().devolver_cache_automatico,
     }
+}
+
+#[tauri::command]
+async fn devolver_cache(app: tauri::AppHandle, agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<(), String> {
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    info!("pedido: devolver o cache da VM");
+    bloqueante(move || cache::devolver(app, agentes, recursos, false)).await
+}
+
+#[tauri::command]
+fn definir_devolver_cache_automatico(recursos: State<'_, Arc<Recursos>>, sim: bool) -> Result<(), String> {
+    info!("devolver o cache sozinho: {}", if sim { "ligado" } else { "desligado" });
+    recursos.definir_devolver_automatico(sim)
 }
 
 enum AcaoDocker {
@@ -304,7 +322,7 @@ pub fn run() {
             trazer_dados_antigos(&dados);
             let agentes = Agentes::novo(&dados);
             app.manage(Arc::clone(&agentes));
-            let recursos = Arc::new(Recursos::default());
+            let recursos = Arc::new(Recursos::novo(&dados));
             app.manage(Arc::clone(&recursos));
             recursos::vigiar(app.handle().clone(), Arc::clone(&agentes), recursos);
             agentes::supervisionar(app.handle().clone(), agentes);
@@ -331,6 +349,8 @@ pub fn run() {
             parar_conteineres,
             iniciar_conteineres,
             reiniciar_conteineres,
+            devolver_cache,
+            definir_devolver_cache_automatico,
             definir_limite_memoria,
             configuracao::ler_wslconfig,
             configuracao::gravar_wslconfig,

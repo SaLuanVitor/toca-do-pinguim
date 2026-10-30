@@ -5,6 +5,7 @@
 //! `wsl --shutdown`. O app acompanha a memória do Windows para avisar antes disso, e
 //! mostra quem dentro da VM ocupa mais, por projeto do Docker.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -16,6 +17,7 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::agentes::Agentes;
+use crate::cache::{self, Devolucao, Preferencias};
 use crate::docker::{self, Conteiner};
 
 const PAUSA: Duration = Duration::from_millis(500);
@@ -49,15 +51,41 @@ pub struct Docker {
     pub erro: Option<String>,
 }
 
-#[derive(Default)]
 pub struct Recursos {
     pub memoria: Mutex<MemoriaWindows>,
     pub docker: Mutex<Docker>,
     /// Pedido de nova leitura do Docker logo depois de parar ou ligar containers.
     atualizar_docker: AtomicBool,
+    pub devolvendo: AtomicBool,
+    pub ultima_devolucao: Mutex<Option<Instant>>,
+    pub devolucao: Mutex<Option<Devolucao>>,
+    pub preferencias: Mutex<Preferencias>,
+    caminho_preferencias: PathBuf,
 }
 
 impl Recursos {
+    pub fn novo(dados: &Path) -> Self {
+        let caminho_preferencias = Preferencias::caminho(dados);
+        Recursos {
+            memoria: Mutex::default(),
+            docker: Mutex::default(),
+            atualizar_docker: AtomicBool::new(false),
+            devolvendo: AtomicBool::new(false),
+            ultima_devolucao: Mutex::new(None),
+            devolucao: Mutex::new(None),
+            preferencias: Mutex::new(Preferencias::ler(&caminho_preferencias)),
+            caminho_preferencias,
+        }
+    }
+
+    pub fn definir_devolver_automatico(&self, sim: bool) -> Result<(), String> {
+        let mut prefs = self.preferencias.lock().unwrap();
+        let novas = Preferencias { devolver_cache_automatico: sim, ..prefs.clone() };
+        novas.gravar(&self.caminho_preferencias)?;
+        *prefs = novas;
+        Ok(())
+    }
+
     pub fn pedir_atualizacao(&self) {
         self.atualizar_docker.store(true, Ordering::Relaxed);
     }
@@ -85,7 +113,7 @@ fn medir() -> MemoriaWindows {
         disponivel_bytes: m.ullAvailPhys,
         commit_bytes: m.ullTotalPageFile - m.ullAvailPageFile,
         commit_limite_bytes: m.ullTotalPageFile,
-        wsl_bytes: memoria_fisica_de("vmmemWSL"),
+        wsl_bytes: memoria_da_vm(),
         pressao: false,
     }
 }
@@ -97,6 +125,10 @@ fn medir() -> MemoriaWindows {
 /// O número é o working set, a RAM que o processo ocupa agora. A memória privada (commit)
 /// passa dele quando o Windows tira páginas da VM da RAM: medido, 11,57 GB de commit contra
 /// 8,48 GB na RAM, com o Gerenciador de Tarefas mostrando os 8,5.
+pub fn memoria_da_vm() -> Option<u64> {
+    memoria_fisica_de("vmmemWSL")
+}
+
 fn memoria_fisica_de(processo: &str) -> Option<u64> {
     use windows_sys::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessInformation};
     use windows_sys::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION;
@@ -210,6 +242,17 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 }
                 *recursos.memoria.lock().unwrap() = m.clone();
                 let _ = app.emit("memoria_windows", &m);
+                let automatico = recursos.preferencias.lock().unwrap().devolver_cache_automatico;
+                let desde = recursos.ultima_devolucao.lock().unwrap().map(|t| t.elapsed());
+                if automatico
+                    && !recursos.devolvendo.load(Ordering::Relaxed)
+                    && cache::pode_devolver_sozinho(m.wsl_bytes.is_some(), m.pressao, desde)
+                {
+                    let (app, agentes, recursos) = (app.clone(), Arc::clone(&agentes), Arc::clone(&recursos));
+                    thread::spawn(move || {
+                        let _ = cache::devolver(app, agentes, recursos, true);
+                    });
+                }
             }
 
             let ligado = agentes.rodando(DISTRO_DOCKER);

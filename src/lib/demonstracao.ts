@@ -125,6 +125,9 @@ export function criarDemonstracao(): Api {
         mem_total: 12 * 1024 ** 3,
         mem_disponivel: 7.2 * 1024 ** 3 - Math.random() * 200 * 1024 ** 2,
         mem_livre: 1.4 * 1024 ** 3,
+        mem_blocos: 1.4 * 1024 ** 3,
+        mem_arquivos: 2.0 * 1024 ** 3,
+        mem_tabelas: 2.4 * 1024 ** 3,
         swap_total: 4 * 1024 ** 3,
         swap_livre: 3.9 * 1024 ** 3,
         processos: lista.map((p) => ({ ...p })),
@@ -259,7 +262,21 @@ export function criarDemonstracao(): Api {
     listarAtividade: async () => eventosIniciais,
     estadoRecursos: async () => {
       publicarRecursos();
-      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null };
+      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null, devolucao: null, devolver_cache_automatico: false };
+    },
+    // Encurtado para a tela: no app real, as medidas saem 15 s e 2 min depois.
+    devolverCache: async () => {
+      const antes = estado.memoriaWindows?.wsl_bytes ?? 11.6 * GIB;
+      const base = { automatica: false, quando_ms: Date.now(), antes_bytes: antes, logo_bytes: null, depois_bytes: null, concluida: false };
+      estado.devolucao = base;
+      setTimeout(() => (estado.devolucao = { ...base, logo_bytes: antes - 2.9 * GIB }), 3000);
+      setTimeout(() => {
+        estado.devolucao = { ...base, logo_bytes: antes - 2.9 * GIB, depois_bytes: antes - 1.3 * GIB, concluida: true };
+        registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
+      }, 8000);
+    },
+    definirDevolverCacheAutomatico: async (sim) => {
+      estado.devolverCacheAutomatico = sim;
     },
     pararConteineres: (ids, rotulo) => agirEm(ids, false, rotulo),
     iniciarConteineres: (ids, rotulo) => agirEm(ids, true, rotulo),
