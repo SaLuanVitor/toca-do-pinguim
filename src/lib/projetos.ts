@@ -15,6 +15,20 @@ export function ativo(c: Conteiner): boolean {
   return c.estado === 'running' || c.estado === 'restarting';
 }
 
+export function semResposta(c: Conteiner): boolean {
+  return c.saude === 'unhealthy';
+}
+
+/** O backend usa a mesma fração para registrar o aviso. */
+export function pertoDoLimite(c: Conteiner): boolean {
+  return c.limite_bytes > 0 && c.memoria_bytes >= c.limite_bytes * 0.9;
+}
+
+/** Reiniciar ajuda nestes; no container em ciclo, ele já reinicia sozinho. */
+export function comProblema(c: Conteiner): boolean {
+  return semResposta(c) || pertoDoLimite(c);
+}
+
 /** Os que mais ocupam vêm primeiro; os parados vão para o fim. */
 export function agrupar(conteineres: Conteiner[]): Projeto[] {
   const grupos = new Map<string, Projeto>();

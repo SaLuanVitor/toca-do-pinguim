@@ -76,8 +76,21 @@ export interface Conteiner {
   /** Como o Docker diz: running, restarting, exited, paused. */
   estado: string;
   memoria_bytes: number;
+  /** 0 quando o container não tem limite de memória. */
+  limite_bytes: number;
   reinicios: number;
   em_ciclo: boolean;
+  /** healthy, unhealthy ou starting; null sem healthcheck. */
+  saude: string | null;
+}
+
+/** Processo com sinal de estar preso, vindo do vigia do backend. */
+export interface Suspeito {
+  pid: number;
+  ppid: number;
+  nome: string;
+  motivo: 'aguardando_es' | 'zumbi' | 'cpu_constante';
+  desde_ms: number;
 }
 
 export interface Docker {

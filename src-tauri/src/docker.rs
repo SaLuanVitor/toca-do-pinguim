@@ -34,8 +34,32 @@ pub struct Conteiner {
     /// Como o Docker diz: `running`, `restarting`, `exited`, `paused`...
     pub estado: String,
     pub memoria_bytes: u64,
+    /// Limite de memória do container; 0 quando não tem, e ele pode usar a VM toda.
+    pub limite_bytes: u64,
     pub reinicios: u64,
     pub em_ciclo: bool,
+    /// Resultado do healthcheck (`healthy`, `unhealthy`, `starting`), quando a imagem ou o
+    /// compose declara um.
+    pub saude: Option<String>,
+}
+
+impl Conteiner {
+    pub fn sem_resposta(&self) -> bool {
+        self.saude.as_deref() == Some("unhealthy")
+    }
+
+    /// Acima disto do limite, o kernel encerra o container na próxima falta de memória.
+    pub fn perto_do_limite(&self) -> bool {
+        self.limite_bytes > 0 && self.memoria_bytes as f64 >= self.limite_bytes as f64 * LIMITE_PERTO
+    }
+}
+
+const LIMITE_PERTO: f64 = 0.9;
+
+struct Inspecao {
+    reinicios: u64,
+    saude: Option<String>,
+    limite_bytes: u64,
 }
 
 /// Guarda, por container, a última contagem de reinícios e quando ela subiu, para
@@ -114,16 +138,24 @@ pub fn listar(vigia: &mut Vigia) -> Result<Vec<Conteiner>, String> {
 
     let ativos: Vec<&str> = lista.iter().filter(|c| ativo(&c.estado)).map(|c| c.id.as_str()).collect();
     if !ativos.is_empty() {
-        let mut args = vec!["inspect", "--format", "{{.Id}}\t{{.RestartCount}}"];
+        // `.State` chega ao template como mapa, e `.State.Health` num container sem
+        // healthcheck derruba o `inspect` inteiro ("map has no entry for key"); o `index`
+        // devolve vazio.
+        let formato = "{{.Id}}\t{{.RestartCount}}\t{{with index .State \"Health\"}}{{.Status}}{{end}}\t{{.HostConfig.Memory}}";
+        let mut args = vec!["inspect", "--format", formato];
         args.extend(&ativos);
-        let reinicios = ler_pares(&executar(&args, PRAZO_CONSULTA)?, |v| v.parse().ok());
+        let inspecoes = ler_pares(&executar(&args, PRAZO_CONSULTA)?, ler_inspecao);
         let memoria = ler_pares(
             &executar(&["stats", "--no-stream", "--no-trunc", "--format", "{{.ID}}\t{{.MemUsage}}"], PRAZO_CONSULTA)?,
             |v| tamanho(v.split(" / ").next().unwrap_or("")),
         );
         let agora = Instant::now();
         for c in &mut lista {
-            c.reinicios = reinicios.get(&c.id).copied().unwrap_or(0);
+            if let Some(i) = inspecoes.get(&c.id) {
+                c.reinicios = i.reinicios;
+                c.saude = i.saude.clone();
+                c.limite_bytes = i.limite_bytes;
+            }
             c.memoria_bytes = memoria.get(&c.id).copied().unwrap_or(0);
             c.em_ciclo = c.estado == "restarting" || vigia.observar(&c.id, c.reinicios, agora);
         }
@@ -142,6 +174,10 @@ pub fn parar(ids: &[String]) -> Result<(), String> {
 
 pub fn iniciar(ids: &[String]) -> Result<(), String> {
     agir("start", ids)
+}
+
+pub fn reiniciar(ids: &[String]) -> Result<(), String> {
+    agir("restart", ids)
 }
 
 /// Os ids vêm do front; conferir o formato impede que algo como `--help` vire opção.
@@ -171,11 +207,22 @@ fn ler_ps(texto: &str) -> Vec<Conteiner> {
                 projeto,
                 estado: estado.to_string(),
                 memoria_bytes: 0,
+                limite_bytes: 0,
                 reinicios: 0,
                 em_ciclo: false,
+                saude: None,
             })
         })
         .collect()
+}
+
+/// `reinicios<TAB>saúde<TAB>limite`, com a saúde vazia quando não há healthcheck.
+fn ler_inspecao(texto: &str) -> Option<Inspecao> {
+    let mut campos = texto.split('\t');
+    let reinicios = campos.next()?.trim().parse().ok()?;
+    let saude = campos.next().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let limite_bytes = campos.next().and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+    Some(Inspecao { reinicios, saude, limite_bytes })
 }
 
 /// Linhas `id<TAB>valor`. O `inspect` devolve o id completo; o `stats` também, com
@@ -235,6 +282,27 @@ mod testes {
         assert_eq!(lista[0].projeto.as_deref(), Some("prefeitura-sigc-semge"));
         assert_eq!(lista[1].projeto, None);
         assert_eq!(lista[1].estado, "running");
+    }
+
+    #[test]
+    fn le_reinicios_saude_e_limite_do_inspect() {
+        let texto = format!("{ID_A}\t20\tunhealthy\t536870912\n{ID_B}\t0\t\t0\n");
+        let lido = ler_pares(&texto, ler_inspecao);
+        let a = &lido[ID_A];
+        assert_eq!((a.reinicios, a.saude.as_deref(), a.limite_bytes), (20, Some("unhealthy"), 512 << 20));
+        let b = &lido[ID_B];
+        assert_eq!((b.reinicios, b.saude.as_deref(), b.limite_bytes), (0, None, 0));
+    }
+
+    #[test]
+    fn perto_do_limite_so_com_limite_definido() {
+        let mut c = ler_ps(&format!("{ID_A}\tleitor-pdf\trunning\tsigc\n")).remove(0);
+        c.memoria_bytes = 470 << 20;
+        assert!(!c.perto_do_limite());
+        c.limite_bytes = 512 << 20;
+        assert!(c.perto_do_limite());
+        c.memoria_bytes = 400 << 20;
+        assert!(!c.perto_do_limite());
     }
 
     #[test]

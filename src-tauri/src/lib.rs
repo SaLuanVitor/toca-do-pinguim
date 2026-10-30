@@ -8,6 +8,7 @@ mod docker;
 mod historico;
 mod recursos;
 mod registro;
+mod travados;
 mod wsl;
 
 use std::path::Path;
@@ -138,23 +139,32 @@ fn estado_recursos(recursos: State<'_, Arc<Recursos>>) -> EstadoRecursos {
     }
 }
 
+enum AcaoDocker {
+    Parar,
+    Ligar,
+    Reiniciar,
+}
+
 async fn agir_em_conteineres(
     app: tauri::AppHandle,
     agentes: Estado<'_>,
     recursos: State<'_, Arc<Recursos>>,
     ids: Vec<String>,
     rotulo: String,
-    parar: bool,
+    acao: AcaoDocker,
 ) -> Result<(), String> {
     recursos.conferir_ids(&ids)?;
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
-        let verbo = if parar { "parar" } else { "ligar" };
+        let (verbo, feito, executar): (&str, &str, fn(&[String]) -> Result<(), String>) = match acao {
+            AcaoDocker::Parar => ("parar", "parou", docker::parar),
+            AcaoDocker::Ligar => ("ligar", "ligou", docker::iniciar),
+            AcaoDocker::Reiniciar => ("reiniciar", "reiniciou", docker::reiniciar),
+        };
         info!("pedido: {verbo} {rotulo} ({} container(s))", ids.len());
-        let resultado = if parar { docker::parar(&ids) } else { docker::iniciar(&ids) };
+        let resultado = executar(&ids);
         recursos.pedir_atualizacao();
         resultado?;
-        let feito = if parar { "parou" } else { "ligou" };
         agentes.registrar(&app, "docker", Some("docker-desktop"), format!("O app {feito} {rotulo} ({} container(s))", ids.len()));
         Ok(())
     })
@@ -169,7 +179,7 @@ async fn parar_conteineres(
     ids: Vec<String>,
     rotulo: String,
 ) -> Result<(), String> {
-    agir_em_conteineres(app, agentes, recursos, ids, rotulo, true).await
+    agir_em_conteineres(app, agentes, recursos, ids, rotulo, AcaoDocker::Parar).await
 }
 
 #[tauri::command]
@@ -180,7 +190,18 @@ async fn iniciar_conteineres(
     ids: Vec<String>,
     rotulo: String,
 ) -> Result<(), String> {
-    agir_em_conteineres(app, agentes, recursos, ids, rotulo, false).await
+    agir_em_conteineres(app, agentes, recursos, ids, rotulo, AcaoDocker::Ligar).await
+}
+
+#[tauri::command]
+async fn reiniciar_conteineres(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    ids: Vec<String>,
+    rotulo: String,
+) -> Result<(), String> {
+    agir_em_conteineres(app, agentes, recursos, ids, rotulo, AcaoDocker::Reiniciar).await
 }
 
 #[tauri::command]
@@ -309,6 +330,7 @@ pub fn run() {
             estado_recursos,
             parar_conteineres,
             iniciar_conteineres,
+            reiniciar_conteineres,
             definir_limite_memoria,
             configuracao::ler_wslconfig,
             configuracao::gravar_wslconfig,

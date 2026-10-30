@@ -3,7 +3,7 @@
   import { encerrarProcesso } from './acoes.svelte';
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
-  import { bytes, pct, rotuloEstado } from './formato';
+  import { bytes, ha, pct, rotuloEstado, rotuloSuspeita } from './formato';
   import Icone from './Icone.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
   import { lerPreferencia, salvarPreferencia } from './preferencias';
@@ -436,6 +436,7 @@
             {@const l = v.l}
             {@const p = l.p}
             {@const sel = selecao?.distro === l.distro && selecao.pid === p.pid}
+            {@const suspeito = estado.suspeitos[l.distro]?.get(p.pid)}
             <tr
               data-chave={chave(l)}
               aria-rowindex={inicio + k + 2}
@@ -454,7 +455,14 @@
               {#if !agrupar}<td class="distro">{l.distro}</td>{/if}
               <td class="numero">{p.pid}</td>
               <td>{p.usuario}</td>
-              <td class="status">{rotuloEstado(p.estado)}</td>
+              <td class="status">
+                {rotuloEstado(p.estado)}
+                {#if suspeito}
+                  <span class="suspeito">
+                    {rotuloSuspeita(suspeito.motivo)}, {ha(suspeito.desde_ms)}{suspeito.motivo === 'zumbi' ? ` (pai: PID ${suspeito.ppid})` : ''}
+                  </span>
+                {/if}
+              </td>
               <td class="numero" style={calor(p.cpu_pct / 25)}>{pct(p.cpu_pct)}</td>
               <td class="numero" style={calor(vm ? (p.rss / vm.mem_total) * 8 : 0)}>{bytes(p.rss)}</td>
               <td class="cmd" title={p.cmdline}>{p.cmdline}</td>
@@ -638,6 +646,13 @@
 
   td.nome.recuo {
     padding-left: 28px;
+  }
+
+  .suspeito {
+    display: block;
+    color: var(--perigo);
+    font-size: 12px;
+    white-space: normal;
   }
 
   td.status,

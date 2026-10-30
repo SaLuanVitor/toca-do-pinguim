@@ -15,6 +15,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - Aviso e notificação do Windows quando a memória disponível do Windows cai abaixo de 10%,
   dizendo quanto o WSL ocupa e qual projeto mais usa. O aviso some acima de 15%.
 - Aviso e notificação quando o WSL para de responder, com o botão para desligá-lo.
+- **Processos presos**, na aba Processos: o que está há mais de 1 min esperando disco ou rede
+  sem poder ser interrompido, o zumbi que o processo pai não recolheu em 1 min (com o PID do
+  pai, que é quem precisa ser encerrado) e o que usa um núcleo inteiro há mais de 5 min. Cada
+  um vai uma vez para a Atividade.
+- **Containers com problema**, no cartão do Docker: o que falha no próprio healthcheck e o que
+  passa de 90% do limite de memória, com botão para reiniciar só esses. Healthcheck falhando
+  e reinício em ciclo também viram notificação do Windows.
 
 ### Corrigido
 
