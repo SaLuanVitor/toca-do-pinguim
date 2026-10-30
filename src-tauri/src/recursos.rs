@@ -35,7 +35,8 @@ pub struct MemoriaWindows {
     /// Memória comprometida e o limite dela (RAM mais arquivo de paginação).
     pub commit_bytes: u64,
     pub commit_limite_bytes: u64,
-    /// Memória privada do `vmmemWSL`: o que a VM inteira ocupa no Windows, cache incluso.
+    /// Memória física (working set) do `vmmemWSL`: quanto da RAM do Windows a VM inteira
+    /// ocupa, cache incluso. É o número que o Gerenciador de Tarefas mostra para ela.
     /// `None` com o WSL desligado.
     pub wsl_bytes: Option<u64>,
     pub pressao: bool,
@@ -84,20 +85,19 @@ fn medir() -> MemoriaWindows {
         disponivel_bytes: m.ullAvailPhys,
         commit_bytes: m.ullTotalPageFile - m.ullAvailPageFile,
         commit_limite_bytes: m.ullTotalPageFile,
-        wsl_bytes: memoria_privada_do_wsl(),
+        wsl_bytes: memoria_fisica_de("vmmemWSL"),
         pressao: false,
     }
 }
 
 /// O processo `vmmemWSL` representa a VM no Windows. Ele não aceita ser aberto sem
 /// administrador, nem com o acesso de consulta limitada (medido: erro 5), então a memória
-/// vem da lista de processos do sistema, que traz o número sem abrir o processo. É a mesma
-/// fonte da memória privada que o Gerenciador de Tarefas e o `Get-Process` mostram.
-fn memoria_privada_do_wsl() -> Option<u64> {
-    memoria_privada_de("vmmemWSL")
-}
-
-fn memoria_privada_de(processo: &str) -> Option<u64> {
+/// vem da lista de processos do sistema, que traz o número sem abrir o processo.
+///
+/// O número é o working set, a RAM que o processo ocupa agora. A memória privada (commit)
+/// passa dele quando o Windows tira páginas da VM da RAM: medido, 11,57 GB de commit contra
+/// 8,48 GB na RAM, com o Gerenciador de Tarefas mostrando os 8,5.
+fn memoria_fisica_de(processo: &str) -> Option<u64> {
     use windows_sys::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessInformation};
     use windows_sys::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION;
 
@@ -129,7 +129,7 @@ fn memoria_privada_de(processo: &str) -> Option<u64> {
         if !nome.Buffer.is_null() {
             let texto = unsafe { std::slice::from_raw_parts(nome.Buffer, nome.Length as usize / 2) };
             if String::from_utf16_lossy(texto).eq_ignore_ascii_case(processo) {
-                return Some(entrada.PrivatePageCount as u64);
+                return Some(entrada.WorkingSetSize as u64);
             }
         }
         if entrada.NextEntryOffset == 0 {
@@ -164,6 +164,22 @@ pub fn maior_consumidor(conteineres: &[Conteiner]) -> Option<(String, u64)> {
         }
     }
     soma.into_iter().filter(|(_, b)| *b > 0).max_by_key(|(_, b)| *b)
+}
+
+/// O que mais pesa dentro da VM. Quando o cache passa da memória somada dos containers,
+/// apontar o maior container manda olhar para o lugar errado: medido numa máquina, a VM
+/// tinha 10,1 GB de cache e o maior container, 219 MB.
+pub fn explicar_wsl(wsl: u64, cache: Option<u64>, conteineres: &[Conteiner]) -> String {
+    let docker: u64 = conteineres.iter().map(|c| c.memoria_bytes).sum();
+    match (cache, maior_consumidor(conteineres)) {
+        (Some(cache), _) if cache >= docker => format!(
+            "O WSL ocupa {} GB, e a maior parte é cache de arquivos ({} GB), que o Linux devolve quando precisa mas o Windows conta como ocupado. Baixar o limite de memória do WSL, em Desempenho, segura esse tamanho.",
+            gb(wsl),
+            gb(cache)
+        ),
+        (_, Some((quem, bytes))) => format!("O WSL ocupa {} GB; quem mais usa dentro dele é {quem}, com {} GB.", gb(wsl), gb(bytes)),
+        _ => format!("O WSL ocupa {} GB.", gb(wsl)),
+    }
 }
 
 pub fn gb(bytes: u64) -> String {
@@ -233,11 +249,8 @@ fn avisar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, m: &M
     }
     let mut texto = format!("{} GB livres de {} GB.", gb(m.disponivel_bytes), gb(m.total_bytes));
     if let Some(wsl) = m.wsl_bytes {
-        texto.push_str(&format!(" O WSL ocupa {} GB", gb(wsl)));
-        match maior_consumidor(&recursos.docker.lock().unwrap().conteineres) {
-            Some((quem, bytes)) => texto.push_str(&format!("; quem mais usa é {quem}, com {} GB.", gb(bytes))),
-            None => texto.push('.'),
-        }
+        texto.push(' ');
+        texto.push_str(&explicar_wsl(wsl, agentes.cache_vm(), &recursos.docker.lock().unwrap().conteineres));
     }
     warn!("memória do Windows acabando: {texto}");
     agentes.registrar(app, "memoria", None, format!("A memória do Windows está acabando: {texto}"));
@@ -316,15 +329,35 @@ mod testes {
             em_ciclo: false,
             saude: None,
         };
-        let lista = [c("a", Some("sigc"), 1700), c("b", Some("sigc"), 700), c("c", Some("vendai"), 2000), c("runner", None, 30)];
-        assert_eq!(maior_consumidor(&lista), Some(("sigc".to_string(), 2400 << 20)));
+        let lista = [c("a", Some("loja"), 1700), c("b", Some("loja"), 700), c("c", Some("chat-bot"), 2000), c("runner", None, 30)];
+        assert_eq!(maior_consumidor(&lista), Some(("loja".to_string(), 2400 << 20)));
         assert_eq!(maior_consumidor(&[]), None);
     }
 
     #[test]
     fn acha_processo_na_lista_do_sistema() {
-        assert!(memoria_privada_de("System").is_some());
-        assert_eq!(memoria_privada_de("processo-que-nao-existe.exe"), None);
+        assert!(memoria_fisica_de("System").is_some());
+        assert_eq!(memoria_fisica_de("processo-que-nao-existe.exe"), None);
+    }
+
+    #[test]
+    fn aviso_aponta_o_cache_quando_ele_pesa_mais_que_os_containers() {
+        let c = |nome: &str, mb: u64| Conteiner {
+            id: String::new(),
+            nome: nome.to_string(),
+            projeto: None,
+            estado: "running".to_string(),
+            memoria_bytes: mb << 20,
+            limite_bytes: 0,
+            reinicios: 0,
+            em_ciclo: false,
+            saude: None,
+        };
+        let runner = [c("runner-build", 219)];
+        assert!(explicar_wsl(8 * GIB, Some(10 * GIB), &runner).contains("cache de arquivos (10,0 GB)"));
+        let loja = [c("loja-db", 4 * 1024)];
+        assert!(explicar_wsl(8 * GIB, Some(2 * GIB), &loja).contains("quem mais usa dentro dele é loja-db"));
+        assert_eq!(explicar_wsl(8 * GIB, None, &[]), "O WSL ocupa 8,0 GB.");
     }
 
     #[test]

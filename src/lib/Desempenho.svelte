@@ -101,12 +101,15 @@
         <Grafico
           valores={mem}
           cor="--mem"
-          rotulo="Memória em uso nos últimos 60 segundos: {bytes(memUsada)} de {bytes(vm.mem_total)}"
+          rotulo="Memória usada por programas e kernel nos últimos 60 segundos: {bytes(memUsada)} de {bytes(vm.mem_total)}"
         />
       </div>
       <dl>
-        <div><dt>Em uso</dt><dd>{bytes(memUsada)}</dd></div>
-        <div><dt>Disponível</dt><dd>{bytes(vm.mem_disponivel)}</dd></div>
+        <div><dt>Programas e kernel</dt><dd>{bytes(memUsada)}</dd></div>
+        <div><dt>Cache de arquivos</dt><dd>{bytes(cache)}</dd></div>
+        {#if windows?.wsl_bytes != null}
+          <div><dt>Na RAM do Windows</dt><dd>{bytes(windows.wsl_bytes)}</dd></div>
+        {/if}
         <div><dt>Swap em uso</dt><dd>{bytes(swapUsada)} de {bytes(vm.swap_total)}</dd></div>
       </dl>
       {#if resumo}

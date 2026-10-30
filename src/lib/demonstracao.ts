@@ -17,16 +17,16 @@ const PORTAS: [number, string, string | null][] = [
 
 // Nome, projeto do Compose e memória em MB; quatro projetos, como na máquina medida.
 const CONTEINERES: [string, string | null, number][] = [
-  ['sigc-mssql', 'prefeitura-sigc-semge', 1763],
-  ['sigc-app', 'prefeitura-sigc-semge', 403],
-  ['sigc-redis', 'prefeitura-sigc-semge', 12],
-  ['sigc-nginx', 'prefeitura-sigc-semge', 9],
-  ['sigc-leitor-pdf', 'prefeitura-sigc-semge', 478],
-  ['vendai-backend-1', 'vendai', 648],
-  ['vendai-celery-worker-1', 'vendai', 492],
-  ['vendai-db-1', 'vendai', 71],
-  ['app-divida-zero-api-dev-1', 'app-divida-zero', 273],
-  ['app-divida-zero-db-1', 'app-divida-zero', 51],
+  ['loja-db', 'loja-online', 1763],
+  ['loja-api', 'loja-online', 403],
+  ['loja-redis', 'loja-online', 12],
+  ['loja-nginx', 'loja-online', 9],
+  ['loja-relatorios', 'loja-online', 478],
+  ['bot-api-1', 'chat-bot', 648],
+  ['bot-worker-1', 'chat-bot', 492],
+  ['bot-db-1', 'chat-bot', 71],
+  ['blog-api-1', 'blog', 273],
+  ['blog-db-1', 'blog', 51],
   ['gitlab-runner', null, 28],
 ];
 
@@ -162,10 +162,10 @@ export function criarDemonstracao(): Api {
     projeto,
     estado: 'running',
     memoria_bytes: mb * 1024 ** 2,
-    limite_bytes: nome === 'sigc-leitor-pdf' ? 512 * 1024 ** 2 : 0,
-    reinicios: nome === 'vendai-backend-1' ? 20 : 0,
-    em_ciclo: nome === 'vendai-backend-1',
-    saude: nome === 'sigc-app' ? 'unhealthy' : nome.includes('db') || nome.includes('mssql') ? 'healthy' : null,
+    limite_bytes: nome === 'loja-relatorios' ? 512 * 1024 ** 2 : 0,
+    reinicios: nome === 'bot-api-1' ? 20 : 0,
+    em_ciclo: nome === 'bot-api-1',
+    saude: nome === 'loja-api' ? 'unhealthy' : nome.includes('db') || nome.includes('mssql') ? 'healthy' : null,
   }));
 
   function publicarRecursos() {

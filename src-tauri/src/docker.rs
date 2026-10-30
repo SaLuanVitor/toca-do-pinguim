@@ -276,10 +276,10 @@ mod testes {
 
     #[test]
     fn le_a_lista_com_e_sem_projeto() {
-        let texto = format!("{ID_A}\tsigc-app\trunning\tprefeitura-sigc-semge\r\n{ID_B}\tgitlab-runner\trunning\t\nlixo\tsem\tid\n");
+        let texto = format!("{ID_A}\tloja-api\trunning\tloja-online\r\n{ID_B}\tgitlab-runner\trunning\t\nlixo\tsem\tid\n");
         let lista = ler_ps(&texto);
         assert_eq!(lista.len(), 2);
-        assert_eq!(lista[0].projeto.as_deref(), Some("prefeitura-sigc-semge"));
+        assert_eq!(lista[0].projeto.as_deref(), Some("loja-online"));
         assert_eq!(lista[1].projeto, None);
         assert_eq!(lista[1].estado, "running");
     }
@@ -296,7 +296,7 @@ mod testes {
 
     #[test]
     fn perto_do_limite_so_com_limite_definido() {
-        let mut c = ler_ps(&format!("{ID_A}\tleitor-pdf\trunning\tsigc\n")).remove(0);
+        let mut c = ler_ps(&format!("{ID_A}\trelatorios\trunning\tloja\n")).remove(0);
         c.memoria_bytes = 470 << 20;
         assert!(!c.perto_do_limite());
         c.limite_bytes = 512 << 20;

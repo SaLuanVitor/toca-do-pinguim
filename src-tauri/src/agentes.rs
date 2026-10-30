@@ -98,6 +98,8 @@ pub struct Agentes {
     /// Processos presos, por distro.
     travados: Mutex<HashMap<String, travados::Vigia>>,
     intervalo_ms: AtomicU64,
+    /// Cache de arquivos da VM na última amostra; 0 enquanto nenhuma chegou.
+    cache_vm: AtomicU64,
     espera_ociosidade_ms: AtomicI64,
     pausado: AtomicBool,
     proximo_id: AtomicU64,
@@ -115,6 +117,7 @@ impl Agentes {
             atividade: Mutex::new(Atividade::abrir(dados.join("atividade.jsonl"))),
             travados: Mutex::new(HashMap::new()),
             intervalo_ms: AtomicU64::new(1000),
+            cache_vm: AtomicU64::new(0),
             espera_ociosidade_ms: AtomicI64::new(WslConfig::ler().espera_ociosidade_ms()),
             pausado: AtomicBool::new(false),
             proximo_id: AtomicU64::new(1),
@@ -144,6 +147,10 @@ impl Agentes {
         if !self.pausado.load(Ordering::Relaxed) {
             self.repassar_intervalo(ms);
         }
+    }
+
+    pub fn cache_vm(&self) -> Option<u64> {
+        Some(self.cache_vm.load(Ordering::Relaxed)).filter(|&b| b > 0)
     }
 
     pub fn pausado(&self) -> bool {
@@ -267,6 +274,8 @@ impl Agentes {
             match serde_json::from_str::<Mensagem>(&linha) {
                 Ok(Mensagem::Amostra(amostra)) => {
                     self.historico.lock().unwrap().registrar(&amostra);
+                    // A VM é uma só: qualquer distro serve para medir o cache dela.
+                    self.cache_vm.store(amostra.mem_disponivel.saturating_sub(amostra.mem_livre), Ordering::Relaxed);
                     self.vigiar_travados(&app, &distro, &amostra);
                     if !amostra.kernel.is_empty() {
                         let mut atividade = self.atividade.lock().unwrap();
