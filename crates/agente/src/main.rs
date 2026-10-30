@@ -153,6 +153,13 @@ impl Coletor {
             mem_total: mem.get("MemTotal").copied().unwrap_or(0),
             mem_disponivel: mem.get("MemAvailable").copied().unwrap_or(0),
             mem_livre: mem.get("MemFree").copied().unwrap_or(0),
+            mem_blocos: mem.get("Buffers").copied().unwrap_or(0),
+            mem_arquivos: mem
+                .get("Cached")
+                .copied()
+                .unwrap_or(0)
+                .saturating_sub(mem.get("Shmem").copied().unwrap_or(0)),
+            mem_tabelas: mem.get("SReclaimable").copied().unwrap_or(0),
             swap_total: mem.get("SwapTotal").copied().unwrap_or(0),
             swap_livre: mem.get("SwapFree").copied().unwrap_or(0),
             processos,
@@ -411,6 +418,9 @@ mod testes {
             mem_total: 0,
             mem_disponivel: 0,
             mem_livre: 0,
+            mem_blocos: 0,
+            mem_arquivos: 0,
+            mem_tabelas: 0,
             swap_total: 0,
             swap_livre: 0,
             processos,

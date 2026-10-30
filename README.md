@@ -32,9 +32,10 @@ As capturas são do modo demonstração, com dados simulados.
 ## O que ele resolve
 
 - **A memória que some no WSL.** A VM do WSL segura memória no Windows até o teto do
-  `.wslconfig`, e boa parte é cache de arquivos. O app mostra quanto é programa, quanto é
-  cache e qual projeto do Docker Compose ocupa mais, e para ou liga um projeto inteiro com um
-  clique. Abaixo de 10% de memória livre no Windows, avisa por notificação.
+  `.wslconfig`, e boa parte é cache que o Linux só descarta quando falta memória dentro da VM.
+  O app mostra quanto é programa, quanto é cache e qual projeto do Docker Compose ocupa mais,
+  para ou liga um projeto inteiro com um clique e devolve o cache ao Windows, a pedido ou
+  sozinho. Abaixo de 10% de memória livre no Windows, avisa por notificação.
 - **O que está preso.** Container que falha no próprio healthcheck ou reinicia sem parar,
   processo esperando disco ou rede, zumbi que ninguém recolhe. Cada um aparece com o motivo,
   e o container tem botão para reiniciar.
@@ -128,6 +129,14 @@ avisa na tela e por notificação do Windows, e o aviso some acima de 15%. Com a
 `stats`; medido, de 4 a 5 s juntos com 19 containers), e com a janela minimizada só quando
 o aviso de memória está aceso. Parar um projeto é um `docker stop` dos containers dele: nada
 é apagado.
+
+**Devolver o cache.** O botão roda `sync` e `echo 3 > /proc/sys/vm/drop_caches` numa distro
+já ligada, como root, e mede a memória do `vmmemWSL` 15 s e 2 min depois. A opção automática
+faz o mesmo quando o Windows fica abaixo de 10% livre, no máximo uma vez a cada 10 minutos, e
+vem desligada; ela fica em `preferencias.json`, na pasta de dados do app. Medido numa máquina
+com um job de CI e 15 containers: 2,9 GB voltaram em 30 s, e 1,3 GB ainda estavam livres
+5 min depois. O que volta rápido são as tabelas de arquivos e os blocos de disco, enquanto
+algo continua percorrendo arquivos. Baixar o limite da VM é o que segura o cache de vez.
 
 **Processos e containers presos.** O Linux não marca processo como travado; o app aponta
 sinais. Na aba Processos: estado `D` por mais de 1 min (esperando disco ou rede, e encerrar só

@@ -3,6 +3,7 @@ import type {
   AtalhoTeclado,
   Atualizacao,
   ConteudoWslconfig,
+  Devolucao,
   Distro,
   Docker,
   EstadoRecursos,
@@ -31,6 +32,8 @@ export interface Api {
   pararConteineres(ids: string[], rotulo: string): Promise<void>;
   iniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   reiniciarConteineres(ids: string[], rotulo: string): Promise<void>;
+  devolverCache(): Promise<void>;
+  definirDevolverCacheAutomatico(sim: boolean): Promise<void>;
   procurarAtualizacao(): Promise<Atualizacao | null>;
   instalarAtualizacao(): Promise<void>;
   abrirPaginaDaVersao(versao: string): Promise<void>;
@@ -66,6 +69,7 @@ async function conectarTauri(): Promise<Api> {
   await listen<MemoriaWindows>('memoria_windows', (e) => (estado.memoriaWindows = e.payload));
   await listen<Docker>('docker', (e) => (estado.docker = e.payload));
   await listen<SituacaoWsl | null>('saude_wsl', (e) => (estado.saude = e.payload));
+  await listen<Devolucao>('devolucao', (e) => (estado.devolucao = e.payload));
   await listen<{ distro: string; lista: Suspeito[] }>('suspeitos', (e) => estado.receberSuspeitos(e.payload.distro, e.payload.lista));
   await listen<{ distro: string | null; mensagem: string }>('erro', (e) =>
     estado.avisar(e.payload.distro ? `${e.payload.distro}: ${e.payload.mensagem}` : e.payload.mensagem),
@@ -86,6 +90,8 @@ async function conectarTauri(): Promise<Api> {
     pararConteineres: (ids, rotulo) => invoke('parar_conteineres', { ids, rotulo }),
     iniciarConteineres: (ids, rotulo) => invoke('iniciar_conteineres', { ids, rotulo }),
     reiniciarConteineres: (ids, rotulo) => invoke('reiniciar_conteineres', { ids, rotulo }),
+    devolverCache: () => invoke('devolver_cache'),
+    definirDevolverCacheAutomatico: (sim) => invoke('definir_devolver_cache_automatico', { sim }),
     procurarAtualizacao: () => invoke('procurar_atualizacao'),
     instalarAtualizacao: () => invoke('instalar_atualizacao'),
     abrirPaginaDaVersao: (versao) => invoke('abrir_pagina_da_versao', { versao }),
@@ -113,6 +119,8 @@ export async function conectar() {
     estado.memoriaWindows = recursos.memoria.total_bytes ? recursos.memoria : null;
     estado.docker = recursos.docker;
     estado.saude = recursos.saude;
+    estado.devolucao = recursos.devolucao;
+    estado.devolverCacheAutomatico = recursos.devolver_cache_automatico;
   } catch (e) {
     estado.avisar(String(e));
   }

@@ -26,6 +26,10 @@ export interface Amostra {
   mem_total: number;
   mem_disponivel: number;
   mem_livre: number;
+  /** As três partes do que o kernel descarta quando precisa. */
+  mem_blocos: number;
+  mem_arquivos: number;
+  mem_tabelas: number;
   swap_total: number;
   swap_livre: number;
   processos: Processo[];
@@ -106,10 +110,22 @@ export interface SituacaoWsl {
   desde_ms: number;
 }
 
+/** Devolução do cache da VM e o efeito medido na RAM do Windows. */
+export interface Devolucao {
+  automatica: boolean;
+  quando_ms: number;
+  antes_bytes: number;
+  logo_bytes: number | null;
+  depois_bytes: number | null;
+  concluida: boolean;
+}
+
 export interface EstadoRecursos {
   memoria: MemoriaWindows;
   docker: Docker;
   saude: SituacaoWsl | null;
+  devolucao: Devolucao | null;
+  devolver_cache_automatico: boolean;
 }
 
 /** Pedido de confirmação para ação que encerra processos em massa. */
