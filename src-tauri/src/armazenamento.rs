@@ -109,7 +109,7 @@ pub struct EspacoDocker {
     pub lido_ms: u64,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Pasta {
     pub caminho: String,
     pub bytes: u64,
@@ -119,9 +119,12 @@ pub struct Pasta {
     pub apagavel: bool,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Analise {
     pub distro: String,
+    /// Quando a análise terminou; a tela mostra, e apagar exige que seja recente.
+    #[serde(default)]
+    pub analisado_ms: u64,
     pub raiz: Vec<Pasta>,
     pub tmp: Vec<Pasta>,
     pub caches: Vec<Pasta>,

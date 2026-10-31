@@ -236,6 +236,8 @@ export interface Pasta {
 
 export interface AnalisePastas {
   distro: string;
+  /** Quando a análise terminou. Para apagar, ela precisa ter menos de 30 min. */
+  analisado_ms: number;
   raiz: Pasta[];
   tmp: Pasta[];
   caches: Pasta[];

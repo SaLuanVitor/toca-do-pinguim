@@ -1,10 +1,12 @@
 <script lang="ts" module>
-  import type { Discos, EspacoDocker } from './tipos';
+  import type { AnalisePastas, Discos, EspacoDocker } from './tipos';
 
   // A última leitura vive enquanto o app estiver aberto: voltar à aba mostra o que já se sabe
   // na hora, e a leitura nova chega por cima.
   let guardadosDiscos: Discos | null = null;
   let guardadoDocker: EspacoDocker | null = null;
+  // A análise de pastas leva minutos: trocar de aba não a perde, e o app guarda a de cada distro.
+  const guardadasAnalises: Record<string, AnalisePastas> = {};
 </script>
 
 <script lang="ts">
@@ -15,7 +17,6 @@
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
   import type {
-    AnalisePastas,
     DiscoVirtual,
     LimpezaDocker,
     LimpezaProgramada,
@@ -160,12 +161,32 @@
     !!espaco?.docker || !!espaco?.erro || !!discos?.discos.some((d) => d.nome.startsWith('Docker') || d.nome.startsWith('docker-desktop')),
   );
 
+  // Ao escolher a distro, volta a última análise dela: a desta sessão ou a que o app guardou.
+  $effect(() => {
+    const alvo = distro;
+    if (!alvo || analisando) return;
+    if (guardadasAnalises[alvo]) {
+      analise = guardadasAnalises[alvo];
+      return;
+    }
+    analise = null;
+    api.ultimaAnalise(alvo).then(
+      (a) => {
+        if (a && distro === alvo) analise = guardadasAnalises[alvo] = a;
+      },
+      () => {},
+    );
+  });
+
+  const MEIA_HORA_MS = 30 * 60 * 1000;
+  const analiseVelha = $derived(!!analise && Date.now() - analise.analisado_ms > MEIA_HORA_MS);
+
   async function rodarAnalise(alvo: string, ligar: boolean) {
     analisando = true;
     analise = null;
     marcadas = {};
     try {
-      analise = await api.analisarPastas(alvo, ligar);
+      analise = guardadasAnalises[alvo] = await api.analisarPastas(alvo, ligar);
       if (ligar) await ler();
     } catch (e) {
       estado.avisar(String(e));
@@ -236,7 +257,7 @@
           const liberado = await api.apagarPastas(alvo, lista);
           resultado = `${bytes(liberado)} liberados dentro do disco de ${alvo}.`;
           if (analise) {
-            analise = {
+            analise = guardadasAnalises[alvo] = {
               ...analise,
               tmp: analise.tmp.filter((p) => !lista.includes(p.caminho)),
               caches: analise.caches.map((p) => (lista.includes(p.caminho) ? { ...p, bytes: 0 } : p)),
@@ -346,6 +367,10 @@
         {#if analisando}<span class="nota">Percorre o disco inteiro da distro; pode levar alguns minutos.</span>{/if}
       </div>
       {#if analise}
+        <p class="nota" role="status">
+          {analise.analisado_ms ? `Analisada em ${data.format(analise.analisado_ms)}.` : ''}
+          {analiseVelha ? 'Para apagar, analise de novo: a lista pode ter mudado desde então.' : ''}
+        </p>
         <h3>Maiores pastas da raiz</h3>
         <ul class="raiz">
           {#each analise.raiz as p (p.caminho)}<li><code>{p.caminho}</code> <span class="numero">{bytes(p.bytes)}</span></li>{/each}

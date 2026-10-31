@@ -280,11 +280,27 @@ async fn analisar_pastas(
     bloqueante(move || {
         info!("pedido: analisar as pastas de {distro}");
         let montagens = if agentes.rodando(DISTRO_DOCKER) { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
-        let analise = armazenamento::analisar(&distro, &montagens)?;
-        recursos.analises.lock().unwrap().insert(distro, analise.clone());
+        let mut analise = armazenamento::analisar(&distro, &montagens)?;
+        analise.analisado_ms = agora_ms();
+        let guardada = analise.clone();
+        recursos.guardar_analise(move |a| {
+            a.insert(distro, guardada);
+        });
         Ok(analise)
     })
     .await
+}
+
+const ANALISE_VALE_PARA_APAGAR_MS: u64 = 30 * 60 * 1000;
+
+fn agora_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// A última análise guardada da distro, para a tela reabrir com ela sem ler de novo.
+#[tauri::command]
+fn ultima_analise(recursos: State<'_, Arc<Recursos>>, distro: String) -> Option<armazenamento::Analise> {
+    recursos.analises.lock().unwrap().get(&distro).cloned()
 }
 
 #[tauri::command]
@@ -296,16 +312,23 @@ async fn apagar_pastas(
     caminhos: Vec<String>,
 ) -> Result<u64, String> {
     let analise = recursos.analises.lock().unwrap().get(&distro).cloned().ok_or("analise a distro antes de apagar")?;
+    // A análise guardada serve para mostrar; para apagar, ela precisa ser recente. Uma pasta do
+    // /tmp recriada depois dela pode ter trabalho novo com o mesmo nome.
+    if agora_ms().saturating_sub(analise.analisado_ms) > ANALISE_VALE_PARA_APAGAR_MS {
+        return Err("a análise tem mais de 30 min; analise de novo antes de apagar".to_string());
+    }
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         info!("pedido: apagar {} item(ns) de {distro}", caminhos.len());
         let liberado = armazenamento::apagar(&distro, &caminhos, &analise)?;
-        if let Some(a) = recursos.analises.lock().unwrap().get_mut(&distro) {
-            a.tmp.retain(|p| !caminhos.contains(&p.caminho));
-            for p in a.caches.iter_mut().filter(|p| caminhos.contains(&p.caminho)) {
-                p.bytes = 0;
+        recursos.guardar_analise(|analises| {
+            if let Some(a) = analises.get_mut(&distro) {
+                a.tmp.retain(|p| !caminhos.contains(&p.caminho));
+                for p in a.caches.iter_mut().filter(|p| caminhos.contains(&p.caminho)) {
+                    p.bytes = 0;
+                }
             }
-        }
+        });
         agentes.registrar(
             &app,
             "armazenamento",
@@ -684,6 +707,7 @@ pub fn run() {
             ler_discos,
             ler_espaco_docker,
             analisar_pastas,
+            ultima_analise,
             apagar_pastas,
             compactar_disco,
             limpar_docker,

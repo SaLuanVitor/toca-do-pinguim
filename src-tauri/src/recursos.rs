@@ -66,8 +66,10 @@ pub struct Recursos {
     pub devolucao: Mutex<Option<Devolucao>>,
     pub preferencias: Mutex<Preferencias>,
     caminho_preferencias: PathBuf,
-    /// Última análise de pastas de cada distro: só se apaga o que ela marcou como apagável.
+    /// Última análise de pastas de cada distro: só se apaga o que ela marcou como apagável. Fica
+    /// também em `analises.json`, para a tela reabrir com ela.
     pub analises: Mutex<std::collections::HashMap<String, Analise>>,
+    caminho_analises: PathBuf,
     /// Volumes sem uso da última leitura do Docker, os únicos que a limpeza aceita.
     pub volumes_sem_uso: Mutex<Vec<Volume>>,
     /// Projetos do Compose da última leitura do Docker, os únicos que a limpeza por projeto aceita.
@@ -81,6 +83,11 @@ pub struct Recursos {
 impl Recursos {
     pub fn novo(dados: &Path) -> Self {
         let caminho_preferencias = Preferencias::caminho(dados);
+        let caminho_analises = dados.join("analises.json");
+        let analises = std::fs::read_to_string(&caminho_analises)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
         Recursos {
             memoria: Mutex::default(),
             docker: Mutex::default(),
@@ -90,7 +97,8 @@ impl Recursos {
             devolucao: Mutex::new(None),
             preferencias: Mutex::new(Preferencias::ler(&caminho_preferencias)),
             caminho_preferencias,
-            analises: Mutex::default(),
+            analises: Mutex::new(analises),
+            caminho_analises,
             volumes_sem_uso: Mutex::default(),
             projetos_docker: Mutex::default(),
             espaco_docker: Mutex::default(),
@@ -165,6 +173,17 @@ impl Recursos {
         };
         *self.espaco_docker.lock().unwrap() = Some(lido.clone());
         lido
+    }
+
+    /// Guarda a análise na memória e no arquivo. Falha ao gravar só vai para o log: a análise
+    /// continua valendo nesta sessão.
+    pub fn guardar_analise(&self, mudar: impl FnOnce(&mut std::collections::HashMap<String, Analise>)) {
+        let mut analises = self.analises.lock().unwrap();
+        mudar(&mut analises);
+        let texto = serde_json::to_string(&*analises).unwrap_or_default();
+        if let Err(e) = std::fs::write(&self.caminho_analises, texto) {
+            warn!("não foi possível gravar a análise de pastas: {e}");
+        }
     }
 
     pub fn pedir_atualizacao(&self) {

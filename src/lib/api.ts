@@ -45,6 +45,7 @@ export interface Api {
   lerDiscos(): Promise<Discos>;
   lerEspacoDocker(forcar: boolean): Promise<EspacoDocker>;
   analisarPastas(distro: string, ligar: boolean): Promise<AnalisePastas>;
+  ultimaAnalise(distro: string): Promise<AnalisePastas | null>;
   apagarPastas(distro: string, caminhos: string[]): Promise<number>;
   limparDocker(qual: LimpezaDocker, volumes: string[]): Promise<number>;
   limparParadosDoProjeto(projeto: string): Promise<number>;
@@ -115,6 +116,7 @@ async function conectarTauri(): Promise<Api> {
     lerDiscos: () => invoke('ler_discos'),
     lerEspacoDocker: (forcar) => invoke('ler_espaco_docker', { forcar }),
     analisarPastas: (distro, ligar) => invoke('analisar_pastas', { distro, ligar }),
+    ultimaAnalise: (distro) => invoke('ultima_analise', { distro }),
     apagarPastas: (distro, caminhos) => invoke('apagar_pastas', { distro, caminhos }),
     limparDocker: (qual, volumes) => invoke('limpar_docker', { qual, volumes }),
     limparParadosDoProjeto: (projeto) => invoke('limpar_parados_do_projeto', { projeto }),

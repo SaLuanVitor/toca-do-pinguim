@@ -277,8 +277,10 @@ export function criarDemonstracao(): Api {
     distros: ['Debian', 'Ubuntu'],
   };
   const agoraMs = Date.now();
+  const analisesDemo: Record<string, AnalisePastas> = {};
   const analiseDemo: AnalisePastas = {
     distro: 'Ubuntu',
+    analisado_ms: 0,
     raiz: [
       { caminho: '/tmp', bytes: 53 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
       { caminho: '/home', bytes: 17 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
@@ -394,8 +396,10 @@ export function criarDemonstracao(): Api {
         armazenamento.distros_ligadas = distros.filter((x) => x.rodando && x.nome !== 'docker-desktop').map((x) => x.nome);
       }
       await esperar(1500);
-      return { ...analiseDemo, distro };
+      analisesDemo[distro] = { ...analiseDemo, distro, analisado_ms: Date.now() };
+      return analisesDemo[distro];
     },
+    ultimaAnalise: async (distro) => analisesDemo[distro] ?? null,
     apagarPastas: async (distro, caminhos) => {
       await esperar(500);
       const liberado = analiseDemo.tmp.filter((p) => caminhos.includes(p.caminho)).reduce((s, p) => s + p.bytes, 0);
