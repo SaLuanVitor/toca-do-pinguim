@@ -16,6 +16,7 @@
   import { api } from './api';
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
+  import Girando from './Girando.svelte';
   import type {
     DiscoVirtual,
     LimpezaDocker,
@@ -55,12 +56,13 @@
     'Build Cache': 'Cache de build',
   };
 
-  async function lerDiscos() {
+  async function lerDiscos(forcar: boolean) {
     lendo = true;
     try {
-      const d = await api.lerDiscos();
+      const d = await api.lerDiscos(forcar);
       discos = guardadosDiscos = d;
       if (!d.distros.includes(distro)) distro = d.distros_ligadas[0] ?? d.distros[0] ?? '';
+      if (!forcar && Date.now() - d.lido_ms > VELHA_MS) await lerDiscos(true);
     } catch (e) {
       estado.avisar(String(e));
     } finally {
@@ -83,9 +85,9 @@
   }
 
   /** Discos e Docker ao mesmo tempo; cada parte aparece quando a sua leitura volta. */
-  function ler(forcarDocker = true) {
-    lerDiscos();
-    lerDocker(forcarDocker);
+  function ler(forcar = true) {
+    lerDiscos(forcar);
+    lerDocker(forcar);
   }
 
   function categoria(tipo: string) {
@@ -288,12 +290,19 @@
     return p.modificado_ms ? data.format(p.modificado_ms) : '';
   }
 
+  /** "às 14:02" para hoje, "em 30/10, 14:02" para outro dia. */
+  function lidoEm(ms: number): string {
+    return new Date(ms).toDateString() === new Date().toDateString() ? `às ${hora.format(ms)}` : `em ${data.format(ms)}`;
+  }
+
   onMount(() => ler(false));
 </script>
 
 <div class="rolagem">
   <div class="topo">
-    <button class="botao" onclick={() => ler()} disabled={lendo || lendoDocker}>{lendo || lendoDocker ? 'Lendo' : 'Atualizar'}</button>
+    <button class="botao" onclick={() => ler()} disabled={lendo || lendoDocker}>
+      {#if lendo || lendoDocker}<Girando /> Lendo{:else}Atualizar{/if}
+    </button>
   </div>
   {#if resultado}<p class="resultado" role="status">{resultado}</p>{/if}
 
@@ -302,9 +311,15 @@
       <h2 id="titulo-discos">Discos virtuais</h2>
       <span>Cada distro guarda os arquivos num disco virtual (.vhdx) no Windows</span>
     </div>
-    {#if !dados}
-      <p class="nota">{lendo ? 'Lendo os discos.' : 'Sem dados.'}</p>
-    {:else}
+    <p class="nota leitura" role="status">
+      {#if lendo}<Girando />{/if}
+      {#if !dados}
+        {lendo ? 'Lendo os discos; o tamanho no Windows vem na hora, o usado por dentro leva alguns segundos.' : 'Sem dados.'}
+      {:else}
+        Lido {lidoEm(dados.lido_ms)}{lendo ? '; atualizando' : ''}.
+      {/if}
+    </p>
+    {#if dados}
       <table>
         <thead>
           <tr>
@@ -361,9 +376,9 @@
             {#each dados?.distros ?? [] as d (d)}<option value={d}>{d}{ligada(d) ? '' : ' (desligada)'}</option>{/each}
           </select>
         </label>
-        <button class="botao" onclick={analisar} disabled={analisando || !distro}
-          >{analisando ? 'Analisando' : ligada(distro) ? 'Analisar' : 'Ligar e analisar'}</button
-        >
+        <button class="botao" onclick={analisar} disabled={analisando || !distro}>
+          {#if analisando}<Girando /> Analisando{:else}{ligada(distro) ? 'Analisar' : 'Ligar e analisar'}{/if}
+        </button>
         {#if analisando}<span class="nota">Percorre o disco inteiro da distro; pode levar alguns minutos.</span>{/if}
       </div>
       {#if analise}
@@ -427,13 +442,13 @@
     <div class="cabeca">
       <h2 id="titulo-docker-armazenamento">Espaço do Docker</h2>
       <span
-        >Recuperável segundo o próprio Docker{espaco ? `, lido às ${hora.format(espaco.lido_ms)}` : ''}{lendoDocker
-          ? '; atualizando'
-          : ''}</span
+        >{#if lendoDocker}<Girando tamanho={12} />{/if} Recuperável segundo o próprio Docker{espaco
+          ? `, lido ${lidoEm(espaco.lido_ms)}`
+          : ''}{lendoDocker ? '; atualizando' : ''}</span
       >
     </div>
     {#if !espaco}
-      <p class="nota">Lendo o Docker. Ele leva alguns segundos para responder.</p>
+      <p class="nota leitura" role="status"><Girando /> Lendo o Docker. Ele leva alguns segundos para responder.</p>
     {:else if !espaco.docker && !espaco.erro}
       <p class="nota">O Docker Desktop não está ligado.</p>
     {:else if espaco.erro}
@@ -667,6 +682,16 @@
   .topo {
     display: flex;
     justify-content: flex-end;
+  }
+
+  .topo .botao {
+    gap: 6px;
+  }
+
+  .leitura {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .cartao {

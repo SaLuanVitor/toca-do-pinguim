@@ -170,6 +170,8 @@ junto;
 só o que ela listou como removível pode ser apagado, e entrada do `/tmp` montada por um
 container ligado fica bloqueada. A última análise de cada distro fica em `analises.json`, na
 pasta de dados do app, e volta ao abrir a aba; apagar exige uma análise de menos de 30 min.
+A última leitura dos discos e do Docker fica em `leituras.json`, na mesma pasta: a aba abre com
+ela e lê de novo por trás quando ela tem mais de 1 min.
 
 **Compactar o disco.** O `.vhdx` cresce e não encolhe sozinho. O botão Compactar roda
 `fstrim` na distro, se ela estiver ligada, desliga o WSL e roda o `diskpart` (`attach vdisk

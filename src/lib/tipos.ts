@@ -213,6 +213,8 @@ export interface Discos {
   limpeza: LimpezaProgramada;
   distros_ligadas: string[];
   distros: string[];
+  /** Quando os discos foram lidos; a leitura pode ser de uma abertura anterior do app. */
+  lido_ms: number;
 }
 
 /** A última leitura do espaço do Docker. `docker` e `erro` vazios: ele não estava ligado. */

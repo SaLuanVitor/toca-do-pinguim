@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use agentes::Agentes;
+use armazenamento::Discos;
 use log::{info, warn};
 use atividade::Evento;
 use config::WslConfig;
@@ -271,30 +272,33 @@ async fn devolver_cache(app: tauri::AppHandle, agentes: Estado<'_>, recursos: St
     bloqueante(move || cache::devolver(app, agentes, recursos, false)).await
 }
 
-#[derive(Serialize)]
-struct Discos {
-    discos: Vec<armazenamento::DiscoVirtual>,
-    limpeza: cache::LimpezaProgramada,
-    distros_ligadas: Vec<String>,
-    /// Todas as registradas, ligadas ou não, para a análise de pastas.
-    distros: Vec<String>,
-}
-
 const DISTRO_DOCKER: &str = "docker-desktop";
 
 /// Os discos, a limpeza programada e as distros: o tamanho vem do arquivo e o ocupado de um `df`
-/// por distro ligada, então volta em menos de um segundo. O Docker vem à parte.
+/// por distro ligada. O Docker vem à parte. Sem `forcar`, devolve na hora a última leitura
+/// guardada, mesmo de uma abertura anterior do app, e a tela pede uma nova por trás; a limpeza e
+/// as distros ligadas vêm sempre do estado atual.
 #[tauri::command]
-async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Discos, String> {
+async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, forcar: bool) -> Result<Discos, String> {
+    let ligadas_agora = |agentes: &Agentes| agentes.ligadas().into_iter().filter(|d| d != DISTRO_DOCKER).collect::<Vec<_>>();
+    let guardada = if forcar { None } else { recursos.discos.lock().unwrap().clone() };
+    if let Some(mut g) = guardada {
+        g.limpeza = recursos.preferencias.lock().unwrap().limpeza.clone();
+        g.distros_ligadas = ligadas_agora(&agentes);
+        return Ok(g);
+    }
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         let ligadas = agentes.ligadas();
-        Ok(Discos {
+        let discos = Discos {
             discos: armazenamento::discos(&ligadas),
             limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
-            distros_ligadas: ligadas.into_iter().filter(|d| d != DISTRO_DOCKER).collect(),
+            distros_ligadas: ligadas_agora(&agentes),
             distros: armazenamento::distros_registradas(),
-        })
+            lido_ms: agora_ms(),
+        };
+        recursos.guardar_discos(discos.clone());
+        Ok(discos)
     })
     .await
 }
@@ -315,10 +319,12 @@ async fn ler_espaco_docker(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos
 /// Lê o espaço do Docker uma vez, assim que ele estiver ligado, para a aba Disco já abrir com
 /// ele. Desiste depois de 10 min sem Docker: quem não tem Docker não paga nada.
 fn antecipar_espaco_docker(agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
+    // A leitura que veio do arquivo é de outra abertura: não conta como já lida.
+    let inicio = agora_ms();
     std::thread::spawn(move || {
         for _ in 0..60 {
             std::thread::sleep(std::time::Duration::from_secs(10));
-            if recursos.espaco_docker.lock().unwrap().is_some() {
+            if recursos.espaco_docker.lock().unwrap().as_ref().is_some_and(|e| e.lido_ms >= inicio) {
                 return;
             }
             if agentes.rodando(DISTRO_DOCKER) {

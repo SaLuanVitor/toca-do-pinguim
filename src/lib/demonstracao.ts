@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { AnalisePastas, Armazenamento, Conteiner, Distro, Evento, Porta, Processo } from './tipos';
+import type { AnalisePastas, Armazenamento, Conteiner, Discos, Distro, EspacoDocker, Evento, Porta, Processo } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -278,6 +278,15 @@ export function criarDemonstracao(): Api {
   };
   const agoraMs = Date.now();
   const analisesDemo: Record<string, AnalisePastas> = {};
+  const tresHorasAtras = Date.now() - 3 * 3600_000;
+  let discosLidos: Discos = {
+    discos: armazenamento.discos,
+    limpeza: armazenamento.limpeza,
+    distros_ligadas: armazenamento.distros_ligadas,
+    distros: armazenamento.distros,
+    lido_ms: tresHorasAtras,
+  };
+  let dockerLido: EspacoDocker = { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: tresHorasAtras };
   const analiseDemo: AnalisePastas = {
     distro: 'Ubuntu',
     analisado_ms: 0,
@@ -390,14 +399,20 @@ export function criarDemonstracao(): Api {
         registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
       }, 8000);
     },
-    lerDiscos: async () => {
-      await esperar(300);
-      const { discos, limpeza, distros_ligadas, distros } = armazenamento;
-      return { discos, limpeza, distros_ligadas, distros };
+    // Como o app de verdade: sem forcar, a última leitura volta na hora, e a primeira simula uma
+    // de horas atrás, de outra abertura do app.
+    lerDiscos: async (forcar) => {
+      if (!forcar) return { ...discosLidos, distros_ligadas: distros.filter((d) => d.rodando && d.nome !== 'docker-desktop').map((d) => d.nome) };
+      await esperar(1200);
+      const { discos, limpeza, distros_ligadas, distros: todas } = armazenamento;
+      discosLidos = { discos, limpeza, distros_ligadas, distros: todas, lido_ms: Date.now() };
+      return discosLidos;
     },
-    lerEspacoDocker: async () => {
-      await esperar(1500);
-      return { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: Date.now() };
+    lerEspacoDocker: async (forcar) => {
+      if (!forcar) return dockerLido;
+      await esperar(2500);
+      dockerLido = { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: Date.now() };
+      return dockerLido;
     },
     analisarPastas: async (distro, ligarAntes) => {
       if (ligarAntes) {

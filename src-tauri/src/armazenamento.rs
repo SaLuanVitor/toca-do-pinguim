@@ -29,7 +29,7 @@ const ROTULO_PROJETO: &str = "com.docker.compose.project=";
 /// Abaixo disso, desligar o WSL e pedir administrador não compensa.
 const MINIMO_PARA_COMPACTAR: u64 = 1 << 30;
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DiscoVirtual {
     /// Distro dona do disco, ou "Docker (dados)".
     pub nome: String,
@@ -45,7 +45,7 @@ pub struct DiscoVirtual {
     pub compactavel: bool,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Categoria {
     /// Images, Containers, Local Volumes ou Build Cache, como o Docker escreve.
     pub tipo: String,
@@ -55,13 +55,13 @@ pub struct Categoria {
     pub ativos: u64,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Volume {
     pub nome: String,
     pub bytes: u64,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct VolumeProjeto {
     pub nome: String,
     pub bytes: u64,
@@ -70,7 +70,7 @@ pub struct VolumeProjeto {
 }
 
 /// O espaço em disco de um projeto do Docker Compose.
-#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct ProjetoDocker {
     pub nome: String,
     pub containers: u32,
@@ -88,7 +88,7 @@ impl ProjetoDocker {
     }
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ResumoDocker {
     pub categorias: Vec<Categoria>,
     /// Volumes que nenhum container usa, do maior para o menor.
@@ -102,11 +102,31 @@ pub struct ResumoDocker {
 
 /// A última leitura do espaço do Docker. `docker` e `erro` vazios: o Docker Desktop não estava
 /// ligado quando o app leu.
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EspacoDocker {
     pub docker: Option<ResumoDocker>,
     pub erro: Option<String>,
     pub lido_ms: u64,
+}
+
+/// Os discos, a limpeza programada e as distros, como a aba Disco os mostra.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Discos {
+    pub discos: Vec<DiscoVirtual>,
+    pub limpeza: crate::cache::LimpezaProgramada,
+    pub distros_ligadas: Vec<String>,
+    /// Todas as registradas, ligadas ou não, para a análise de pastas.
+    pub distros: Vec<String>,
+    #[serde(default)]
+    pub lido_ms: u64,
+}
+
+/// O que a aba Disco leu por último, gravado em `leituras.json` para a tela abrir com isso
+/// enquanto lê de novo.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Leituras {
+    pub discos: Option<Discos>,
+    pub espaco_docker: Option<EspacoDocker>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
