@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { AnalisePastas, Armazenamento, Conteiner, Distro, Evento, Porta, Processo } from './tipos';
+import type { AnalisePastas, Armazenamento, Conteiner, Discos, Distro, EspacoDocker, Evento, Porta, Processo } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -274,11 +274,43 @@ export function criarDemonstracao(): Api {
     erro_docker: null,
     limpeza: { cache_de_build: false, sobras_de_containers: false, tmp_dias: null, ultima_ms: null },
     distros_ligadas: ['Ubuntu'],
-    distros: ['Debian', 'Ubuntu'],
+    distros: ['Debian', 'Ubuntu', 'docker-desktop'],
   };
   const agoraMs = Date.now();
+  const analisesDemo: Record<string, AnalisePastas> = {};
+  const tresHorasAtras = Date.now() - 3 * 3600_000;
+  let discosLidos: Discos = {
+    discos: armazenamento.discos,
+    limpeza: armazenamento.limpeza,
+    distros_ligadas: armazenamento.distros_ligadas,
+    distros: armazenamento.distros,
+    lido_ms: tresHorasAtras,
+  };
+  let dockerLido: EspacoDocker = { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: tresHorasAtras };
+  const disco = '/mnt/docker-desktop-disk';
+  const analiseDockerDemo: AnalisePastas = {
+    distro: 'docker-desktop',
+    so_leitura: true,
+    analisado_ms: 0,
+    raiz: (
+      [
+        ['data/desktop-containerd/daemon', 38.2],
+        ['data/docker/volumes/loja_postgres-dados', 12.6],
+        ['data/docker/volumes/blog_mysql', 4.1],
+        ['data/docker/volumes/loja_redis', 0.8],
+        ['data/docker/buildkit', 0.6],
+        ['data/docker/containers', 0.1],
+        ['isocache/entries/docker-wsl-cli.iso', 0.8],
+        ...Array.from({ length: 14 }, (_, i): [string, number] => [`data/docker/volumes/ci-cache-${i + 1}`, 0.35 - i * 0.02]),
+      ] as [string, number][]
+    ).map(([p, gb]) => ({ caminho: `${disco}/${p}`, bytes: gb * GIB, modificado_ms: null, em_uso_por: null, apagavel: false })),
+    tmp: [],
+    caches: [],
+  };
   const analiseDemo: AnalisePastas = {
     distro: 'Ubuntu',
+    so_leitura: false,
+    analisado_ms: 0,
     raiz: [
       { caminho: '/tmp', bytes: 53 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
       { caminho: '/home', bytes: 17 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
@@ -344,6 +376,18 @@ export function criarDemonstracao(): Api {
       ligar(nome);
       publicar();
     },
+    pastaDeDocumentos: async () => String.raw`C:\Users\voce\Documents`,
+    excluirDistro: async (nome, exportarPara) => {
+      const d = achar(nome);
+      if (d.rodando) throw `${nome} está ligada; termine-a antes de excluir`;
+      await esperar(exportarPara ? 2500 : 800);
+      distros.splice(distros.indexOf(d), 1);
+      delete analisesDemo[nome];
+      publicar();
+      const liberado = 6.4 * GIB;
+      registrar('distro', nome, `O app excluiu a distro ${nome} e liberou 6,4 GB${exportarPara ? `; a cópia ficou em ${exportarPara}` : ''}`);
+      return { liberado_bytes: liberado, exportado: exportarPara };
+    },
     desligarWsl: async () => {
       await esperar(500);
       for (const d of distros) d.rodando = false;
@@ -376,14 +420,20 @@ export function criarDemonstracao(): Api {
         registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
       }, 8000);
     },
-    lerDiscos: async () => {
-      await esperar(300);
-      const { discos, limpeza, distros_ligadas, distros } = armazenamento;
-      return { discos, limpeza, distros_ligadas, distros };
+    // Como o app de verdade: sem forcar, a última leitura volta na hora, e a primeira simula uma
+    // de horas atrás, de outra abertura do app.
+    lerDiscos: async (forcar) => {
+      if (!forcar) return { ...discosLidos, distros_ligadas: distros.filter((d) => d.rodando && d.nome !== 'docker-desktop').map((d) => d.nome) };
+      await esperar(1200);
+      const { discos, limpeza, distros_ligadas, distros: todas } = armazenamento;
+      discosLidos = { discos, limpeza, distros_ligadas, distros: todas, lido_ms: Date.now() };
+      return discosLidos;
     },
-    lerEspacoDocker: async () => {
-      await esperar(1500);
-      return { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: Date.now() };
+    lerEspacoDocker: async (forcar) => {
+      if (!forcar) return dockerLido;
+      await esperar(2500);
+      dockerLido = { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: Date.now() };
+      return dockerLido;
     },
     analisarPastas: async (distro, ligarAntes) => {
       if (ligarAntes) {
@@ -394,8 +444,11 @@ export function criarDemonstracao(): Api {
         armazenamento.distros_ligadas = distros.filter((x) => x.rodando && x.nome !== 'docker-desktop').map((x) => x.nome);
       }
       await esperar(1500);
-      return { ...analiseDemo, distro };
+      const base = distro === 'docker-desktop' ? analiseDockerDemo : analiseDemo;
+      analisesDemo[distro] = { ...base, distro, analisado_ms: Date.now() };
+      return analisesDemo[distro];
     },
+    ultimaAnalise: async (distro) => analisesDemo[distro] ?? null,
     apagarPastas: async (distro, caminhos) => {
       await esperar(500);
       const liberado = analiseDemo.tmp.filter((p) => caminhos.includes(p.caminho)).reduce((s, p) => s + p.bytes, 0);
@@ -410,6 +463,7 @@ export function criarDemonstracao(): Api {
       const liberado = cat.recuperavel_bytes;
       cat.total_bytes -= liberado;
       cat.recuperavel_bytes = 0;
+      if (qual === 'sobras' || qual === 'parados') Object.assign(armazenamento.docker!, { sobras: 0, sobras_bytes: 0 });
       registrar('armazenamento', 'docker-desktop', `O app limpou o Docker: ${(liberado / GIB).toFixed(1).replace('.', ',')} GB liberados`);
       return liberado;
     },

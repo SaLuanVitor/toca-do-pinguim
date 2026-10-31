@@ -16,6 +16,7 @@ import type {
   LimpezaProgramada,
   Limites,
   Evento,
+  Exclusao,
   MemoriaWindows,
   MudancaWslconfig,
   ResumoMemoria,
@@ -31,6 +32,8 @@ export interface Api {
   terminarDistro(nome: string): Promise<void>;
   reiniciarDistro(nome: string): Promise<void>;
   desligarWsl(): Promise<void>;
+  pastaDeDocumentos(): Promise<string | null>;
+  excluirDistro(nome: string, exportarPara: string | null): Promise<Exclusao>;
   enviarSinal(distro: string, pid: number, sinal: number, nome: string): Promise<void>;
   definirIntervalo(ms: number): Promise<void>;
   listarAtividade(): Promise<Evento[]>;
@@ -42,9 +45,10 @@ export interface Api {
   reiniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   devolverCache(): Promise<void>;
   definirDevolucao(automatico: boolean, minimoLivrePct: number, cacheMaximoGb: number | null): Promise<void>;
-  lerDiscos(): Promise<Discos>;
+  lerDiscos(forcar: boolean): Promise<Discos>;
   lerEspacoDocker(forcar: boolean): Promise<EspacoDocker>;
   analisarPastas(distro: string, ligar: boolean): Promise<AnalisePastas>;
+  ultimaAnalise(distro: string): Promise<AnalisePastas | null>;
   apagarPastas(distro: string, caminhos: string[]): Promise<number>;
   limparDocker(qual: LimpezaDocker, volumes: string[]): Promise<number>;
   limparParadosDoProjeto(projeto: string): Promise<number>;
@@ -100,6 +104,8 @@ async function conectarTauri(): Promise<Api> {
     terminarDistro: (nome) => invoke('terminar_distro', { nome }),
     reiniciarDistro: (nome) => invoke('reiniciar_distro', { nome }),
     desligarWsl: () => invoke('desligar_wsl'),
+    pastaDeDocumentos: () => invoke('pasta_de_documentos'),
+    excluirDistro: (nome, exportarPara) => invoke('excluir_distro', { nome, exportarPara }),
     enviarSinal: (distro, pid, sinal, nome) => invoke('enviar_sinal', { distro, pid, sinal, nome }),
     definirIntervalo: (ms) => invoke('definir_intervalo', { ms }),
     listarAtividade: () => invoke('listar_atividade'),
@@ -112,9 +118,10 @@ async function conectarTauri(): Promise<Api> {
     devolverCache: () => invoke('devolver_cache'),
     definirDevolucao: (automatico, minimoLivrePct, cacheMaximoGb) =>
       invoke('definir_devolucao', { automatico, minimoLivrePct, cacheMaximoGb }),
-    lerDiscos: () => invoke('ler_discos'),
+    lerDiscos: (forcar) => invoke('ler_discos', { forcar }),
     lerEspacoDocker: (forcar) => invoke('ler_espaco_docker', { forcar }),
     analisarPastas: (distro, ligar) => invoke('analisar_pastas', { distro, ligar }),
+    ultimaAnalise: (distro) => invoke('ultima_analise', { distro }),
     apagarPastas: (distro, caminhos) => invoke('apagar_pastas', { distro, caminhos }),
     limparDocker: (qual, volumes) => invoke('limpar_docker', { qual, volumes }),
     limparParadosDoProjeto: (projeto) => invoke('limpar_parados_do_projeto', { projeto }),

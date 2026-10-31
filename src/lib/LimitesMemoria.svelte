@@ -2,7 +2,9 @@
   // O quanto de RAM a VM do WSL pode tirar do Windows: o teto do .wslconfig e o cache de
   // arquivos que o app devolve sozinho.
   import { api } from './api';
+  import Ajuda from './Ajuda.svelte';
   import { estado } from './estado.svelte';
+  import { TEXTO_DEVOLVER_CACHE } from './textos';
   import { bytes } from './formato';
   import type { ResumoMemoria } from './tipos';
 
@@ -78,6 +80,7 @@
 
     <div class="bloco" role="group" aria-labelledby="limite-cache">
       <h3 id="limite-cache">Cache de arquivos</h3>
+      <div class="com-ajuda">
       <label class="opcao">
         <input
           type="checkbox"
@@ -90,6 +93,8 @@
         />
         Devolver o cache de arquivos ao Windows sozinho
       </label>
+        <Ajuda assunto="devolver o cache de arquivos" texto={TEXTO_DEVOLVER_CACHE} />
+      </div>
       <label class="campo">
         <span>Quando a RAM livre do Windows ficar abaixo de</span>
         <select
@@ -222,6 +227,12 @@
 
   .campo input[aria-invalid='true'] {
     border-bottom: 2px solid var(--perigo);
+  }
+
+  .com-ajuda {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .opcao {

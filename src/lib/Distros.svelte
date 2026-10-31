@@ -3,6 +3,7 @@
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
   import { bytes, pct } from './formato';
+  import ExcluirDistro from './ExcluirDistro.svelte';
   import Icone from './Icone.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
   import type { Distro } from './tipos';
@@ -44,6 +45,7 @@
     ),
   );
   const algumaRodando = $derived(estado.distros.some((d) => d.rodando));
+  let excluindo = $state<Distro | null>(null);
 
   function situacao(d: Distro): string {
     if (ocupadas[d.nome]) return ocupadas[d.nome];
@@ -120,6 +122,27 @@
                   <Icone nome="play" /> Iniciar
                 </button>
               {/if}
+              {#if d.nome.startsWith('docker-desktop')}
+                <button
+                  class="botao sutil perigo"
+                  disabled
+                  aria-label="Excluir {d.nome}"
+                  aria-describedby="explica-docker"
+                  title="O Docker Desktop recria esta distro; veja a nota abaixo da tabela"
+                >
+                  <Icone nome="lixeira" /> Excluir
+                </button>
+              {:else}
+                <button
+                  class="botao sutil perigo"
+                  disabled={d.rodando || !!ocupada}
+                  onclick={() => (excluindo = d)}
+                  aria-label="Excluir {d.nome}"
+                  title={d.rodando ? 'Termine a distro antes de excluir' : undefined}
+                >
+                  <Icone nome="lixeira" /> Excluir
+                </button>
+              {/if}
             </td>
           </tr>
         {/each}
@@ -128,9 +151,19 @@
     <p class="nota">
       O app não segura nenhuma distro ligada. Quando a única sessão aberta numa distro é a
       do agente que lê os processos, ele sai, e o WSL a desliga no prazo normal de ociosidade.
+      Excluir só fica disponível com a distro parada.
     </p>
+    {#if estado.distros.some((d) => d.nome.startsWith('docker-desktop'))}
+      <p class="nota" id="explica-docker">
+        A docker-desktop não se exclui por aqui. Ela é a base do Docker Desktop, que a recria toda vez que abre, e ocupa
+        pouco: imagens, volumes e cache ficam num disco à parte, em Desempenho &gt; Disco, onde dá para ver por pastas e
+        limpar pelo Espaço do Docker. Para tirar o Docker de vez, desinstale o Docker Desktop.
+      </p>
+    {/if}
   </div>
 {/if}
+
+<ExcluirDistro bind:distro={excluindo} />
 
 <style>
   .rolagem {

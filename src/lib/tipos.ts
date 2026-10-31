@@ -153,6 +153,12 @@ export interface SegundoPlano {
   iniciar_com_windows: boolean;
 }
 
+export interface Exclusao {
+  liberado_bytes: number;
+  /** Caminho do .tar, quando a distro foi copiada antes de sair. */
+  exportado: string | null;
+}
+
 export interface Compactacao {
   antes_bytes: number;
   depois_bytes: number;
@@ -207,6 +213,8 @@ export interface Discos {
   limpeza: LimpezaProgramada;
   distros_ligadas: string[];
   distros: string[];
+  /** Quando os discos foram lidos; a leitura pode ser de uma abertura anterior do app. */
+  lido_ms: number;
 }
 
 /** A última leitura do espaço do Docker. `docker` e `erro` vazios: ele não estava ligado. */
@@ -236,6 +244,10 @@ export interface Pasta {
 
 export interface AnalisePastas {
   distro: string;
+  /** A do disco de dados do Docker: só para ver, quem apaga ali é o próprio Docker. */
+  so_leitura: boolean;
+  /** Quando a análise terminou. Para apagar, ela precisa ter menos de 30 min. */
+  analisado_ms: number;
   raiz: Pasta[];
   tmp: Pasta[];
   caches: Pasta[];
