@@ -5,6 +5,22 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Excluir distro.** Na aba Distros, o botão Excluir aparece em toda distro que não é do Docker
+  Desktop e só funciona com ela parada. Para confirmar, digita-se o nome dela; opcionalmente, o
+  app exporta antes uma cópia em `.tar`, que volta com `wsl --import`, e se a cópia falhar nada é
+  excluído. No fim, o app diz quanto espaço liberou e registra a exclusão na Atividade.
+- Um botão **?** ao lado de Devolver o cache, em Desempenho > Memória e na opção automática,
+  explica o que é esse cache e quando devolvê-lo vale a pena.
+
+### Corrigido
+
+- A análise de pastas, em Desempenho > Disco, se perdia ao trocar de aba ou fechar o app, e
+  levava minutos para refazer. Agora a última análise de cada distro fica guardada, aparece ao
+  voltar, com a hora em que foi feita, e só serve para apagar pastas enquanto tiver menos de
+  30 min; depois disso, a tela pede uma análise nova antes de apagar.
+
 ## [0.11.0] - 2026-10-30
 
 ### Adicionado

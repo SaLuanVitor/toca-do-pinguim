@@ -346,6 +346,18 @@ export function criarDemonstracao(): Api {
       ligar(nome);
       publicar();
     },
+    pastaDeDocumentos: async () => String.raw`C:\Users\voce\Documents`,
+    excluirDistro: async (nome, exportarPara) => {
+      const d = achar(nome);
+      if (d.rodando) throw `${nome} está ligada; termine-a antes de excluir`;
+      await esperar(exportarPara ? 2500 : 800);
+      distros.splice(distros.indexOf(d), 1);
+      delete analisesDemo[nome];
+      publicar();
+      const liberado = 6.4 * GIB;
+      registrar('distro', nome, `O app excluiu a distro ${nome} e liberou 6,4 GB${exportarPara ? `; a cópia ficou em ${exportarPara}` : ''}`);
+      return { liberado_bytes: liberado, exportado: exportarPara };
+    },
     desligarWsl: async () => {
       await esperar(500);
       for (const d of distros) d.rodando = false;

@@ -16,6 +16,7 @@ import type {
   LimpezaProgramada,
   Limites,
   Evento,
+  Exclusao,
   MemoriaWindows,
   MudancaWslconfig,
   ResumoMemoria,
@@ -31,6 +32,8 @@ export interface Api {
   terminarDistro(nome: string): Promise<void>;
   reiniciarDistro(nome: string): Promise<void>;
   desligarWsl(): Promise<void>;
+  pastaDeDocumentos(): Promise<string | null>;
+  excluirDistro(nome: string, exportarPara: string | null): Promise<Exclusao>;
   enviarSinal(distro: string, pid: number, sinal: number, nome: string): Promise<void>;
   definirIntervalo(ms: number): Promise<void>;
   listarAtividade(): Promise<Evento[]>;
@@ -101,6 +104,8 @@ async function conectarTauri(): Promise<Api> {
     terminarDistro: (nome) => invoke('terminar_distro', { nome }),
     reiniciarDistro: (nome) => invoke('reiniciar_distro', { nome }),
     desligarWsl: () => invoke('desligar_wsl'),
+    pastaDeDocumentos: () => invoke('pasta_de_documentos'),
+    excluirDistro: (nome, exportarPara) => invoke('excluir_distro', { nome, exportarPara }),
     enviarSinal: (distro, pid, sinal, nome) => invoke('enviar_sinal', { distro, pid, sinal, nome }),
     definirIntervalo: (ms) => invoke('definir_intervalo', { ms }),
     listarAtividade: () => invoke('listar_atividade'),

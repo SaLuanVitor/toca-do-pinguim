@@ -306,6 +306,48 @@ fn caminho_do_wslconfig(valor: &str) -> PathBuf {
     PathBuf::from(valor.trim().trim_matches('"').replace(r"\\", r"\"))
 }
 
+/// Pasta da distro e os discos dela com o tamanho de cada um, para a exclusão dizer quanto
+/// liberou. `None` se ela não está registrada.
+pub fn discos_da_distro(nome: &str) -> Option<(PathBuf, Vec<(PathBuf, u64)>)> {
+    let r = registradas().into_iter().find(|r| r.nome == nome)?;
+    let discos = std::fs::read_dir(&r.base)
+        .map(|entradas| {
+            entradas
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("vhdx")))
+                .map(|p| {
+                    let tamanho = std::fs::metadata(&p).map_or(0, |m| m.len());
+                    (p, tamanho)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some((r.base, discos))
+}
+
+/// O destino da cópia antes de excluir: um `.tar` novo, numa pasta que existe, fora da pasta
+/// da distro, que o `--unregister` apaga inteira (medido numa distro importada).
+pub fn validar_destino(destino: &Path, base: &Path) -> Result<(), String> {
+    if !destino.is_absolute() {
+        return Err("informe o caminho completo da cópia, com a unidade".to_string());
+    }
+    if !destino.extension().is_some_and(|x| x.eq_ignore_ascii_case("tar")) {
+        return Err("a cópia precisa terminar em .tar".to_string());
+    }
+    if destino.exists() {
+        return Err(format!("{} já existe; escolha outro nome", destino.display()));
+    }
+    let pasta = destino.parent().and_then(|p| p.canonicalize().ok()).filter(|p| p.is_dir());
+    let Some(pasta) = pasta else {
+        return Err("a pasta da cópia não existe".to_string());
+    };
+    if base.canonicalize().is_ok_and(|b| pasta.starts_with(b)) {
+        return Err("a cópia não pode ficar na pasta da própria distro".to_string());
+    }
+    Ok(())
+}
+
 /// Todas as distros registradas, ligadas ou não, menos as internas do Docker Desktop.
 pub fn distros_registradas() -> Vec<String> {
     let mut nomes: Vec<String> = registradas().into_iter().map(|r| r.nome).filter(|n| !n.starts_with("docker-desktop")).collect();
@@ -671,6 +713,24 @@ mod testes {
     use super::*;
 
     const MB: u64 = 1024 * 1024;
+
+    #[test]
+    fn so_aceita_tar_novo_em_pasta_que_existe_fora_da_distro() {
+        let raiz = std::env::temp_dir().join(format!("toca-destino-{}", std::process::id()));
+        let base = raiz.join("distro");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(raiz.join("existente.tar"), "x").unwrap();
+        let erro = |p: &Path| validar_destino(p, &base).unwrap_err();
+
+        assert!(validar_destino(&raiz.join("copia.tar"), &base).is_ok());
+        assert!(validar_destino(&raiz.join("COPIA.TAR"), &base).is_ok());
+        assert!(erro(Path::new("copia.tar")).contains("caminho completo"));
+        assert!(erro(&raiz.join("copia.zip")).contains(".tar"));
+        assert!(erro(&raiz.join("existente.tar")).contains("já existe"));
+        assert!(erro(&raiz.join("falta").join("copia.tar")).contains("não existe"));
+        assert!(erro(&base.join("copia.tar")).contains("própria distro"));
+        std::fs::remove_dir_all(&raiz).unwrap();
+    }
 
     #[test]
     fn le_o_usado_do_df_do_gnu_e_do_busybox() {

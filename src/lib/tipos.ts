@@ -153,6 +153,12 @@ export interface SegundoPlano {
   iniciar_com_windows: boolean;
 }
 
+export interface Exclusao {
+  liberado_bytes: number;
+  /** Caminho do .tar, quando a distro foi copiada antes de sair. */
+  exportado: string | null;
+}
+
 export interface Compactacao {
   antes_bytes: number;
   depois_bytes: number;

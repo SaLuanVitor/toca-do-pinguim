@@ -117,6 +117,75 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), S
     .await
 }
 
+#[derive(Serialize)]
+struct Exclusao {
+    liberado_bytes: u64,
+    exportado: Option<String>,
+}
+
+/// Pasta sugerida para a cópia de uma distro antes de excluí-la.
+#[tauri::command]
+fn pasta_de_documentos() -> Option<String> {
+    let casa = std::path::PathBuf::from(std::env::var_os("USERPROFILE")?);
+    let documentos = casa.join("Documents");
+    Some(if documentos.is_dir() { documentos } else { casa }.display().to_string())
+}
+
+/// Só com a distro parada: excluir uma ligada encerraria o que roda nela sem aviso. Com
+/// `exportar_para`, a cópia vem antes, e se ela falhar nada é excluído.
+#[tauri::command]
+async fn excluir_distro(
+    app: tauri::AppHandle,
+    estado: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    nome: String,
+    exportar_para: Option<String>,
+) -> Result<Exclusao, String> {
+    if nome.starts_with(DISTRO_DOCKER) {
+        return Err("as distros do Docker Desktop se removem pelo próprio Docker".to_string());
+    }
+    let (agentes, recursos) = (Arc::clone(&estado), Arc::clone(&recursos));
+    bloqueante(move || {
+        info!("pedido: excluir {nome}");
+        let (base, discos) = armazenamento::discos_da_distro(&nome).ok_or_else(|| format!("{nome} não está registrada no WSL"))?;
+        let parada = || {
+            if wsl::rodando().contains(&nome) { Err(format!("{nome} está ligada; termine-a antes de excluir")) } else { Ok(()) }
+        };
+        parada()?;
+        let exportado = match exportar_para.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            None => None,
+            Some(destino) => {
+                let caminho = Path::new(destino);
+                armazenamento::validar_destino(caminho, &base)?;
+                info!("exportando {nome} para {destino}");
+                let copia = wsl::exportar(&nome, destino).and_then(|()| {
+                    if std::fs::metadata(caminho).map_or(0, |m| m.len()) > 0 { Ok(()) } else { Err("o arquivo saiu vazio".to_string()) }
+                });
+                if let Err(e) = copia {
+                    let _ = std::fs::remove_file(caminho);
+                    return Err(format!("a cópia falhou, e {nome} não foi excluída: {e}"));
+                }
+                Some(destino.to_string())
+            }
+        };
+        // A cópia pode levar minutos, e a distro pode ter sido ligada por fora nesse tempo.
+        parada()?;
+        agentes.parar(&nome);
+        wsl::excluir(&nome)?;
+        let liberado: u64 = discos.iter().filter(|(p, _)| !p.exists()).map(|(_, t)| t).sum();
+        recursos.guardar_analise(|a| {
+            a.remove(&nome);
+        });
+        let texto = match &exportado {
+            Some(d) => format!("O app excluiu a distro {nome} e liberou {} GB; a cópia ficou em {d}", recursos::gb(liberado)),
+            None => format!("O app excluiu a distro {nome} e liberou {} GB", recursos::gb(liberado)),
+        };
+        agentes.registrar(&app, "distro", Some(&nome), texto);
+        Ok(Exclusao { liberado_bytes: liberado, exportado })
+    })
+    .await
+}
+
 #[tauri::command]
 fn ler_segundo_plano(recursos: State<'_, Arc<Recursos>>) -> bandeja::SegundoPlano {
     bandeja::SegundoPlano {
@@ -708,6 +777,8 @@ pub fn run() {
             ler_espaco_docker,
             analisar_pastas,
             ultima_analise,
+            pasta_de_documentos,
+            excluir_distro,
             apagar_pastas,
             compactar_disco,
             limpar_docker,

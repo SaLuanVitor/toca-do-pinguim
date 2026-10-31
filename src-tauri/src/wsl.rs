@@ -19,6 +19,9 @@ pub const PRAZO: Duration = Duration::from_secs(30);
 /// Desligar a VM espera todas as distros terminarem. Com o WSL travado, medido, levou
 /// 117 s.
 const PRAZO_DESLIGAR: Duration = Duration::from_secs(180);
+/// A cópia de uma distro grande passa de dezenas de GB.
+const PRAZO_EXPORTAR: Duration = Duration::from_secs(2 * 60 * 60);
+const PRAZO_EXCLUIR: Duration = Duration::from_secs(120);
 /// Acima disto a chamada vai ao log como lenta, mesmo dando certo.
 const LENTA: Duration = Duration::from_secs(5);
 
@@ -356,6 +359,22 @@ pub fn terminar(nome: &str) -> Result<(), String> {
 
 pub fn desligar() -> Result<(), String> {
     executar_com_prazo(&["--shutdown"], PRAZO_DESLIGAR).map(|_| ())
+}
+
+/// Copia a distro para um `.tar` que o `wsl --import` aceita de volta. Medido: com a distro
+/// parada, a cópia não a liga.
+pub fn exportar(nome: &str, destino: &str) -> Result<(), String> {
+    let saida = executar_longo(&["--export", nome, destino], PRAZO_EXPORTAR)?;
+    if saida.status.success() {
+        Ok(())
+    } else {
+        Err(format!("{} {}", decodificar(&saida.stdout).trim(), decodificar(&saida.stderr).trim()).trim().to_string())
+    }
+}
+
+/// Remove a distro do WSL e apaga a pasta dela, com o disco. Não tem volta.
+pub fn excluir(nome: &str) -> Result<(), String> {
+    executar_com_prazo(&["--unregister", nome], PRAZO_EXCLUIR).map(|_| ())
 }
 
 pub fn versao() -> Result<String, String> {
