@@ -256,7 +256,7 @@ pub mod saude {
         }
     }
 
-    #[cfg(test)]
+    /// A distro (ou o serviço, com `None`) está em queda agora.
     pub fn tem_queda(alvo: Option<&str>) -> bool {
         QUEDAS.lock().unwrap().as_ref().is_some_and(|q| q.contains_key(&alvo.map(str::to_string)))
     }

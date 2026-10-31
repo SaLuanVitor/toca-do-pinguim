@@ -1,3 +1,12 @@
+<script lang="ts" module>
+  import type { Discos, EspacoDocker } from './tipos';
+
+  // A última leitura vive enquanto o app estiver aberto: voltar à aba mostra o que já se sabe
+  // na hora, e a leitura nova chega por cima.
+  let guardadosDiscos: Discos | null = null;
+  let guardadoDocker: EspacoDocker | null = null;
+</script>
+
 <script lang="ts">
   // Onde está o espaço do WSL e o que dá para liberar. Toda limpeza passa pela confirmação e
   // vai para a Atividade com o quanto liberou.
@@ -7,7 +16,6 @@
   import { bytes } from './formato';
   import type {
     AnalisePastas,
-    Armazenamento,
     DiscoVirtual,
     LimpezaDocker,
     LimpezaProgramada,
@@ -16,8 +24,14 @@
     VolumeProjeto,
   } from './tipos';
 
-  let dados = $state<Armazenamento | null>(null);
+  let discos = $state<Discos | null>(guardadosDiscos);
+  let espaco = $state<EspacoDocker | null>(guardadoDocker);
+  const dados = $derived(discos);
   let lendo = $state(false);
+  let lendoDocker = $state(false);
+  /** Leitura guardada mais velha que isto é refeita por trás, com a guardada na tela. */
+  const VELHA_MS = 60_000;
+  const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
   let limpando = $state<string | null>(null);
   let resultado = $state('');
 
@@ -40,12 +54,12 @@
     'Build Cache': 'Cache de build',
   };
 
-  async function ler() {
+  async function lerDiscos() {
     lendo = true;
     try {
-      dados = await api.lerArmazenamento();
-      if (!dados.distros.includes(distro)) distro = dados.distros_ligadas[0] ?? dados.distros[0] ?? '';
-      volumesMarcados = {};
+      const d = await api.lerDiscos();
+      discos = guardadosDiscos = d;
+      if (!d.distros.includes(distro)) distro = d.distros_ligadas[0] ?? d.distros[0] ?? '';
     } catch (e) {
       estado.avisar(String(e));
     } finally {
@@ -53,8 +67,28 @@
     }
   }
 
+  async function lerDocker(forcar: boolean) {
+    lendoDocker = true;
+    try {
+      const e = await api.lerEspacoDocker(forcar);
+      espaco = guardadoDocker = e;
+      volumesMarcados = {};
+      if (!forcar && Date.now() - e.lido_ms > VELHA_MS) await lerDocker(true);
+    } catch (e) {
+      estado.avisar(String(e));
+    } finally {
+      lendoDocker = false;
+    }
+  }
+
+  /** Discos e Docker ao mesmo tempo; cada parte aparece quando a sua leitura volta. */
+  function ler(forcarDocker = true) {
+    lerDiscos();
+    lerDocker(forcarDocker);
+  }
+
   function categoria(tipo: string) {
-    return dados?.docker?.categorias.find((c) => c.tipo === tipo);
+    return espaco?.docker?.categorias.find((c) => c.tipo === tipo);
   }
 
   function limparDocker(qual: LimpezaDocker, titulo: string, texto: string, volumes: string[] = []) {
@@ -117,13 +151,13 @@
     };
   }
 
-  const volumesEscolhidos = $derived(dados?.docker?.volumes_sem_uso.filter((v) => volumesMarcados[v.nome]) ?? []);
+  const volumesEscolhidos = $derived(espaco?.docker?.volumes_sem_uso.filter((v) => volumesMarcados[v.nome]) ?? []);
 
   const ligada = (d: string) => !!dados?.distros_ligadas.includes(d);
 
   // O Docker só aparece na máquina que o tem: disco de dados dele, distro dele ou leitura dele.
   const temDocker = $derived(
-    !!dados && (!!dados.docker || !!dados.erro_docker || dados.discos.some((d) => d.nome.startsWith('Docker') || d.nome.startsWith('docker-desktop'))),
+    !!espaco?.docker || !!espaco?.erro || !!discos?.discos.some((d) => d.nome.startsWith('Docker') || d.nome.startsWith('docker-desktop')),
   );
 
   async function rodarAnalise(alvo: string, ligar: boolean) {
@@ -219,11 +253,11 @@
   }
 
   async function mudarLimpeza(parcial: Partial<LimpezaProgramada>) {
-    if (!dados) return;
-    const nova = { ...dados.limpeza, ...parcial };
+    if (!discos) return;
+    const nova = { ...discos.limpeza, ...parcial };
     try {
       await api.definirLimpeza(nova);
-      dados = { ...dados, limpeza: nova };
+      discos = guardadosDiscos = { ...discos, limpeza: nova };
     } catch (e) {
       estado.avisar(String(e));
     }
@@ -233,12 +267,12 @@
     return p.modificado_ms ? data.format(p.modificado_ms) : '';
   }
 
-  onMount(ler);
+  onMount(() => ler(false));
 </script>
 
 <div class="rolagem">
   <div class="topo">
-    <button class="botao" onclick={ler} disabled={lendo}>{lendo ? 'Lendo' : 'Atualizar'}</button>
+    <button class="botao" onclick={() => ler()} disabled={lendo || lendoDocker}>{lendo || lendoDocker ? 'Lendo' : 'Atualizar'}</button>
   </div>
   {#if resultado}<p class="resultado" role="status">{resultado}</p>{/if}
 
@@ -248,7 +282,7 @@
       <span>Cada distro guarda os arquivos num disco virtual (.vhdx) no Windows</span>
     </div>
     {#if !dados}
-      <p class="nota">{lendo ? 'Lendo os discos e o Docker. Pode levar alguns segundos.' : 'Sem dados.'}</p>
+      <p class="nota">{lendo ? 'Lendo os discos.' : 'Sem dados.'}</p>
     {:else}
       <table>
         <thead>
@@ -367,13 +401,19 @@
   <section class="cartao" aria-labelledby="titulo-docker-armazenamento">
     <div class="cabeca">
       <h2 id="titulo-docker-armazenamento">Espaço do Docker</h2>
-      <span>Recuperável segundo o próprio Docker</span>
+      <span
+        >Recuperável segundo o próprio Docker{espaco ? `, lido às ${hora.format(espaco.lido_ms)}` : ''}{lendoDocker
+          ? '; atualizando'
+          : ''}</span
+      >
     </div>
-    {#if dados && !dados.docker && !dados.erro_docker}
+    {#if !espaco}
+      <p class="nota">Lendo o Docker. Ele leva alguns segundos para responder.</p>
+    {:else if !espaco.docker && !espaco.erro}
       <p class="nota">O Docker Desktop não está ligado.</p>
-    {:else if dados?.erro_docker}
-      <p class="nota">Não foi possível ler o Docker: {dados.erro_docker}</p>
-    {:else if dados?.docker}
+    {:else if espaco.erro}
+      <p class="nota">Não foi possível ler o Docker: {espaco.erro}</p>
+    {:else if espaco.docker}
       {@const imagens = categoria('Images')}
       {@const containers = categoria('Containers')}
       {@const volumes = categoria('Local Volumes')}
@@ -415,14 +455,14 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || dados.docker.sobras === 0}
-                  title="Containers parados sem projeto do Compose: {dados.docker.sobras}, {bytes(dados.docker.sobras_bytes)}"
+                  disabled={!!limpando || espaco.docker.sobras === 0}
+                  title="Containers parados sem projeto do Compose: {espaco.docker.sobras}, {bytes(espaco.docker.sobras_bytes)}"
                   onclick={() =>
                     limparDocker(
                       'sobras',
                       'Apagar os containers parados de builds?',
-                      `Apaga ${dados?.docker?.sobras} containers parados que não pertencem a nenhum projeto do Compose, em geral sobras de builds e jobs de CI (${bytes(dados?.docker?.sobras_bytes ?? 0)}). Os containers dos seus projetos ficam, ligados ou parados.`,
-                    )}>{limpando === 'sobras' ? 'Apagando' : `Sobras de builds (${dados.docker.sobras})`}</button
+                      `Apaga ${espaco?.docker?.sobras} containers parados que não pertencem a nenhum projeto do Compose, em geral sobras de builds e jobs de CI (${bytes(espaco?.docker?.sobras_bytes ?? 0)}). Os containers dos seus projetos ficam, ligados ou parados.`,
+                    )}>{limpando === 'sobras' ? 'Apagando' : `Sobras de builds (${espaco.docker.sobras})`}</button
                 >
                 <button
                   class="botao"
@@ -439,7 +479,7 @@
           {/if}
           {#if volumes}
             <tr>
-              <th scope="row">{NOMES[volumes.tipo]} <small>{volumes.quantidade}, {dados.docker.volumes_sem_uso.length} sem uso</small></th>
+              <th scope="row">{NOMES[volumes.tipo]} <small>{volumes.quantidade}, {espaco.docker.volumes_sem_uso.length} sem uso</small></th>
               <td class="numero">{bytes(volumes.total_bytes)}</td>
               <td class="numero">{bytes(volumes.recuperavel_bytes)}</td>
               <td class="acao">
@@ -456,7 +496,7 @@
                     estiver num volume apagado se perde de vez.
                   </p>
                   <ul>
-                    {#each dados.docker.volumes_sem_uso.slice(0, 60) as v (v.nome)}
+                    {#each espaco.docker.volumes_sem_uso.slice(0, 60) as v (v.nome)}
                       <li>
                         <label><input type="checkbox" bind:checked={volumesMarcados[v.nome]} /> <code>{v.nome}</code></label>
                         <span class="numero">{bytes(v.bytes)}</span>
@@ -499,7 +539,7 @@
           {/if}
         </tbody>
       </table>
-      {#if dados.docker.projetos.length}
+      {#if espaco.docker.projetos.length}
         <h3>Por projeto do Compose</h3>
         <p class="nota">
           Imagem entra no projeto só quando nenhum outro a usa, e só com a parte que ela não divide com outras imagens; o resto
@@ -517,7 +557,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each dados.docker.projetos as p (p.nome)}
+            {#each espaco.docker.projetos as p (p.nome)}
               {@const semUso = p.volumes.filter((v) => !v.em_uso)}
               {@const volumesBytes = p.volumes.reduce((s, v) => s + v.bytes, 0)}
               <tr>

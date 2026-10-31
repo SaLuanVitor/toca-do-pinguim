@@ -1,7 +1,8 @@
 import type {
   Amostra,
   AnalisePastas,
-  Armazenamento,
+  Discos,
+  EspacoDocker,
   Compactacao,
   SegundoPlano,
   AtalhoTeclado,
@@ -41,7 +42,8 @@ export interface Api {
   reiniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   devolverCache(): Promise<void>;
   definirDevolucao(automatico: boolean, minimoLivrePct: number, cacheMaximoGb: number | null): Promise<void>;
-  lerArmazenamento(): Promise<Armazenamento>;
+  lerDiscos(): Promise<Discos>;
+  lerEspacoDocker(forcar: boolean): Promise<EspacoDocker>;
   analisarPastas(distro: string, ligar: boolean): Promise<AnalisePastas>;
   apagarPastas(distro: string, caminhos: string[]): Promise<number>;
   limparDocker(qual: LimpezaDocker, volumes: string[]): Promise<number>;
@@ -110,7 +112,8 @@ async function conectarTauri(): Promise<Api> {
     devolverCache: () => invoke('devolver_cache'),
     definirDevolucao: (automatico, minimoLivrePct, cacheMaximoGb) =>
       invoke('definir_devolucao', { automatico, minimoLivrePct, cacheMaximoGb }),
-    lerArmazenamento: () => invoke('ler_armazenamento'),
+    lerDiscos: () => invoke('ler_discos'),
+    lerEspacoDocker: (forcar) => invoke('ler_espaco_docker', { forcar }),
     analisarPastas: (distro, ligar) => invoke('analisar_pastas', { distro, ligar }),
     apagarPastas: (distro, caminhos) => invoke('apagar_pastas', { distro, caminhos }),
     limparDocker: (qual, volumes) => invoke('limpar_docker', { qual, volumes }),

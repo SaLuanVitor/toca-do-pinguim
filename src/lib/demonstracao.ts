@@ -376,9 +376,14 @@ export function criarDemonstracao(): Api {
         registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
       }, 8000);
     },
-    lerArmazenamento: async () => {
-      await esperar(600);
-      return armazenamento;
+    lerDiscos: async () => {
+      await esperar(300);
+      const { discos, limpeza, distros_ligadas, distros } = armazenamento;
+      return { discos, limpeza, distros_ligadas, distros };
+    },
+    lerEspacoDocker: async () => {
+      await esperar(1500);
+      return { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: Date.now() };
     },
     analisarPastas: async (distro, ligarAntes) => {
       if (ligarAntes) {

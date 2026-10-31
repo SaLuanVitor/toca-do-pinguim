@@ -203,10 +203,8 @@ async fn devolver_cache(app: tauri::AppHandle, agentes: Estado<'_>, recursos: St
 }
 
 #[derive(Serialize)]
-struct Armazenamento {
+struct Discos {
     discos: Vec<armazenamento::DiscoVirtual>,
-    docker: Option<armazenamento::ResumoDocker>,
-    erro_docker: Option<String>,
     limpeza: cache::LimpezaProgramada,
     distros_ligadas: Vec<String>,
     /// Todas as registradas, ligadas ou não, para a análise de pastas.
@@ -215,35 +213,52 @@ struct Armazenamento {
 
 const DISTRO_DOCKER: &str = "docker-desktop";
 
-/// Discos e resumo do Docker. O `df -v` do Docker leva segundos, então isto só roda quando a
-/// aba Disco pede.
+/// Os discos, a limpeza programada e as distros: o tamanho vem do arquivo e o ocupado de um `df`
+/// por distro ligada, então volta em menos de um segundo. O Docker vem à parte.
 #[tauri::command]
-async fn ler_armazenamento(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Armazenamento, String> {
+async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Discos, String> {
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         let ligadas = agentes.ligadas();
-        let (docker, erro_docker) = if agentes.rodando(DISTRO_DOCKER) {
-            match armazenamento::resumo_docker() {
-                Ok((resumo, _)) => {
-                    *recursos.volumes_sem_uso.lock().unwrap() = resumo.volumes_sem_uso.clone();
-                    *recursos.projetos_docker.lock().unwrap() = resumo.projetos.clone();
-                    (Some(resumo), None)
-                }
-                Err(e) => (None, Some(e)),
-            }
-        } else {
-            (None, None)
-        };
-        Ok(Armazenamento {
+        Ok(Discos {
             discos: armazenamento::discos(&ligadas),
-            docker,
-            erro_docker,
             limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
             distros_ligadas: ligadas.into_iter().filter(|d| d != DISTRO_DOCKER).collect(),
             distros: armazenamento::distros_registradas(),
         })
     })
     .await
+}
+
+/// Sem `forcar`, devolve na hora a última leitura guardada, se houver; a tela mostra e pede uma
+/// nova se ela estiver velha. O `docker system df` leva segundos (medido: ~5 s por consulta).
+#[tauri::command]
+async fn ler_espaco_docker(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, forcar: bool) -> Result<armazenamento::EspacoDocker, String> {
+    // "Docker desligado" guardado não vale se ele ligou depois.
+    let guardada = recursos.espaco_docker.lock().unwrap().clone();
+    if let Some(g) = guardada.filter(|g| !forcar && (g.docker.is_some() || g.erro.is_some() || !agentes.rodando(DISTRO_DOCKER))) {
+        return Ok(g);
+    }
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || Ok(recursos.ler_espaco_docker(agentes.rodando(DISTRO_DOCKER)))).await
+}
+
+/// Lê o espaço do Docker uma vez, assim que ele estiver ligado, para a aba Disco já abrir com
+/// ele. Desiste depois de 10 min sem Docker: quem não tem Docker não paga nada.
+fn antecipar_espaco_docker(agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
+    std::thread::spawn(move || {
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            if recursos.espaco_docker.lock().unwrap().is_some() {
+                return;
+            }
+            if agentes.rodando(DISTRO_DOCKER) {
+                let lido = recursos.ler_espaco_docker(true);
+                info!("espaço do Docker lido de antemão: {}", if lido.erro.is_some() { "com erro" } else { "ok" });
+                return;
+            }
+        }
+    });
 }
 
 /// Distro desligada só é analisada com `ligar`, que a tela pede depois de confirmar. O app não
@@ -614,6 +629,7 @@ pub fn run() {
             app.manage(Arc::clone(&agentes));
             let recursos = Arc::new(Recursos::novo(&dados));
             app.manage(Arc::clone(&recursos));
+            antecipar_espaco_docker(Arc::clone(&agentes), Arc::clone(&recursos));
             recursos::vigiar(app.handle().clone(), Arc::clone(&agentes), recursos);
             agentes::supervisionar(app.handle().clone(), agentes);
             bandeja::montar(app)?;
@@ -665,7 +681,8 @@ pub fn run() {
             reiniciar_conteineres,
             devolver_cache,
             definir_devolucao,
-            ler_armazenamento,
+            ler_discos,
+            ler_espaco_docker,
             analisar_pastas,
             apagar_pastas,
             compactar_disco,
