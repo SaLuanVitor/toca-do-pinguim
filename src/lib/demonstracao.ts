@@ -274,7 +274,7 @@ export function criarDemonstracao(): Api {
     erro_docker: null,
     limpeza: { cache_de_build: false, sobras_de_containers: false, tmp_dias: null, ultima_ms: null },
     distros_ligadas: ['Ubuntu'],
-    distros: ['Debian', 'Ubuntu'],
+    distros: ['Debian', 'Ubuntu', 'docker-desktop'],
   };
   const agoraMs = Date.now();
   const analisesDemo: Record<string, AnalisePastas> = {};
@@ -287,8 +287,27 @@ export function criarDemonstracao(): Api {
     lido_ms: tresHorasAtras,
   };
   let dockerLido: EspacoDocker = { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: tresHorasAtras };
+  const disco = '/mnt/docker-desktop-disk/data';
+  const analiseDockerDemo: AnalisePastas = {
+    distro: 'docker-desktop',
+    so_leitura: true,
+    analisado_ms: 0,
+    raiz: (
+      [
+        ['desktop-containerd/daemon', 38.2],
+        ['docker/volumes/loja_postgres-dados', 12.6],
+        ['docker/volumes/blog_mysql', 4.1],
+        ['docker/volumes/loja_redis', 0.8],
+        ['docker/buildkit', 0.6],
+        ['docker/containers', 0.1],
+      ] as [string, number][]
+    ).map(([p, gb]) => ({ caminho: `${disco}/${p}`, bytes: gb * GIB, modificado_ms: null, em_uso_por: null, apagavel: false })),
+    tmp: [],
+    caches: [],
+  };
   const analiseDemo: AnalisePastas = {
     distro: 'Ubuntu',
+    so_leitura: false,
     analisado_ms: 0,
     raiz: [
       { caminho: '/tmp', bytes: 53 * GIB, modificado_ms: null, em_uso_por: null, apagavel: false },
@@ -423,7 +442,8 @@ export function criarDemonstracao(): Api {
         armazenamento.distros_ligadas = distros.filter((x) => x.rodando && x.nome !== 'docker-desktop').map((x) => x.nome);
       }
       await esperar(1500);
-      analisesDemo[distro] = { ...analiseDemo, distro, analisado_ms: Date.now() };
+      const base = distro === 'docker-desktop' ? analiseDockerDemo : analiseDemo;
+      analisesDemo[distro] = { ...base, distro, analisado_ms: Date.now() };
       return analisesDemo[distro];
     },
     ultimaAnalise: async (distro) => analisesDemo[distro] ?? null,

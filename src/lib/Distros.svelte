@@ -122,7 +122,17 @@
                   <Icone nome="play" /> Iniciar
                 </button>
               {/if}
-              {#if !d.nome.startsWith('docker-desktop')}
+              {#if d.nome.startsWith('docker-desktop')}
+                <button
+                  class="botao sutil perigo"
+                  disabled
+                  aria-label="Excluir {d.nome}"
+                  aria-describedby="explica-docker"
+                  title="O Docker Desktop recria esta distro; veja a nota abaixo da tabela"
+                >
+                  <Icone nome="lixeira" /> Excluir
+                </button>
+              {:else}
                 <button
                   class="botao sutil perigo"
                   disabled={d.rodando || !!ocupada}
@@ -143,6 +153,13 @@
       do agente que lê os processos, ele sai, e o WSL a desliga no prazo normal de ociosidade.
       Excluir só fica disponível com a distro parada.
     </p>
+    {#if estado.distros.some((d) => d.nome.startsWith('docker-desktop'))}
+      <p class="nota" id="explica-docker">
+        A docker-desktop não se exclui por aqui. Ela é a base do Docker Desktop, que a recria toda vez que abre, e ocupa
+        pouco: imagens, volumes e cache ficam num disco à parte, em Desempenho &gt; Disco, onde dá para ver por pastas e
+        limpar pelo Espaço do Docker. Para tirar o Docker de vez, desinstale o Docker Desktop.
+      </p>
+    {/if}
   </div>
 {/if}
 

@@ -31,8 +31,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   terminar, uns 10 s depois: a limpeza parecia não ter acontecido, e um segundo clique não tinha o
   que apagar. Agora o resultado aparece na própria seção, e a tabela fica esmaecida, com os botões
   desabilitados, até os números novos chegarem.
-- Dentro de uma distro, a lista agora diz por que as distros do Docker Desktop ficam de fora: o
-  que elas guardam está em Espaço do Docker.
+- Dentro de uma distro, a lista agora inclui a docker-desktop. A raiz dela ocupa perto de
+  0,1 GB, então a análise lê o disco de dados do Docker: cada volume pelo nome e as outras pastas
+  grandes, como o armazém de imagens. É só para ver, porque apagar ali por fora corrompe o
+  Docker; liberar espaço continua pelo Espaço do Docker. Medido num disco com 115 GB ocupados:
+  de 32 s a 60 s.
+- Na aba Distros, a docker-desktop mostra o Excluir desabilitado, com uma nota explicando que o
+  Docker Desktop a recria ao abrir e que os dados dele ficam num disco à parte.
 - Quando devolver o cache falhava, o aviso dizia só "Ubuntu recusou:", sem motivo: o app lia
   apenas a saída de erro, e o `wsl.exe` escreve os próprios erros na saída comum. Agora o aviso
   traz o texto das duas e, sem texto nenhum, o código de saída; o log também registra esse

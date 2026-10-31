@@ -294,7 +294,7 @@ async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, for
             discos: armazenamento::discos(&ligadas),
             limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
             distros_ligadas: ligadas_agora(&agentes),
-            distros: armazenamento::distros_registradas(),
+            distros: distros_para_analisar(),
             lido_ms: agora_ms(),
         };
         recursos.guardar_discos(discos.clone());
@@ -345,8 +345,14 @@ async fn analisar_pastas(
     distro: String,
     ligar: bool,
 ) -> Result<armazenamento::Analise, String> {
-    if distro.starts_with(DISTRO_DOCKER) || !armazenamento::distros_registradas().contains(&distro) {
+    if !distros_para_analisar().contains(&distro) {
         return Err(format!("{distro} não é uma distro que dê para analisar"));
+    }
+    let docker = distro == DISTRO_DOCKER;
+    // Ligar a distro do Docker por fora, sem o Docker Desktop, não serve: o disco de dados só é
+    // montado quando ele sobe.
+    if docker && !agentes.rodando(DISTRO_DOCKER) {
+        return Err("ligue o Docker Desktop para analisar o disco dele".to_string());
     }
     if !ligar && !agentes.rodando(&distro) {
         return Err(format!("{distro} está desligada; confirme para ligá-la e analisar"));
@@ -354,8 +360,12 @@ async fn analisar_pastas(
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         info!("pedido: analisar as pastas de {distro}");
-        let montagens = if agentes.rodando(DISTRO_DOCKER) { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
-        let mut analise = armazenamento::analisar(&distro, &montagens)?;
+        let mut analise = if docker {
+            armazenamento::analisar_docker(&distro)?
+        } else {
+            let montagens = if agentes.rodando(DISTRO_DOCKER) { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
+            armazenamento::analisar(&distro, &montagens)?
+        };
         analise.analisado_ms = agora_ms();
         let guardada = analise.clone();
         recursos.guardar_analise(move |a| {
@@ -367,6 +377,16 @@ async fn analisar_pastas(
 }
 
 const ANALISE_VALE_PARA_APAGAR_MS: u64 = 30 * 60 * 1000;
+
+/// As distros da análise de pastas: as registradas e, por último, a do Docker Desktop, cuja
+/// análise lê o disco de dados dele, só para ver.
+fn distros_para_analisar() -> Vec<String> {
+    let mut lista = armazenamento::distros_registradas();
+    if armazenamento::docker_registrada() {
+        lista.push(DISTRO_DOCKER.to_string());
+    }
+    lista
+}
 
 fn agora_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
@@ -387,6 +407,9 @@ async fn apagar_pastas(
     caminhos: Vec<String>,
 ) -> Result<u64, String> {
     let analise = recursos.analises.lock().unwrap().get(&distro).cloned().ok_or("analise a distro antes de apagar")?;
+    if analise.so_leitura {
+        return Err("o disco do Docker é só para ver; para liberar espaço, use Espaço do Docker".to_string());
+    }
     // A análise guardada serve para mostrar; para apagar, ela precisa ser recente. Uma pasta do
     // /tmp recriada depois dela pode ter trabalho novo com o mesmo nome.
     if agora_ms().saturating_sub(analise.analisado_ms) > ANALISE_VALE_PARA_APAGAR_MS {

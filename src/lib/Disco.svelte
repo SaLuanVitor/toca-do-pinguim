@@ -172,7 +172,14 @@
 
   const volumesEscolhidos = $derived(espaco?.docker?.volumes_sem_uso.filter((v) => volumesMarcados[v.nome]) ?? []);
 
-  const ligada = (d: string) => !!dados?.distros_ligadas.includes(d);
+  const DOCKER = 'docker-desktop';
+  // A do Docker não entra em distros_ligadas, que guia a escolha inicial; o estado dela vem da
+  // lista de distros.
+  const ligada = (d: string) =>
+    d === DOCKER ? !!estado.distros.find((x) => x.nome === d)?.rodando : !!dados?.distros_ligadas.includes(d);
+  const rotuloAnalisar = $derived(
+    distro === DOCKER && !ligada(distro) ? 'Ligue o Docker Desktop' : ligada(distro) ? 'Analisar' : 'Ligar e analisar',
+  );
 
   // O Docker só aparece na máquina que o tem: disco de dados dele, distro dele ou leitura dele.
   const temDocker = $derived(
@@ -214,7 +221,7 @@
   }
 
   function analisar() {
-    if (!distro) return;
+    if (!distro || (distro === DOCKER && !ligada(distro))) return;
     if (ligada(distro)) {
       rodarAnalise(distro, false);
       return;
@@ -396,29 +403,33 @@
         <label>
           Distro
           <select bind:value={distro}>
-            {#each dados?.distros ?? [] as d (d)}<option value={d}>{d}{ligada(d) ? '' : ' (desligada)'}</option>{/each}
+            {#each dados?.distros ?? [] as d (d)}
+              <option value={d}>{d}{ligada(d) ? '' : d === DOCKER ? ' (Docker Desktop fechado)' : ' (desligada)'}</option>
+            {/each}
           </select>
         </label>
-        <button class="botao" onclick={analisar} disabled={analisando || !distro}>
-          {#if analisando}<Girando /> Analisando{:else}{ligada(distro) ? 'Analisar' : 'Ligar e analisar'}{/if}
+        <button class="botao" onclick={analisar} disabled={analisando || !distro || (distro === DOCKER && !ligada(distro))}>
+          {#if analisando}<Girando /> Analisando{:else}{rotuloAnalisar}{/if}
         </button>
         {#if analisando}<span class="nota">Percorre o disco inteiro da distro; pode levar alguns minutos.</span>{/if}
       </div>
-      {#if temDocker}
+      {#if distro === DOCKER}
         <p class="nota">
-          A lista traz as distros que você usa. As do Docker Desktop ficam de fora: o que elas guardam está em
-          Espaço do Docker, logo abaixo.
+          A docker-desktop em si ocupa pouco: a análise lê o disco de dados do Docker, onde ficam imagens, volumes e
+          cache. É só para ver, porque apagar ali por fora corrompe o Docker; para liberar espaço, use Espaço do Docker,
+          logo abaixo.
         </p>
       {/if}
       {#if analise}
         <p class="nota" role="status">
           {analise.analisado_ms ? `Analisada em ${data.format(analise.analisado_ms)}.` : ''}
-          {analiseVelha ? 'Para apagar, analise de novo: a lista pode ter mudado desde então.' : ''}
+          {analiseVelha && !analise.so_leitura ? 'Para apagar, analise de novo: a lista pode ter mudado desde então.' : ''}
         </p>
-        <h3>Maiores pastas da raiz</h3>
+        <h3>{analise.so_leitura ? 'Maiores pastas do disco de dados do Docker' : 'Maiores pastas da raiz'}</h3>
         <ul class="raiz">
           {#each analise.raiz as p (p.caminho)}<li><code>{p.caminho}</code> <span class="numero">{bytes(p.bytes)}</span></li>{/each}
         </ul>
+        {#if !analise.so_leitura}
 
         <h3>/tmp</h3>
         <p class="nota">
@@ -462,6 +473,7 @@
             {limpando === 'pastas' ? 'Apagando' : `Apagar os marcados (${bytes(escolhidasBytes)})`}
           </button>
         </div>
+        {/if}
       {/if}
     {/if}
   </section>

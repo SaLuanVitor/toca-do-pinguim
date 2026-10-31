@@ -244,6 +244,8 @@ export interface Pasta {
 
 export interface AnalisePastas {
   distro: string;
+  /** A do disco de dados do Docker: só para ver, quem apaga ali é o próprio Docker. */
+  so_leitura: boolean;
   /** Quando a análise terminou. Para apagar, ela precisa ter menos de 30 min. */
   analisado_ms: number;
   raiz: Pasta[];

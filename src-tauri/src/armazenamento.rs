@@ -142,6 +142,9 @@ pub struct Pasta {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Analise {
     pub distro: String,
+    /// Análise só para ver: a do disco de dados do Docker, onde quem apaga é o próprio Docker.
+    #[serde(default)]
+    pub so_leitura: bool,
     /// Quando a análise terminou; a tela mostra, e apagar exige que seja recente.
     #[serde(default)]
     pub analisado_ms: u64,
@@ -366,6 +369,11 @@ pub fn validar_destino(destino: &Path, base: &Path) -> Result<(), String> {
         return Err("a cópia não pode ficar na pasta da própria distro".to_string());
     }
     Ok(())
+}
+
+/// A distro do Docker Desktop está registrada: a análise de pastas pode ler o disco dele.
+pub fn docker_registrada() -> bool {
+    registradas().iter().any(|r| r.nome == "docker-desktop")
 }
 
 /// Todas as distros registradas, ligadas ou não, menos as internas do Docker Desktop.
@@ -621,6 +629,18 @@ for p in __CACHES__; do [ -d "$p" ] || continue; mb=$(du -xsm "$p" 2>/dev/null |
 "#;
 const MAIORES_DA_RAIZ: usize = 12;
 
+/// O disco de dados do Docker Desktop, montado em `/mnt/docker-desktop-disk` na distro dele: a
+/// raiz da distro tem cerca de 0,1 GB, e o que ocupa espaço está ali. Cada volume pelo nome, que é legível, e as outras pastas no terceiro nível, como o
+/// armazém de imagens do containerd. O `du` e o `awk` são os do BusyBox: `-m` em vez de
+/// `-B1M`. Medido num disco com 115 GB ocupados: 32 s.
+const SCRIPT_ANALISE_DOCKER: &str = r#"
+cd /mnt/docker-desktop-disk || exit 3
+du -x -m -d4 . 2>/dev/null | awk -F'\t' '
+  $2 ~ /^\.\/data\/docker\/volumes\/[^\/]+$/ { print "R\t" $1 "\t0\t/mnt/docker-desktop-disk/" substr($2, 3); next }
+  $2 ~ /^\.\/[^\/]+\/[^\/]+\/[^\/]+$/ && $2 != "./data/docker/volumes" { print "R\t" $1 "\t0\t/mnt/docker-desktop-disk/" substr($2, 3) }'
+"#;
+const MAIORES_DO_DOCKER: usize = 25;
+
 fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]) -> Analise {
     let mut a = Analise { distro: distro.to_string(), ..Default::default() };
     let mut datas = std::collections::HashMap::new();
@@ -651,11 +671,27 @@ fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]
     }
     a.raiz.retain(|p| p.caminho != "/");
     a.raiz.sort_by_key(|p| std::cmp::Reverse(p.bytes));
-    a.raiz.truncate(MAIORES_DA_RAIZ);
+    if !distro.starts_with("docker-desktop") {
+        a.raiz.truncate(MAIORES_DA_RAIZ);
+    }
     a.tmp.sort_by_key(|p| std::cmp::Reverse(p.bytes));
     a.tmp.truncate(40);
     a.caches.sort_by_key(|p| std::cmp::Reverse(p.bytes));
     a
+}
+
+/// Só para ver: as linhas `R` viram a lista, e nada sai marcado como apagável.
+pub fn analisar_docker(distro: &str) -> Result<Analise, String> {
+    let prazo = (PRAZO_ANALISE.as_secs() - 10).to_string();
+    let saida = wsl::executar_longo(&["-d", distro, "-u", "root", "--exec", "timeout", "-k", "5", &prazo, "sh", "-c", SCRIPT_ANALISE_DOCKER], PRAZO_ANALISE)?;
+    if !saida.status.success() {
+        return Err(format!("não foi possível ler o disco do Docker: {}", wsl::motivo_da_falha(&saida)));
+    }
+    let mut a = ler_analise(distro, &wsl::decodificar(&saida.stdout), &[]);
+    a.raiz.retain(|p| p.bytes > 0);
+    a.raiz.truncate(MAIORES_DO_DOCKER);
+    a.so_leitura = true;
+    Ok(a)
 }
 
 pub fn analisar(distro: &str, montagens: &[(String, String, String)]) -> Result<Analise, String> {
