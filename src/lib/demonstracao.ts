@@ -287,19 +287,21 @@ export function criarDemonstracao(): Api {
     lido_ms: tresHorasAtras,
   };
   let dockerLido: EspacoDocker = { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: tresHorasAtras };
-  const disco = '/mnt/docker-desktop-disk/data';
+  const disco = '/mnt/docker-desktop-disk';
   const analiseDockerDemo: AnalisePastas = {
     distro: 'docker-desktop',
     so_leitura: true,
     analisado_ms: 0,
     raiz: (
       [
-        ['desktop-containerd/daemon', 38.2],
-        ['docker/volumes/loja_postgres-dados', 12.6],
-        ['docker/volumes/blog_mysql', 4.1],
-        ['docker/volumes/loja_redis', 0.8],
-        ['docker/buildkit', 0.6],
-        ['docker/containers', 0.1],
+        ['data/desktop-containerd/daemon', 38.2],
+        ['data/docker/volumes/loja_postgres-dados', 12.6],
+        ['data/docker/volumes/blog_mysql', 4.1],
+        ['data/docker/volumes/loja_redis', 0.8],
+        ['data/docker/buildkit', 0.6],
+        ['data/docker/containers', 0.1],
+        ['isocache/entries/docker-wsl-cli.iso', 0.8],
+        ...Array.from({ length: 14 }, (_, i): [string, number] => [`data/docker/volumes/ci-cache-${i + 1}`, 0.35 - i * 0.02]),
       ] as [string, number][]
     ).map(([p, gb]) => ({ caminho: `${disco}/${p}`, bytes: gb * GIB, modificado_ms: null, em_uso_por: null, apagavel: false })),
     tmp: [],

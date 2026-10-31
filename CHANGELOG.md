@@ -36,6 +36,10 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   grandes, como o armazém de imagens. É só para ver, porque apagar ali por fora corrompe o
   Docker; liberar espaço continua pelo Espaço do Docker. Medido num disco com 115 GB ocupados:
   de 32 s a 60 s.
+- O resultado da análise de pastas virou uma lista de grupos, igual em qualquer distro: seus
+  arquivos, programas, dados do sistema, temporários. No disco do Docker, os grupos são os dele:
+  volumes, imagens, cache de build, containers. Cada grupo diz o que guarda, quanto ocupa e que
+  parte é do total; grupo comprido mostra os 8 maiores e abre o resto a pedido.
 - Na aba Distros, a docker-desktop mostra o Excluir desabilitado, com uma nota explicando que o
   Docker Desktop a recria ao abrir e que os dados dele ficam num disco à parte.
 - Quando devolver o cache falhava, o aviso dizia só "Ubuntu recusou:", sem motivo: o app lia

@@ -639,7 +639,6 @@ du -x -m -d4 . 2>/dev/null | awk -F'\t' '
   $2 ~ /^\.\/data\/docker\/volumes\/[^\/]+$/ { print "R\t" $1 "\t0\t/mnt/docker-desktop-disk/" substr($2, 3); next }
   $2 ~ /^\.\/[^\/]+\/[^\/]+\/[^\/]+$/ && $2 != "./data/docker/volumes" { print "R\t" $1 "\t0\t/mnt/docker-desktop-disk/" substr($2, 3) }'
 "#;
-const MAIORES_DO_DOCKER: usize = 25;
 
 fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]) -> Analise {
     let mut a = Analise { distro: distro.to_string(), ..Default::default() };
@@ -689,7 +688,6 @@ pub fn analisar_docker(distro: &str) -> Result<Analise, String> {
     }
     let mut a = ler_analise(distro, &wsl::decodificar(&saida.stdout), &[]);
     a.raiz.retain(|p| p.bytes > 0);
-    a.raiz.truncate(MAIORES_DO_DOCKER);
     a.so_leitura = true;
     Ok(a)
 }

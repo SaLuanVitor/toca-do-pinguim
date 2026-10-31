@@ -17,6 +17,7 @@
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
   import Girando from './Girando.svelte';
+  import PastasAnalisadas from './PastasAnalisadas.svelte';
   import type {
     DiscoVirtual,
     LimpezaDocker,
@@ -425,10 +426,8 @@
           {analise.analisado_ms ? `Analisada em ${data.format(analise.analisado_ms)}.` : ''}
           {analiseVelha && !analise.so_leitura ? 'Para apagar, analise de novo: a lista pode ter mudado desde então.' : ''}
         </p>
-        <h3>{analise.so_leitura ? 'Maiores pastas do disco de dados do Docker' : 'Maiores pastas da raiz'}</h3>
-        <ul class="raiz">
-          {#each analise.raiz as p (p.caminho)}<li><code>{p.caminho}</code> <span class="numero">{bytes(p.bytes)}</span></li>{/each}
-        </ul>
+        <h3>{analise.so_leitura ? 'O que ocupa o disco de dados do Docker' : 'O que ocupa a distro'}</h3>
+        <PastasAnalisadas {analise} />
         {#if !analise.so_leitura}
 
         <h3>/tmp</h3>
