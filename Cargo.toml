@@ -4,7 +4,7 @@ members = ["crates/protocolo", "crates/agente", "src-tauri"]
 
 # A versão é copiada do package.json por scripts/sincronizar-versao.mjs; não edite à mão.
 [workspace.package]
-version = "0.11.0"
+version = "0.12.0"
 license = "MIT"
 
 [workspace.dependencies]
