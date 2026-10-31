@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::agentes::Agentes;
-use crate::armazenamento::{self, Analise, EspacoDocker, ProjetoDocker, Volume};
+use crate::armazenamento::{self, Analise, Discos, EspacoDocker, Leituras, ProjetoDocker, Volume};
 use crate::cache::{self, Devolucao, LimpezaProgramada, Preferencias};
 use crate::docker::{self, Conteiner};
 
@@ -66,14 +66,20 @@ pub struct Recursos {
     pub devolucao: Mutex<Option<Devolucao>>,
     pub preferencias: Mutex<Preferencias>,
     caminho_preferencias: PathBuf,
-    /// Última análise de pastas de cada distro: só se apaga o que ela marcou como apagável.
+    /// Última análise de pastas de cada distro: só se apaga o que ela marcou como apagável. Fica
+    /// também em `analises.json`, para a tela reabrir com ela.
     pub analises: Mutex<std::collections::HashMap<String, Analise>>,
+    caminho_analises: PathBuf,
     /// Volumes sem uso da última leitura do Docker, os únicos que a limpeza aceita.
     pub volumes_sem_uso: Mutex<Vec<Volume>>,
     /// Projetos do Compose da última leitura do Docker, os únicos que a limpeza por projeto aceita.
     pub projetos_docker: Mutex<Vec<ProjetoDocker>>,
     /// A última leitura do espaço do Docker, para a aba Disco abrir já com ela.
     pub espaco_docker: Mutex<Option<EspacoDocker>>,
+    /// A última leitura dos discos. Esta e a do Docker ficam também em `leituras.json`, para a
+    /// aba abrir com elas logo que o app abre.
+    pub discos: Mutex<Option<Discos>>,
+    caminho_leituras: PathBuf,
     /// Uma leitura do espaço do Docker por vez: a aba e a leitura antecipada não somam carga.
     leitura_docker: Mutex<()>,
 }
@@ -81,6 +87,16 @@ pub struct Recursos {
 impl Recursos {
     pub fn novo(dados: &Path) -> Self {
         let caminho_preferencias = Preferencias::caminho(dados);
+        let caminho_analises = dados.join("analises.json");
+        let caminho_leituras = dados.join("leituras.json");
+        let leituras: Leituras = std::fs::read_to_string(&caminho_leituras)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let analises = std::fs::read_to_string(&caminho_analises)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
         Recursos {
             memoria: Mutex::default(),
             docker: Mutex::default(),
@@ -90,10 +106,13 @@ impl Recursos {
             devolucao: Mutex::new(None),
             preferencias: Mutex::new(Preferencias::ler(&caminho_preferencias)),
             caminho_preferencias,
-            analises: Mutex::default(),
+            analises: Mutex::new(analises),
+            caminho_analises,
             volumes_sem_uso: Mutex::default(),
             projetos_docker: Mutex::default(),
-            espaco_docker: Mutex::default(),
+            espaco_docker: Mutex::new(leituras.espaco_docker),
+            discos: Mutex::new(leituras.discos),
+            caminho_leituras,
             leitura_docker: Mutex::default(),
         }
     }
@@ -164,7 +183,33 @@ impl Recursos {
             }
         };
         *self.espaco_docker.lock().unwrap() = Some(lido.clone());
+        self.gravar_leituras();
         lido
+    }
+
+    pub fn guardar_discos(&self, discos: Discos) {
+        *self.discos.lock().unwrap() = Some(discos);
+        self.gravar_leituras();
+    }
+
+    /// Falha ao gravar só vai para o log: a leitura continua valendo nesta sessão.
+    fn gravar_leituras(&self) {
+        let leituras = Leituras { discos: self.discos.lock().unwrap().clone(), espaco_docker: self.espaco_docker.lock().unwrap().clone() };
+        let texto = serde_json::to_string(&leituras).unwrap_or_default();
+        if let Err(e) = std::fs::write(&self.caminho_leituras, texto) {
+            warn!("não foi possível gravar a leitura dos discos: {e}");
+        }
+    }
+
+    /// Guarda a análise na memória e no arquivo. Falha ao gravar só vai para o log: a análise
+    /// continua valendo nesta sessão.
+    pub fn guardar_analise(&self, mudar: impl FnOnce(&mut std::collections::HashMap<String, Analise>)) {
+        let mut analises = self.analises.lock().unwrap();
+        mudar(&mut analises);
+        let texto = serde_json::to_string(&*analises).unwrap_or_default();
+        if let Err(e) = std::fs::write(&self.caminho_analises, texto) {
+            warn!("não foi possível gravar a análise de pastas: {e}");
+        }
     }
 
     pub fn pedir_atualizacao(&self) {

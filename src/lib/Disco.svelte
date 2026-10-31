@@ -1,10 +1,12 @@
 <script lang="ts" module>
-  import type { Discos, EspacoDocker } from './tipos';
+  import type { AnalisePastas, Discos, EspacoDocker } from './tipos';
 
   // A última leitura vive enquanto o app estiver aberto: voltar à aba mostra o que já se sabe
   // na hora, e a leitura nova chega por cima.
   let guardadosDiscos: Discos | null = null;
   let guardadoDocker: EspacoDocker | null = null;
+  // A análise de pastas leva minutos: trocar de aba não a perde, e o app guarda a de cada distro.
+  const guardadasAnalises: Record<string, AnalisePastas> = {};
 </script>
 
 <script lang="ts">
@@ -14,8 +16,9 @@
   import { api } from './api';
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
+  import Girando from './Girando.svelte';
+  import PastasAnalisadas from './PastasAnalisadas.svelte';
   import type {
-    AnalisePastas,
     DiscoVirtual,
     LimpezaDocker,
     LimpezaProgramada,
@@ -34,6 +37,12 @@
   const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
   let limpando = $state<string | null>(null);
   let resultado = $state('');
+  // O resultado de uma limpeza do Docker aparece na própria seção: o do topo fica fora da vista
+  // de quem está lá embaixo. Enquanto o Docker é relido depois dela, os números são os de antes
+  // da limpeza, e os botões esperam.
+  let resultadoDocker = $state('');
+  let conferindo = $state(false);
+  const bloqueado = $derived(!!limpando || conferindo);
 
   let distro = $state('');
   let analise = $state<AnalisePastas | null>(null);
@@ -54,12 +63,13 @@
     'Build Cache': 'Cache de build',
   };
 
-  async function lerDiscos() {
+  async function lerDiscos(forcar: boolean) {
     lendo = true;
     try {
-      const d = await api.lerDiscos();
+      const d = await api.lerDiscos(forcar);
       discos = guardadosDiscos = d;
       if (!d.distros.includes(distro)) distro = d.distros_ligadas[0] ?? d.distros[0] ?? '';
+      if (!forcar && Date.now() - d.lido_ms > VELHA_MS) await lerDiscos(true);
     } catch (e) {
       estado.avisar(String(e));
     } finally {
@@ -82,9 +92,18 @@
   }
 
   /** Discos e Docker ao mesmo tempo; cada parte aparece quando a sua leitura volta. */
-  function ler(forcarDocker = true) {
-    lerDiscos();
-    lerDocker(forcarDocker);
+  function ler(forcar = true) {
+    lerDiscos(forcar);
+    lerDocker(forcar);
+  }
+
+  async function conferirDepoisDeLimpar() {
+    conferindo = true;
+    try {
+      await Promise.all([lerDiscos(true), lerDocker(true)]);
+    } finally {
+      conferindo = false;
+    }
   }
 
   function categoria(tipo: string) {
@@ -98,16 +117,17 @@
       acao: 'Apagar',
       executar: async () => {
         limpando = qual;
-        resultado = '';
+        resultadoDocker = '';
         try {
           const liberado = await api.limparDocker(qual, volumes);
-          resultado = `${titulo.replace(/\?$/, '')}: ${bytes(liberado)} liberados dentro do disco do Docker.`;
-          await ler();
+          resultadoDocker = `${titulo.replace(/\?$/, '')}: ${bytes(liberado)} liberados dentro do disco do Docker.`;
         } catch (e) {
           estado.avisar(String(e));
+          return;
         } finally {
           limpando = null;
         }
+        await conferirDepoisDeLimpar();
       },
     };
   }
@@ -153,19 +173,46 @@
 
   const volumesEscolhidos = $derived(espaco?.docker?.volumes_sem_uso.filter((v) => volumesMarcados[v.nome]) ?? []);
 
-  const ligada = (d: string) => !!dados?.distros_ligadas.includes(d);
+  const DOCKER = 'docker-desktop';
+  // A do Docker não entra em distros_ligadas, que guia a escolha inicial; o estado dela vem da
+  // lista de distros.
+  const ligada = (d: string) =>
+    d === DOCKER ? !!estado.distros.find((x) => x.nome === d)?.rodando : !!dados?.distros_ligadas.includes(d);
+  const rotuloAnalisar = $derived(
+    distro === DOCKER && !ligada(distro) ? 'Ligue o Docker Desktop' : ligada(distro) ? 'Analisar' : 'Ligar e analisar',
+  );
 
   // O Docker só aparece na máquina que o tem: disco de dados dele, distro dele ou leitura dele.
   const temDocker = $derived(
     !!espaco?.docker || !!espaco?.erro || !!discos?.discos.some((d) => d.nome.startsWith('Docker') || d.nome.startsWith('docker-desktop')),
   );
 
+  // Ao escolher a distro, volta a última análise dela: a desta sessão ou a que o app guardou.
+  $effect(() => {
+    const alvo = distro;
+    if (!alvo || analisando) return;
+    if (guardadasAnalises[alvo]) {
+      analise = guardadasAnalises[alvo];
+      return;
+    }
+    analise = null;
+    api.ultimaAnalise(alvo).then(
+      (a) => {
+        if (a && distro === alvo) analise = guardadasAnalises[alvo] = a;
+      },
+      () => {},
+    );
+  });
+
+  const MEIA_HORA_MS = 30 * 60 * 1000;
+  const analiseVelha = $derived(!!analise && Date.now() - analise.analisado_ms > MEIA_HORA_MS);
+
   async function rodarAnalise(alvo: string, ligar: boolean) {
     analisando = true;
     analise = null;
     marcadas = {};
     try {
-      analise = await api.analisarPastas(alvo, ligar);
+      analise = guardadasAnalises[alvo] = await api.analisarPastas(alvo, ligar);
       if (ligar) await ler();
     } catch (e) {
       estado.avisar(String(e));
@@ -175,7 +222,7 @@
   }
 
   function analisar() {
-    if (!distro) return;
+    if (!distro || (distro === DOCKER && !ligada(distro))) return;
     if (ligada(distro)) {
       rodarAnalise(distro, false);
       return;
@@ -196,16 +243,17 @@
       acao: 'Apagar',
       executar: async () => {
         limpando = `parados:${p.nome}`;
-        resultado = '';
+        resultadoDocker = '';
         try {
           const liberado = await api.limparParadosDoProjeto(p.nome);
-          resultado = `Containers parados de ${p.nome} apagados: ${bytes(liberado)} liberados dentro do disco do Docker.`;
-          await ler();
+          resultadoDocker = `Containers parados de ${p.nome} apagados: ${bytes(liberado)} liberados dentro do disco do Docker.`;
         } catch (e) {
           estado.avisar(String(e));
+          return;
         } finally {
           limpando = null;
         }
+        await conferirDepoisDeLimpar();
       },
     };
   }
@@ -236,7 +284,7 @@
           const liberado = await api.apagarPastas(alvo, lista);
           resultado = `${bytes(liberado)} liberados dentro do disco de ${alvo}.`;
           if (analise) {
-            analise = {
+            analise = guardadasAnalises[alvo] = {
               ...analise,
               tmp: analise.tmp.filter((p) => !lista.includes(p.caminho)),
               caches: analise.caches.map((p) => (lista.includes(p.caminho) ? { ...p, bytes: 0 } : p)),
@@ -267,12 +315,19 @@
     return p.modificado_ms ? data.format(p.modificado_ms) : '';
   }
 
+  /** "às 14:02" para hoje, "em 30/10, 14:02" para outro dia. */
+  function lidoEm(ms: number): string {
+    return new Date(ms).toDateString() === new Date().toDateString() ? `às ${hora.format(ms)}` : `em ${data.format(ms)}`;
+  }
+
   onMount(() => ler(false));
 </script>
 
 <div class="rolagem">
   <div class="topo">
-    <button class="botao" onclick={() => ler()} disabled={lendo || lendoDocker}>{lendo || lendoDocker ? 'Lendo' : 'Atualizar'}</button>
+    <button class="botao" onclick={() => ler()} disabled={lendo || lendoDocker}>
+      {#if lendo || lendoDocker}<Girando /> Lendo{:else}Atualizar{/if}
+    </button>
   </div>
   {#if resultado}<p class="resultado" role="status">{resultado}</p>{/if}
 
@@ -281,9 +336,17 @@
       <h2 id="titulo-discos">Discos virtuais</h2>
       <span>Cada distro guarda os arquivos num disco virtual (.vhdx) no Windows</span>
     </div>
-    {#if !dados}
-      <p class="nota">{lendo ? 'Lendo os discos.' : 'Sem dados.'}</p>
-    {:else}
+    <p class="nota leitura" role="status">
+      {#if lendo}<Girando />{/if}
+      {#if !dados}
+        {lendo
+          ? 'Lendo os discos pela primeira vez. Aguarde alguns segundos; das próximas vezes, a última leitura aparece na hora.'
+          : 'Sem dados.'}
+      {:else}
+        Lido {lidoEm(dados.lido_ms)}{lendo ? '; atualizando' : ''}.
+      {/if}
+    </p>
+    {#if dados}
       <table>
         <thead>
           <tr>
@@ -330,26 +393,42 @@
       <h2 id="titulo-pastas">Dentro de uma distro</h2>
       <span>As pastas que mais ocupam o disco virtual</span>
     </div>
-    {#if dados && dados.distros.length === 0}
+    {#if !dados}
+      <p class="nota leitura">
+        {#if lendo}<Girando />{/if}{lendo ? 'Aguardando a lista de distros.' : 'Sem dados.'}
+      </p>
+    {:else if dados.distros.length === 0}
       <p class="nota">Nenhuma distro instalada.</p>
     {:else}
       <div class="analisar">
         <label>
           Distro
           <select bind:value={distro}>
-            {#each dados?.distros ?? [] as d (d)}<option value={d}>{d}{ligada(d) ? '' : ' (desligada)'}</option>{/each}
+            {#each dados?.distros ?? [] as d (d)}
+              <option value={d}>{d}{ligada(d) ? '' : d === DOCKER ? ' (Docker Desktop fechado)' : ' (desligada)'}</option>
+            {/each}
           </select>
         </label>
-        <button class="botao" onclick={analisar} disabled={analisando || !distro}
-          >{analisando ? 'Analisando' : ligada(distro) ? 'Analisar' : 'Ligar e analisar'}</button
-        >
+        <button class="botao" onclick={analisar} disabled={analisando || !distro || (distro === DOCKER && !ligada(distro))}>
+          {#if analisando}<Girando /> Analisando{:else}{rotuloAnalisar}{/if}
+        </button>
         {#if analisando}<span class="nota">Percorre o disco inteiro da distro; pode levar alguns minutos.</span>{/if}
       </div>
+      {#if distro === DOCKER}
+        <p class="nota">
+          A docker-desktop em si ocupa pouco: a análise lê o disco de dados do Docker, onde ficam imagens, volumes e
+          cache. É só para ver, porque apagar ali por fora corrompe o Docker; para liberar espaço, use Espaço do Docker,
+          logo abaixo.
+        </p>
+      {/if}
       {#if analise}
-        <h3>Maiores pastas da raiz</h3>
-        <ul class="raiz">
-          {#each analise.raiz as p (p.caminho)}<li><code>{p.caminho}</code> <span class="numero">{bytes(p.bytes)}</span></li>{/each}
-        </ul>
+        <p class="nota" role="status">
+          {analise.analisado_ms ? `Analisada em ${data.format(analise.analisado_ms)}.` : ''}
+          {analiseVelha && !analise.so_leitura ? 'Para apagar, analise de novo: a lista pode ter mudado desde então.' : ''}
+        </p>
+        <h3>{analise.so_leitura ? 'O que ocupa o disco de dados do Docker' : 'O que ocupa a distro'}</h3>
+        <PastasAnalisadas {analise} />
+        {#if !analise.so_leitura}
 
         <h3>/tmp</h3>
         <p class="nota">
@@ -389,26 +468,27 @@
           {/each}
         </ul>
         <div class="analisar">
-          <button class="botao perigo" disabled={!!limpando || escolhidas.length === 0} onclick={apagarPastas}>
+          <button class="botao perigo" disabled={bloqueado || escolhidas.length === 0} onclick={apagarPastas}>
             {limpando === 'pastas' ? 'Apagando' : `Apagar os marcados (${bytes(escolhidasBytes)})`}
           </button>
         </div>
+        {/if}
       {/if}
     {/if}
   </section>
 
   {#if temDocker}
-  <section class="cartao" aria-labelledby="titulo-docker-armazenamento">
+  <section class="cartao" class:desatualizada={conferindo} aria-labelledby="titulo-docker-armazenamento">
     <div class="cabeca">
       <h2 id="titulo-docker-armazenamento">Espaço do Docker</h2>
       <span
-        >Recuperável segundo o próprio Docker{espaco ? `, lido às ${hora.format(espaco.lido_ms)}` : ''}{lendoDocker
-          ? '; atualizando'
-          : ''}</span
+        >{#if lendoDocker}<Girando tamanho={12} />{/if} Recuperável segundo o próprio Docker{espaco
+          ? `, lido ${lidoEm(espaco.lido_ms)}`
+          : ''}{lendoDocker ? '; atualizando' : ''}</span
       >
     </div>
     {#if !espaco}
-      <p class="nota">Lendo o Docker. Ele leva alguns segundos para responder.</p>
+      <p class="nota leitura" role="status"><Girando /> Lendo o Docker. Ele leva alguns segundos para responder.</p>
     {:else if !espaco.docker && !espaco.erro}
       <p class="nota">O Docker Desktop não está ligado.</p>
     {:else if espaco.erro}
@@ -418,6 +498,12 @@
       {@const containers = categoria('Containers')}
       {@const volumes = categoria('Local Volumes')}
       {@const build = categoria('Build Cache')}
+      {#if resultadoDocker || conferindo}
+        <p class="resultado leitura" role="status">
+          {#if conferindo}<Girando />{/if}
+          {resultadoDocker}{conferindo ? ' Atualizando os números do Docker; até lá, a tabela mostra os de antes da limpeza.' : ''}
+        </p>
+      {/if}
       <table>
         <thead>
           <tr>
@@ -436,7 +522,7 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || imagens.recuperavel_bytes === 0}
+                  disabled={bloqueado || imagens.recuperavel_bytes === 0}
                   onclick={() =>
                     limparDocker(
                       'imagens_sem_uso',
@@ -455,7 +541,7 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || espaco.docker.sobras === 0}
+                  disabled={bloqueado || espaco.docker.sobras === 0}
                   title="Containers parados sem projeto do Compose: {espaco.docker.sobras}, {bytes(espaco.docker.sobras_bytes)}"
                   onclick={() =>
                     limparDocker(
@@ -466,7 +552,7 @@
                 >
                 <button
                   class="botao"
-                  disabled={!!limpando || containers.quantidade === containers.ativos}
+                  disabled={bloqueado || containers.quantidade === containers.ativos}
                   onclick={() =>
                     limparDocker(
                       'parados',
@@ -505,7 +591,7 @@
                   </ul>
                   <button
                     class="botao perigo"
-                    disabled={!!limpando || volumesEscolhidos.length === 0}
+                    disabled={bloqueado || volumesEscolhidos.length === 0}
                     onclick={() =>
                       limparDocker(
                         'volumes',
@@ -526,7 +612,7 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || build.total_bytes === 0}
+                  disabled={bloqueado || build.total_bytes === 0}
                   onclick={() =>
                     limparDocker(
                       'cache_de_build',
@@ -568,12 +654,12 @@
                 <td class="numero">{bytes(p.containers_bytes + p.imagens_bytes + volumesBytes)}</td>
                 <td class="acao">
                   {#if p.parados}
-                    <button class="botao" disabled={!!limpando} onclick={() => apagarParadosDoProjeto(p)}
+                    <button class="botao" disabled={bloqueado} onclick={() => apagarParadosDoProjeto(p)}
                       >{limpando === `parados:${p.nome}` ? 'Apagando' : `Parados (${p.parados})`}</button
                     >
                   {/if}
                   {#if semUso.length}
-                    <button class="botao" disabled={!!limpando} onclick={() => apagarVolumesDoProjeto(p.nome, semUso)}
+                    <button class="botao" disabled={bloqueado} onclick={() => apagarVolumesDoProjeto(p.nome, semUso)}
                       >{limpando === 'volumes' ? 'Apagando' : `Volumes sem uso (${semUso.length})`}</button
                     >
                   {/if}
@@ -625,6 +711,8 @@
         Pasta montada por container rodando fica de fora. Cada limpeza vai para a Atividade com o quanto liberou.
         {dados.limpeza.ultima_ms ? `A última foi em ${data.format(dados.limpeza.ultima_ms)}.` : 'Nenhuma rodou ainda.'}
       </p>
+    {:else if lendo}
+      <p class="nota">As opções aparecem quando a leitura dos discos terminar.</p>
     {/if}
   </section>
 </div>
@@ -642,6 +730,20 @@
   .topo {
     display: flex;
     justify-content: flex-end;
+  }
+
+  .topo .botao {
+    gap: 6px;
+  }
+
+  .desatualizada table {
+    opacity: 0.55;
+  }
+
+  .leitura {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .cartao {

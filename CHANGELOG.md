@@ -5,6 +5,50 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.12.0] - 2026-10-31
+
+### Adicionado
+
+- **Excluir distro.** Na aba Distros, o botão Excluir aparece em toda distro que não é do Docker
+  Desktop e só funciona com ela parada. Para confirmar, digita-se o nome dela; opcionalmente, o
+  app exporta antes uma cópia em `.tar`, que volta com `wsl --import`, e se a cópia falhar nada é
+  excluído. No fim, o app diz quanto espaço liberou e registra a exclusão na Atividade.
+- Um botão **?** ao lado de Devolver o cache, em Desempenho > Memória e na opção automática,
+  explica o que é esse cache e quando devolvê-lo vale a pena.
+
+### Corrigido
+
+- A análise de pastas, em Desempenho > Disco, se perdia ao trocar de aba ou fechar o app, e
+  levava minutos para refazer. Agora a última análise de cada distro fica guardada, aparece ao
+  voltar, com a hora em que foi feita, e só serve para apagar pastas enquanto tiver menos de
+  30 min; depois disso, a tela pede uma análise nova antes de apagar.
+- A aba Desempenho > Disco abria vazia a cada abertura do app até a leitura terminar, e não
+  mostrava que estava lendo. Agora a última leitura dos discos e do Docker fica gravada e aparece
+  na hora, com a hora em que foi feita, enquanto uma nova é lida por trás; um indicador girando
+  marca o que está sendo lido. Sem leitura guardada, cada seção diz que está aguardando, desde o
+  primeiro instante. Medido com a versão de depuração: na primeira abertura, discos em
+  4,8 s e Docker em 12,1 s; na seguinte, os dois em 1,3 s.
+- Depois de uma limpeza do Docker, o resultado aparecia no topo da página, fora da vista de quem
+  estava na seção do Docker, e a tabela continuava com os números de antes até a releitura
+  terminar, uns 10 s depois: a limpeza parecia não ter acontecido, e um segundo clique não tinha o
+  que apagar. Agora o resultado aparece na própria seção, e a tabela fica esmaecida, com os botões
+  desabilitados, até os números novos chegarem.
+- Dentro de uma distro, a lista agora inclui a docker-desktop. A raiz dela ocupa perto de
+  0,1 GB, então a análise lê o disco de dados do Docker: cada volume pelo nome e as outras pastas
+  grandes, como o armazém de imagens. É só para ver, porque apagar ali por fora corrompe o
+  Docker; liberar espaço continua pelo Espaço do Docker. Medido num disco com 115 GB ocupados:
+  de 32 s a 60 s.
+- O resultado da análise de pastas virou uma lista de grupos, igual em qualquer distro: seus
+  arquivos, programas, dados do sistema, temporários. No disco do Docker, os grupos são os dele:
+  volumes, imagens, cache de build, containers. Cada grupo diz o que guarda, quanto ocupa e que
+  parte é do total; grupo comprido mostra os 8 maiores e abre o resto a pedido.
+- Na aba Distros, a docker-desktop mostra o Excluir desabilitado, com uma nota explicando que o
+  Docker Desktop a recria ao abrir e que os dados dele ficam num disco à parte.
+- Quando devolver o cache falhava, o aviso dizia só "Ubuntu recusou:", sem motivo: o app lia
+  apenas a saída de erro, e o `wsl.exe` escreve os próprios erros na saída comum. Agora o aviso
+  traz o texto das duas e, sem texto nenhum, o código de saída; o log também registra esse
+  motivo em toda chamada longa ao WSL que falha.
+
 ## [0.11.0] - 2026-10-30
 
 ### Adicionado
@@ -306,7 +350,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.1...v0.9.0

@@ -191,7 +191,7 @@ fn esvaziar(agentes: &Agentes, automatica: bool) -> Result<u64, String> {
     info!("devolvendo o cache da VM por {distro} ({})", if automatica { "automático" } else { "a pedido" });
     let saida = wsl::executar_longo(&["-d", &distro, "-u", "root", "--exec", "sh", "-c", ESVAZIAR], PRAZO_ESVAZIAR)?;
     if !saida.status.success() {
-        return Err(format!("{distro} recusou: {}", wsl::decodificar(&saida.stderr).trim()));
+        return Err(format!("{distro} não devolveu o cache: {}", wsl::motivo_da_falha(&saida)));
     }
     Ok(antes)
 }

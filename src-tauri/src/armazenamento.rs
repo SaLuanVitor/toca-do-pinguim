@@ -29,7 +29,7 @@ const ROTULO_PROJETO: &str = "com.docker.compose.project=";
 /// Abaixo disso, desligar o WSL e pedir administrador não compensa.
 const MINIMO_PARA_COMPACTAR: u64 = 1 << 30;
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DiscoVirtual {
     /// Distro dona do disco, ou "Docker (dados)".
     pub nome: String,
@@ -45,7 +45,7 @@ pub struct DiscoVirtual {
     pub compactavel: bool,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Categoria {
     /// Images, Containers, Local Volumes ou Build Cache, como o Docker escreve.
     pub tipo: String,
@@ -55,13 +55,13 @@ pub struct Categoria {
     pub ativos: u64,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Volume {
     pub nome: String,
     pub bytes: u64,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct VolumeProjeto {
     pub nome: String,
     pub bytes: u64,
@@ -70,7 +70,7 @@ pub struct VolumeProjeto {
 }
 
 /// O espaço em disco de um projeto do Docker Compose.
-#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct ProjetoDocker {
     pub nome: String,
     pub containers: u32,
@@ -88,7 +88,7 @@ impl ProjetoDocker {
     }
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ResumoDocker {
     pub categorias: Vec<Categoria>,
     /// Volumes que nenhum container usa, do maior para o menor.
@@ -102,14 +102,34 @@ pub struct ResumoDocker {
 
 /// A última leitura do espaço do Docker. `docker` e `erro` vazios: o Docker Desktop não estava
 /// ligado quando o app leu.
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EspacoDocker {
     pub docker: Option<ResumoDocker>,
     pub erro: Option<String>,
     pub lido_ms: u64,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+/// Os discos, a limpeza programada e as distros, como a aba Disco os mostra.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Discos {
+    pub discos: Vec<DiscoVirtual>,
+    pub limpeza: crate::cache::LimpezaProgramada,
+    pub distros_ligadas: Vec<String>,
+    /// Todas as registradas, ligadas ou não, para a análise de pastas.
+    pub distros: Vec<String>,
+    #[serde(default)]
+    pub lido_ms: u64,
+}
+
+/// O que a aba Disco leu por último, gravado em `leituras.json` para a tela abrir com isso
+/// enquanto lê de novo.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Leituras {
+    pub discos: Option<Discos>,
+    pub espaco_docker: Option<EspacoDocker>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Pasta {
     pub caminho: String,
     pub bytes: u64,
@@ -119,9 +139,15 @@ pub struct Pasta {
     pub apagavel: bool,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Analise {
     pub distro: String,
+    /// Análise só para ver: a do disco de dados do Docker, onde quem apaga é o próprio Docker.
+    #[serde(default)]
+    pub so_leitura: bool,
+    /// Quando a análise terminou; a tela mostra, e apagar exige que seja recente.
+    #[serde(default)]
+    pub analisado_ms: u64,
     pub raiz: Vec<Pasta>,
     pub tmp: Vec<Pasta>,
     pub caches: Vec<Pasta>,
@@ -301,6 +327,53 @@ fn arquivos_de_swap() -> Vec<PathBuf> {
 
 fn caminho_do_wslconfig(valor: &str) -> PathBuf {
     PathBuf::from(valor.trim().trim_matches('"').replace(r"\\", r"\"))
+}
+
+/// Pasta da distro e os discos dela com o tamanho de cada um, para a exclusão dizer quanto
+/// liberou. `None` se ela não está registrada.
+pub fn discos_da_distro(nome: &str) -> Option<(PathBuf, Vec<(PathBuf, u64)>)> {
+    let r = registradas().into_iter().find(|r| r.nome == nome)?;
+    let discos = std::fs::read_dir(&r.base)
+        .map(|entradas| {
+            entradas
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("vhdx")))
+                .map(|p| {
+                    let tamanho = std::fs::metadata(&p).map_or(0, |m| m.len());
+                    (p, tamanho)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some((r.base, discos))
+}
+
+/// O destino da cópia antes de excluir: um `.tar` novo, numa pasta que existe, fora da pasta
+/// da distro, que o `--unregister` apaga inteira (medido numa distro importada).
+pub fn validar_destino(destino: &Path, base: &Path) -> Result<(), String> {
+    if !destino.is_absolute() {
+        return Err("informe o caminho completo da cópia, com a unidade".to_string());
+    }
+    if !destino.extension().is_some_and(|x| x.eq_ignore_ascii_case("tar")) {
+        return Err("a cópia precisa terminar em .tar".to_string());
+    }
+    if destino.exists() {
+        return Err(format!("{} já existe; escolha outro nome", destino.display()));
+    }
+    let pasta = destino.parent().and_then(|p| p.canonicalize().ok()).filter(|p| p.is_dir());
+    let Some(pasta) = pasta else {
+        return Err("a pasta da cópia não existe".to_string());
+    };
+    if base.canonicalize().is_ok_and(|b| pasta.starts_with(b)) {
+        return Err("a cópia não pode ficar na pasta da própria distro".to_string());
+    }
+    Ok(())
+}
+
+/// A distro do Docker Desktop está registrada: a análise de pastas pode ler o disco dele.
+pub fn docker_registrada() -> bool {
+    registradas().iter().any(|r| r.nome == "docker-desktop")
 }
 
 /// Todas as distros registradas, ligadas ou não, menos as internas do Docker Desktop.
@@ -556,6 +629,17 @@ for p in __CACHES__; do [ -d "$p" ] || continue; mb=$(du -xsm "$p" 2>/dev/null |
 "#;
 const MAIORES_DA_RAIZ: usize = 12;
 
+/// O disco de dados do Docker Desktop, montado em `/mnt/docker-desktop-disk` na distro dele: a
+/// raiz da distro tem cerca de 0,1 GB, e o que ocupa espaço está ali. Cada volume pelo nome, que é legível, e as outras pastas no terceiro nível, como o
+/// armazém de imagens do containerd. O `du` e o `awk` são os do BusyBox: `-m` em vez de
+/// `-B1M`. Medido num disco com 115 GB ocupados: 32 s.
+const SCRIPT_ANALISE_DOCKER: &str = r#"
+cd /mnt/docker-desktop-disk || exit 3
+du -x -m -d4 . 2>/dev/null | awk -F'\t' '
+  $2 ~ /^\.\/data\/docker\/volumes\/[^\/]+$/ { print "R\t" $1 "\t0\t/mnt/docker-desktop-disk/" substr($2, 3); next }
+  $2 ~ /^\.\/[^\/]+\/[^\/]+\/[^\/]+$/ && $2 != "./data/docker/volumes" { print "R\t" $1 "\t0\t/mnt/docker-desktop-disk/" substr($2, 3) }'
+"#;
+
 fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]) -> Analise {
     let mut a = Analise { distro: distro.to_string(), ..Default::default() };
     let mut datas = std::collections::HashMap::new();
@@ -586,11 +670,26 @@ fn ler_analise(distro: &str, texto: &str, montagens: &[(String, String, String)]
     }
     a.raiz.retain(|p| p.caminho != "/");
     a.raiz.sort_by_key(|p| std::cmp::Reverse(p.bytes));
-    a.raiz.truncate(MAIORES_DA_RAIZ);
+    if !distro.starts_with("docker-desktop") {
+        a.raiz.truncate(MAIORES_DA_RAIZ);
+    }
     a.tmp.sort_by_key(|p| std::cmp::Reverse(p.bytes));
     a.tmp.truncate(40);
     a.caches.sort_by_key(|p| std::cmp::Reverse(p.bytes));
     a
+}
+
+/// Só para ver: as linhas `R` viram a lista, e nada sai marcado como apagável.
+pub fn analisar_docker(distro: &str) -> Result<Analise, String> {
+    let prazo = (PRAZO_ANALISE.as_secs() - 10).to_string();
+    let saida = wsl::executar_longo(&["-d", distro, "-u", "root", "--exec", "timeout", "-k", "5", &prazo, "sh", "-c", SCRIPT_ANALISE_DOCKER], PRAZO_ANALISE)?;
+    if !saida.status.success() {
+        return Err(format!("não foi possível ler o disco do Docker: {}", wsl::motivo_da_falha(&saida)));
+    }
+    let mut a = ler_analise(distro, &wsl::decodificar(&saida.stdout), &[]);
+    a.raiz.retain(|p| p.bytes > 0);
+    a.so_leitura = true;
+    Ok(a)
 }
 
 pub fn analisar(distro: &str, montagens: &[(String, String, String)]) -> Result<Analise, String> {
@@ -668,6 +767,24 @@ mod testes {
     use super::*;
 
     const MB: u64 = 1024 * 1024;
+
+    #[test]
+    fn so_aceita_tar_novo_em_pasta_que_existe_fora_da_distro() {
+        let raiz = std::env::temp_dir().join(format!("toca-destino-{}", std::process::id()));
+        let base = raiz.join("distro");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(raiz.join("existente.tar"), "x").unwrap();
+        let erro = |p: &Path| validar_destino(p, &base).unwrap_err();
+
+        assert!(validar_destino(&raiz.join("copia.tar"), &base).is_ok());
+        assert!(validar_destino(&raiz.join("COPIA.TAR"), &base).is_ok());
+        assert!(erro(Path::new("copia.tar")).contains("caminho completo"));
+        assert!(erro(&raiz.join("copia.zip")).contains(".tar"));
+        assert!(erro(&raiz.join("existente.tar")).contains("já existe"));
+        assert!(erro(&raiz.join("falta").join("copia.tar")).contains("não existe"));
+        assert!(erro(&base.join("copia.tar")).contains("própria distro"));
+        std::fs::remove_dir_all(&raiz).unwrap();
+    }
 
     #[test]
     fn le_o_usado_do_df_do_gnu_e_do_busybox() {

@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use agentes::Agentes;
+use armazenamento::Discos;
 use log::{info, warn};
 use atividade::Evento;
 use config::WslConfig;
@@ -117,6 +118,75 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), S
     .await
 }
 
+#[derive(Serialize)]
+struct Exclusao {
+    liberado_bytes: u64,
+    exportado: Option<String>,
+}
+
+/// Pasta sugerida para a cópia de uma distro antes de excluí-la.
+#[tauri::command]
+fn pasta_de_documentos() -> Option<String> {
+    let casa = std::path::PathBuf::from(std::env::var_os("USERPROFILE")?);
+    let documentos = casa.join("Documents");
+    Some(if documentos.is_dir() { documentos } else { casa }.display().to_string())
+}
+
+/// Só com a distro parada: excluir uma ligada encerraria o que roda nela sem aviso. Com
+/// `exportar_para`, a cópia vem antes, e se ela falhar nada é excluído.
+#[tauri::command]
+async fn excluir_distro(
+    app: tauri::AppHandle,
+    estado: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    nome: String,
+    exportar_para: Option<String>,
+) -> Result<Exclusao, String> {
+    if nome.starts_with(DISTRO_DOCKER) {
+        return Err("as distros do Docker Desktop se removem pelo próprio Docker".to_string());
+    }
+    let (agentes, recursos) = (Arc::clone(&estado), Arc::clone(&recursos));
+    bloqueante(move || {
+        info!("pedido: excluir {nome}");
+        let (base, discos) = armazenamento::discos_da_distro(&nome).ok_or_else(|| format!("{nome} não está registrada no WSL"))?;
+        let parada = || {
+            if wsl::rodando().contains(&nome) { Err(format!("{nome} está ligada; termine-a antes de excluir")) } else { Ok(()) }
+        };
+        parada()?;
+        let exportado = match exportar_para.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            None => None,
+            Some(destino) => {
+                let caminho = Path::new(destino);
+                armazenamento::validar_destino(caminho, &base)?;
+                info!("exportando {nome} para {destino}");
+                let copia = wsl::exportar(&nome, destino).and_then(|()| {
+                    if std::fs::metadata(caminho).map_or(0, |m| m.len()) > 0 { Ok(()) } else { Err("o arquivo saiu vazio".to_string()) }
+                });
+                if let Err(e) = copia {
+                    let _ = std::fs::remove_file(caminho);
+                    return Err(format!("a cópia falhou, e {nome} não foi excluída: {e}"));
+                }
+                Some(destino.to_string())
+            }
+        };
+        // A cópia pode levar minutos, e a distro pode ter sido ligada por fora nesse tempo.
+        parada()?;
+        agentes.parar(&nome);
+        wsl::excluir(&nome)?;
+        let liberado: u64 = discos.iter().filter(|(p, _)| !p.exists()).map(|(_, t)| t).sum();
+        recursos.guardar_analise(|a| {
+            a.remove(&nome);
+        });
+        let texto = match &exportado {
+            Some(d) => format!("O app excluiu a distro {nome} e liberou {} GB; a cópia ficou em {d}", recursos::gb(liberado)),
+            None => format!("O app excluiu a distro {nome} e liberou {} GB", recursos::gb(liberado)),
+        };
+        agentes.registrar(&app, "distro", Some(&nome), texto);
+        Ok(Exclusao { liberado_bytes: liberado, exportado })
+    })
+    .await
+}
+
 #[tauri::command]
 fn ler_segundo_plano(recursos: State<'_, Arc<Recursos>>) -> bandeja::SegundoPlano {
     bandeja::SegundoPlano {
@@ -202,30 +272,33 @@ async fn devolver_cache(app: tauri::AppHandle, agentes: Estado<'_>, recursos: St
     bloqueante(move || cache::devolver(app, agentes, recursos, false)).await
 }
 
-#[derive(Serialize)]
-struct Discos {
-    discos: Vec<armazenamento::DiscoVirtual>,
-    limpeza: cache::LimpezaProgramada,
-    distros_ligadas: Vec<String>,
-    /// Todas as registradas, ligadas ou não, para a análise de pastas.
-    distros: Vec<String>,
-}
-
 const DISTRO_DOCKER: &str = "docker-desktop";
 
 /// Os discos, a limpeza programada e as distros: o tamanho vem do arquivo e o ocupado de um `df`
-/// por distro ligada, então volta em menos de um segundo. O Docker vem à parte.
+/// por distro ligada. O Docker vem à parte. Sem `forcar`, devolve na hora a última leitura
+/// guardada, mesmo de uma abertura anterior do app, e a tela pede uma nova por trás; a limpeza e
+/// as distros ligadas vêm sempre do estado atual.
 #[tauri::command]
-async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Discos, String> {
+async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, forcar: bool) -> Result<Discos, String> {
+    let ligadas_agora = |agentes: &Agentes| agentes.ligadas().into_iter().filter(|d| d != DISTRO_DOCKER).collect::<Vec<_>>();
+    let guardada = if forcar { None } else { recursos.discos.lock().unwrap().clone() };
+    if let Some(mut g) = guardada {
+        g.limpeza = recursos.preferencias.lock().unwrap().limpeza.clone();
+        g.distros_ligadas = ligadas_agora(&agentes);
+        return Ok(g);
+    }
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         let ligadas = agentes.ligadas();
-        Ok(Discos {
+        let discos = Discos {
             discos: armazenamento::discos(&ligadas),
             limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
-            distros_ligadas: ligadas.into_iter().filter(|d| d != DISTRO_DOCKER).collect(),
-            distros: armazenamento::distros_registradas(),
-        })
+            distros_ligadas: ligadas_agora(&agentes),
+            distros: distros_para_analisar(),
+            lido_ms: agora_ms(),
+        };
+        recursos.guardar_discos(discos.clone());
+        Ok(discos)
     })
     .await
 }
@@ -246,10 +319,12 @@ async fn ler_espaco_docker(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos
 /// Lê o espaço do Docker uma vez, assim que ele estiver ligado, para a aba Disco já abrir com
 /// ele. Desiste depois de 10 min sem Docker: quem não tem Docker não paga nada.
 fn antecipar_espaco_docker(agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
+    // A leitura que veio do arquivo é de outra abertura: não conta como já lida.
+    let inicio = agora_ms();
     std::thread::spawn(move || {
         for _ in 0..60 {
             std::thread::sleep(std::time::Duration::from_secs(10));
-            if recursos.espaco_docker.lock().unwrap().is_some() {
+            if recursos.espaco_docker.lock().unwrap().as_ref().is_some_and(|e| e.lido_ms >= inicio) {
                 return;
             }
             if agentes.rodando(DISTRO_DOCKER) {
@@ -270,8 +345,14 @@ async fn analisar_pastas(
     distro: String,
     ligar: bool,
 ) -> Result<armazenamento::Analise, String> {
-    if distro.starts_with(DISTRO_DOCKER) || !armazenamento::distros_registradas().contains(&distro) {
+    if !distros_para_analisar().contains(&distro) {
         return Err(format!("{distro} não é uma distro que dê para analisar"));
+    }
+    let docker = distro == DISTRO_DOCKER;
+    // Ligar a distro do Docker por fora, sem o Docker Desktop, não serve: o disco de dados só é
+    // montado quando ele sobe.
+    if docker && !agentes.rodando(DISTRO_DOCKER) {
+        return Err("ligue o Docker Desktop para analisar o disco dele".to_string());
     }
     if !ligar && !agentes.rodando(&distro) {
         return Err(format!("{distro} está desligada; confirme para ligá-la e analisar"));
@@ -279,12 +360,42 @@ async fn analisar_pastas(
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         info!("pedido: analisar as pastas de {distro}");
-        let montagens = if agentes.rodando(DISTRO_DOCKER) { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
-        let analise = armazenamento::analisar(&distro, &montagens)?;
-        recursos.analises.lock().unwrap().insert(distro, analise.clone());
+        let mut analise = if docker {
+            armazenamento::analisar_docker(&distro)?
+        } else {
+            let montagens = if agentes.rodando(DISTRO_DOCKER) { armazenamento::resumo_docker().map(|(_, m)| m).unwrap_or_default() } else { Vec::new() };
+            armazenamento::analisar(&distro, &montagens)?
+        };
+        analise.analisado_ms = agora_ms();
+        let guardada = analise.clone();
+        recursos.guardar_analise(move |a| {
+            a.insert(distro, guardada);
+        });
         Ok(analise)
     })
     .await
+}
+
+const ANALISE_VALE_PARA_APAGAR_MS: u64 = 30 * 60 * 1000;
+
+/// As distros da análise de pastas: as registradas e, por último, a do Docker Desktop, cuja
+/// análise lê o disco de dados dele, só para ver.
+fn distros_para_analisar() -> Vec<String> {
+    let mut lista = armazenamento::distros_registradas();
+    if armazenamento::docker_registrada() {
+        lista.push(DISTRO_DOCKER.to_string());
+    }
+    lista
+}
+
+fn agora_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// A última análise guardada da distro, para a tela reabrir com ela sem ler de novo.
+#[tauri::command]
+fn ultima_analise(recursos: State<'_, Arc<Recursos>>, distro: String) -> Option<armazenamento::Analise> {
+    recursos.analises.lock().unwrap().get(&distro).cloned()
 }
 
 #[tauri::command]
@@ -296,16 +407,26 @@ async fn apagar_pastas(
     caminhos: Vec<String>,
 ) -> Result<u64, String> {
     let analise = recursos.analises.lock().unwrap().get(&distro).cloned().ok_or("analise a distro antes de apagar")?;
+    if analise.so_leitura {
+        return Err("o disco do Docker é só para ver; para liberar espaço, use Espaço do Docker".to_string());
+    }
+    // A análise guardada serve para mostrar; para apagar, ela precisa ser recente. Uma pasta do
+    // /tmp recriada depois dela pode ter trabalho novo com o mesmo nome.
+    if agora_ms().saturating_sub(analise.analisado_ms) > ANALISE_VALE_PARA_APAGAR_MS {
+        return Err("a análise tem mais de 30 min; analise de novo antes de apagar".to_string());
+    }
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         info!("pedido: apagar {} item(ns) de {distro}", caminhos.len());
         let liberado = armazenamento::apagar(&distro, &caminhos, &analise)?;
-        if let Some(a) = recursos.analises.lock().unwrap().get_mut(&distro) {
-            a.tmp.retain(|p| !caminhos.contains(&p.caminho));
-            for p in a.caches.iter_mut().filter(|p| caminhos.contains(&p.caminho)) {
-                p.bytes = 0;
+        recursos.guardar_analise(|analises| {
+            if let Some(a) = analises.get_mut(&distro) {
+                a.tmp.retain(|p| !caminhos.contains(&p.caminho));
+                for p in a.caches.iter_mut().filter(|p| caminhos.contains(&p.caminho)) {
+                    p.bytes = 0;
+                }
             }
-        }
+        });
         agentes.registrar(
             &app,
             "armazenamento",
@@ -684,6 +805,9 @@ pub fn run() {
             ler_discos,
             ler_espaco_docker,
             analisar_pastas,
+            ultima_analise,
+            pasta_de_documentos,
+            excluir_distro,
             apagar_pastas,
             compactar_disco,
             limpar_docker,

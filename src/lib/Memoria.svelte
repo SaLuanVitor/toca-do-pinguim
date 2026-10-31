@@ -8,6 +8,8 @@
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
   import Grafico from './Grafico.svelte';
+  import Ajuda from './Ajuda.svelte';
+  import { TEXTO_DEVOLVER_CACHE } from './textos';
   import LimiteMemoria from './LimiteMemoria.svelte';
   import LimitesMemoria from './LimitesMemoria.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
@@ -185,6 +187,7 @@
         {/if}
         <div class="devolver">
           <button class="botao" onclick={devolver} disabled={devolvendo}>{devolvendo ? 'Devolvendo' : 'Devolver o cache de arquivos agora'}</button>
+          <Ajuda assunto="devolver o cache de arquivos" texto={TEXTO_DEVOLVER_CACHE} />
           <span role="status">
             {devolucao
               ? resultado(devolucao)

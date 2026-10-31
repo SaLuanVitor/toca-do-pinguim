@@ -68,7 +68,7 @@ o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
 | Desempenho | três abas. **Processamento:** gráfico de CPU da VM, limite de processadores, CPU por distro. **Memória:** gráfico de RAM da VM, para onde vai a RAM do Windows, teto de memória da VM e gatilhos da devolução automática do cache de arquivos, RAM dos projetos do Docker (com parar, ligar e reiniciar o que está com problema) e RAM por distro. **Disco:** discos virtuais com o tamanho no Windows e o ocupado dentro, compactação, pastas maiores de qualquer distro instalada, espaço do Docker por categoria e por projeto do Compose, e limpeza semanal opcional |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
 | Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
-| Distros | iniciar, terminar, reiniciar e desligar o WSL |
+| Distros | iniciar, terminar, reiniciar, excluir (parada, com cópia opcional) e desligar o WSL |
 | Configurações | as 42 chaves do `.wslconfig` e as 19 do `/etc/wsl.conf` de cada distro, em grupos, com o padrão de cada uma e validação |
 | Log | o log técnico, por padrão só avisos e erros |
 
@@ -168,7 +168,10 @@ confirmação, e o WSL a desliga sozinho quando ela fica ociosa; medido num Ubun
 `du` levou 172 s com o cache de disco quente, e o app desiste em 20 min, com o `du` encerrado
 junto;
 só o que ela listou como removível pode ser apagado, e entrada do `/tmp` montada por um
-container ligado fica bloqueada.
+container ligado fica bloqueada. A última análise de cada distro fica em `analises.json`, na
+pasta de dados do app, e volta ao abrir a aba; apagar exige uma análise de menos de 30 min.
+A última leitura dos discos e do Docker fica em `leituras.json`, na mesma pasta: a aba abre com
+ela e lê de novo por trás quando ela tem mais de 1 min.
 
 **Compactar o disco.** O `.vhdx` cresce e não encolhe sozinho. O botão Compactar roda
 `fstrim` na distro, se ela estiver ligada, desliga o WSL e roda o `diskpart` (`attach vdisk
@@ -176,7 +179,14 @@ readonly`, `compact vdisk`, `detach vdisk`) como administrador, então o Windows
 permissão. É o caminho que existe no Windows 11 Home, que não tem `Optimize-VHD`. O Docker
 Desktop precisa estar fechado, porque ele religa o WSL logo depois do desligamento e prende o
 disco. Disco esparso não aparece com o botão, porque o Windows já o encolhe sozinho. Nada dentro
-do disco é apagado, e o WSL fica desligado no fim.
+do disco é apagado, e o WSL fica desligado no fim. Terminar só a distro não basta: medido no
+WSL 2.6.1, com a distro parada o disco dela continua preso à VM por mais de 3 min, e só o
+`--shutdown` o solta.
+
+**Excluir distro.** Só com a distro parada, conferida de novo logo antes de excluir. A cópia
+opcional é um `wsl --export` para um `.tar` novo, numa pasta que existe e fora da pasta da
+distro; medido, exportar uma distro parada não a liga. Depois vem o `wsl --unregister`, que,
+medido numa distro importada, apaga a pasta dela inteira, com o disco. As distros do Docker Desktop não têm o botão: elas se removem pelo próprio Docker.
 
 **Processos e containers presos.** O Linux não marca processo como travado; o app aponta
 sinais. Na aba Processos: estado `D` por mais de 1 min (esperando disco ou rede, e encerrar só
