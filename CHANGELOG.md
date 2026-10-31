@@ -23,7 +23,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 - A aba Desempenho > Disco abria vazia a cada abertura do app até a leitura terminar, e não
   mostrava que estava lendo. Agora a última leitura dos discos e do Docker fica gravada e aparece
   na hora, com a hora em que foi feita, enquanto uma nova é lida por trás; um indicador girando
-  marca o que está sendo lido. Medido com a versão de depuração: na primeira abertura, discos em
+  marca o que está sendo lido. Sem leitura guardada, cada seção diz que está aguardando, desde o
+  primeiro instante. Medido com a versão de depuração: na primeira abertura, discos em
   4,8 s e Docker em 12,1 s; na seguinte, os dois em 1,3 s.
 
 ## [0.11.0] - 2026-10-30

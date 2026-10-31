@@ -314,7 +314,9 @@
     <p class="nota leitura" role="status">
       {#if lendo}<Girando />{/if}
       {#if !dados}
-        {lendo ? 'Lendo os discos; o tamanho no Windows vem na hora, o usado por dentro leva alguns segundos.' : 'Sem dados.'}
+        {lendo
+          ? 'Lendo os discos pela primeira vez. Aguarde alguns segundos; das próximas vezes, a última leitura aparece na hora.'
+          : 'Sem dados.'}
       {:else}
         Lido {lidoEm(dados.lido_ms)}{lendo ? '; atualizando' : ''}.
       {/if}
@@ -366,7 +368,11 @@
       <h2 id="titulo-pastas">Dentro de uma distro</h2>
       <span>As pastas que mais ocupam o disco virtual</span>
     </div>
-    {#if dados && dados.distros.length === 0}
+    {#if !dados}
+      <p class="nota leitura">
+        {#if lendo}<Girando />{/if}{lendo ? 'Aguardando a lista de distros.' : 'Sem dados.'}
+      </p>
+    {:else if dados.distros.length === 0}
       <p class="nota">Nenhuma distro instalada.</p>
     {:else}
       <div class="analisar">
@@ -665,6 +671,8 @@
         Pasta montada por container rodando fica de fora. Cada limpeza vai para a Atividade com o quanto liberou.
         {dados.limpeza.ultima_ms ? `A última foi em ${data.format(dados.limpeza.ultima_ms)}.` : 'Nenhuma rodou ainda.'}
       </p>
+    {:else if lendo}
+      <p class="nota">As opções aparecem quando a leitura dos discos terminar.</p>
     {/if}
   </section>
 </div>
