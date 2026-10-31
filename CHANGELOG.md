@@ -5,6 +5,38 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.11.0] - 2026-10-30
+
+### Adicionado
+
+- **Segundo plano.** O app ganhou um ícone na área de notificação, entre os ícones ocultos: um
+  clique abre a janela, e o menu dele tem Sair. Fechar a janela deixa o app lá, avisando de
+  memória acabando e de WSL travado, em vez de sair; a primeira vez, uma notificação diz onde ele
+  ficou. Em Configurações > Este app dá para desligar isso e ligar a abertura com o Windows, que
+  sobe o app direto na área de notificação.
+
+### Corrigido
+
+- O aviso de WSL travado ficava na tela para sempre quando a distro afetada era uma que o app
+  quase não chama por `wsl.exe -d`, como a do Docker: ele só saía com uma nova chamada à mesma
+  distro dando certo. Agora sai também quando o agente dela volta a mandar dados, quando ela é
+  desligada ou quando o WSL é desligado pelo app.
+- Depois de uma trava do WSL, o app esperava até 5 min entre tentativas de subir os agentes, e
+  essa espera continuava valendo depois que o WSL voltava ou era desligado; as distros demoravam a
+  aparecer. Agora a espera zera nesses dois casos.
+- O aviso diz o que acontece de fato: o WSL não está abrindo sessões novas, o que já está
+  rodando continua, e o app não consegue ler as distros.
+- Ligar ou reiniciar uma distro pelo app levava cerca de 19 s para ela aparecer com dados quando
+  ela estava sem atividade: o app esperava o prazo de ociosidade do WSL mais 5 s antes de subir o
+  agente, para não segurá-la ligada. Quando é você quem liga, essa espera não vale mais; medido,
+  0,8 s.
+- A aba Desempenho > Disco só aparecia quando tudo terminava de ser lido, e o espaço do Docker
+  leva cerca de 5 s por consulta, com duas consultas em sequência. Com o WSL travado, ela ainda
+  esperava até 60 s pelo `df` da distro travada. Agora os discos e o Docker chegam cada um no seu
+  tempo, as consultas rodam em paralelo, o Docker é lido de antemão quando liga e a última
+  leitura fica guardada; distro travada não é consultada, e o `df` desiste em 5 s. Medido com o
+  WSL travado: Docker em 4,6 s e discos em 5,1 s ao abrir o app, e 0,1 s ao voltar à aba.
+
 ## [0.10.0] - 2026-10-30
 
 ### Adicionado
@@ -274,7 +306,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.0...v0.8.1

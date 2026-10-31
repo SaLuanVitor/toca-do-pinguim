@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::agentes::Agentes;
-use crate::armazenamento::{self, Analise, ProjetoDocker, Volume};
+use crate::armazenamento::{self, Analise, EspacoDocker, ProjetoDocker, Volume};
 use crate::cache::{self, Devolucao, LimpezaProgramada, Preferencias};
 use crate::docker::{self, Conteiner};
 
@@ -72,6 +72,10 @@ pub struct Recursos {
     pub volumes_sem_uso: Mutex<Vec<Volume>>,
     /// Projetos do Compose da última leitura do Docker, os únicos que a limpeza por projeto aceita.
     pub projetos_docker: Mutex<Vec<ProjetoDocker>>,
+    /// A última leitura do espaço do Docker, para a aba Disco abrir já com ela.
+    pub espaco_docker: Mutex<Option<EspacoDocker>>,
+    /// Uma leitura do espaço do Docker por vez: a aba e a leitura antecipada não somam carga.
+    leitura_docker: Mutex<()>,
 }
 
 impl Recursos {
@@ -89,6 +93,8 @@ impl Recursos {
             analises: Mutex::default(),
             volumes_sem_uso: Mutex::default(),
             projetos_docker: Mutex::default(),
+            espaco_docker: Mutex::default(),
+            leitura_docker: Mutex::default(),
         }
     }
 
@@ -116,6 +122,49 @@ impl Recursos {
         novas.gravar(&self.caminho_preferencias)?;
         *prefs = novas;
         Ok(())
+    }
+
+    pub fn definir_fechar_para_bandeja(&self, sim: bool) -> Result<(), String> {
+        self.mudar_preferencias(|p| p.fechar_para_bandeja = sim)
+    }
+
+    /// Devolve true só na primeira vez, para a notificação de onde o app ficou sair uma vez.
+    pub fn primeira_vez_na_bandeja(&self) -> bool {
+        let ja = self.preferencias.lock().unwrap().avisou_bandeja;
+        !ja && self.mudar_preferencias(|p| p.avisou_bandeja = true).is_ok()
+    }
+
+    fn mudar_preferencias(&self, mudar: impl FnOnce(&mut Preferencias)) -> Result<(), String> {
+        let mut prefs = self.preferencias.lock().unwrap();
+        let mut novas = prefs.clone();
+        mudar(&mut novas);
+        novas.gravar(&self.caminho_preferencias)?;
+        *prefs = novas;
+        Ok(())
+    }
+
+    /// Lê o espaço do Docker e guarda. Quem chegou enquanto outra leitura rodava recebe a dela,
+    /// em vez de começar outra.
+    pub fn ler_espaco_docker(&self, docker_ligado: bool) -> EspacoDocker {
+        let pedido = agora_ms();
+        let _vez = self.leitura_docker.lock().unwrap();
+        if let Some(c) = self.espaco_docker.lock().unwrap().clone().filter(|c| c.lido_ms >= pedido) {
+            return c;
+        }
+        let lido = if !docker_ligado {
+            EspacoDocker { docker: None, erro: None, lido_ms: agora_ms() }
+        } else {
+            match armazenamento::resumo_docker() {
+                Ok((resumo, _)) => {
+                    *self.volumes_sem_uso.lock().unwrap() = resumo.volumes_sem_uso.clone();
+                    *self.projetos_docker.lock().unwrap() = resumo.projetos.clone();
+                    EspacoDocker { docker: Some(resumo), erro: None, lido_ms: agora_ms() }
+                }
+                Err(e) => EspacoDocker { docker: None, erro: Some(e), lido_ms: agora_ms() },
+            }
+        };
+        *self.espaco_docker.lock().unwrap() = Some(lido.clone());
+        lido
     }
 
     pub fn pedir_atualizacao(&self) {

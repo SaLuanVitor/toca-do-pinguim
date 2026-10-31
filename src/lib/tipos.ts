@@ -148,6 +148,11 @@ export interface DiscoVirtual {
   compactavel: boolean;
 }
 
+export interface SegundoPlano {
+  fechar_para_bandeja: boolean;
+  iniciar_com_windows: boolean;
+}
+
 export interface Compactacao {
   antes_bytes: number;
   depois_bytes: number;
@@ -194,6 +199,21 @@ export interface LimpezaProgramada {
   sobras_de_containers: boolean;
   tmp_dias: number | null;
   ultima_ms: number | null;
+}
+
+/** O que a aba Disco recebe na hora: discos, limpeza e distros. */
+export interface Discos {
+  discos: DiscoVirtual[];
+  limpeza: LimpezaProgramada;
+  distros_ligadas: string[];
+  distros: string[];
+}
+
+/** A última leitura do espaço do Docker. `docker` e `erro` vazios: ele não estava ligado. */
+export interface EspacoDocker {
+  docker: ResumoDocker | null;
+  erro: string | null;
+  lido_ms: number;
 }
 
 export interface Armazenamento {

@@ -299,6 +299,7 @@ export function criarDemonstracao(): Api {
 
   let limiteGb = 12;
   let teclaAtalho = '';
+  let segundoPlano = { fechar_para_bandeja: true, iniciar_com_windows: false };
   const wslconfig: [string, string, string][] = [
     ['wsl2', 'memory', '12GB'],
     ['wsl2', 'networkingMode', 'mirrored'],
@@ -375,9 +376,14 @@ export function criarDemonstracao(): Api {
         registrar('memoria', null, 'O app devolveu o cache da VM: ela estava 1,3 GB menor 2 min depois');
       }, 8000);
     },
-    lerArmazenamento: async () => {
-      await esperar(600);
-      return armazenamento;
+    lerDiscos: async () => {
+      await esperar(300);
+      const { discos, limpeza, distros_ligadas, distros } = armazenamento;
+      return { discos, limpeza, distros_ligadas, distros };
+    },
+    lerEspacoDocker: async () => {
+      await esperar(1500);
+      return { docker: armazenamento.docker, erro: armazenamento.erro_docker, lido_ms: Date.now() };
     },
     analisarPastas: async (distro, ligarAntes) => {
       if (ligarAntes) {
@@ -514,6 +520,10 @@ export function criarDemonstracao(): Api {
     },
     versaoApp: async () => 'demonstração',
     lerAtalhoTeclado: async () => ({ tecla: teclaAtalho, caminho: 'C:\Users\voce\...\Toca do Pinguim.lnk', existe: teclaAtalho !== '' }),
+    lerSegundoPlano: async () => ({ ...segundoPlano }),
+    definirSegundoPlano: async (fecharParaBandeja, iniciarComWindows) => {
+      segundoPlano = { fechar_para_bandeja: fecharParaBandeja, iniciar_com_windows: iniciarComWindows };
+    },
     definirAtalhoTeclado: async (tecla) => {
       await esperar(300);
       teclaAtalho = tecla;

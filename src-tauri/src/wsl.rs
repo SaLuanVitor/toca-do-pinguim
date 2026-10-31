@@ -190,6 +190,8 @@ pub mod saude {
     pub enum Mudanca {
         Caiu { alvo: Option<String>, motivo: String },
         Voltou { alvo: Option<String>, segundos: u64, falhas: u32 },
+        /// A queda deixou de valer sem prova de volta: o WSL foi desligado ou a distro parou.
+        Esquecida,
     }
 
     /// A chave `None` é o serviço do WSL; as outras, distros.
@@ -230,6 +232,33 @@ pub mod saude {
             q.motivo
         );
         MUDANCAS.lock().unwrap().push(Mudanca::Voltou { alvo: chave, segundos, falhas: q.falhas });
+    }
+
+    /// Depois de um `--shutdown` o serviço recomeça do zero, e nenhuma queda vale mais.
+    pub fn esquecer() {
+        let removidas: Vec<Option<String>> = QUEDAS.lock().unwrap().get_or_insert_with(HashMap::new).drain().map(|(alvo, _)| alvo).collect();
+        if !removidas.is_empty() {
+            info!("quedas esquecidas depois de desligar o WSL: {}", removidas.len());
+        }
+        MUDANCAS.lock().unwrap().extend(removidas.iter().map(|_| Mudanca::Esquecida));
+    }
+
+    /// Distro desligada não está travada: a queda dela sai quando ela some das ligadas.
+    pub fn so_das_ligadas(ligadas: &std::collections::HashSet<&str>) {
+        let mut quedas = QUEDAS.lock().unwrap();
+        let quedas = quedas.get_or_insert_with(HashMap::new);
+        let paradas: Vec<Option<String>> =
+            quedas.keys().filter(|a| a.as_deref().is_some_and(|d| !ligadas.contains(d))).cloned().collect();
+        for alvo in paradas {
+            quedas.remove(&alvo);
+            info!("queda de {} esquecida: a distro não está mais ligada", nome(alvo.as_deref()));
+            MUDANCAS.lock().unwrap().push(Mudanca::Esquecida);
+        }
+    }
+
+    /// A distro (ou o serviço, com `None`) está em queda agora.
+    pub fn tem_queda(alvo: Option<&str>) -> bool {
+        QUEDAS.lock().unwrap().as_ref().is_some_and(|q| q.contains_key(&alvo.map(str::to_string)))
     }
 
     pub fn atual() -> Option<Situacao> {
@@ -351,8 +380,13 @@ mod testes {
         assert!(!falha_de_funcionamento("Wsl/Service/WSL_E_DISTRO_NOT_FOUND"));
     }
 
+    /// Os testes de saúde dividem o estado global do módulo: em paralelo, o que esquece quedas
+    /// apagava a do outro, e um em cada ~6 `cargo test` falhava.
+    static SAUDE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn so_a_virada_de_estado_vira_mudanca() {
+        let _vez = SAUDE.lock().unwrap_or_else(|e| e.into_inner());
         let alvo = Some("distro-do-teste-de-saude");
         saude::falhou(alvo, "primeira".into());
         saude::falhou(alvo, "segunda".into());
@@ -362,10 +396,21 @@ mod testes {
             .into_iter()
             .filter(|m| match m {
                 saude::Mudanca::Caiu { alvo: a, .. } | saude::Mudanca::Voltou { alvo: a, .. } => a.as_deref() == alvo,
+                saude::Mudanca::Esquecida => false,
             })
             .collect();
         assert_eq!(minhas.len(), 2);
         assert!(matches!(&minhas[0], saude::Mudanca::Caiu { motivo, .. } if motivo == "primeira"));
         assert!(matches!(&minhas[1], saude::Mudanca::Voltou { falhas: 2, .. }));
+    }
+
+    #[test]
+    fn queda_de_distro_desligada_e_esquecida() {
+        let _vez = SAUDE.lock().unwrap_or_else(|e| e.into_inner());
+        let alvo = Some("distro-desligada-do-teste");
+        saude::falhou(alvo, "não respondeu".into());
+        assert!(saude::tem_queda(alvo));
+        saude::so_das_ligadas(&std::collections::HashSet::from(["outra-distro"]));
+        assert!(!saude::tem_queda(alvo));
     }
 }

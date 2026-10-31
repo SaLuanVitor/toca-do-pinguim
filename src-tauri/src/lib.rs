@@ -2,6 +2,7 @@ mod agentes;
 mod armazenamento;
 mod atalho;
 mod atividade;
+mod bandeja;
 mod atualizacao;
 mod cache;
 mod compactar;
@@ -70,6 +71,7 @@ async fn iniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: String)
     bloqueante(move || {
         info!("pedido: iniciar {nome}");
         wsl::iniciar(&nome)?;
+        agentes.acordar(&nome);
         agentes.garantir(&app, &nome);
         Ok(())
     })
@@ -115,13 +117,36 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), S
     .await
 }
 
+#[tauri::command]
+fn ler_segundo_plano(recursos: State<'_, Arc<Recursos>>) -> bandeja::SegundoPlano {
+    bandeja::SegundoPlano {
+        fechar_para_bandeja: recursos.preferencias.lock().unwrap().fechar_para_bandeja,
+        iniciar_com_windows: bandeja::iniciar_com_windows(),
+    }
+}
+
+#[tauri::command]
+fn definir_segundo_plano(recursos: State<'_, Arc<Recursos>>, fechar_para_bandeja: bool, iniciar_com_windows: bool) -> Result<(), String> {
+    recursos.definir_fechar_para_bandeja(fechar_para_bandeja)?;
+    if iniciar_com_windows != bandeja::iniciar_com_windows() {
+        bandeja::definir_iniciar_com_windows(iniciar_com_windows)?;
+    }
+    info!("segundo plano: fechar para a bandeja {fechar_para_bandeja}, abrir com o Windows {iniciar_com_windows}");
+    Ok(())
+}
+
 /// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
 /// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
 /// ficam segurados até `soltar_depois`.
 fn desligar_sem_religar(agentes: &Agentes) -> Result<(), String> {
     agentes.segurar(true);
     agentes.parar_todos();
-    wsl::desligar()
+    wsl::desligar()?;
+    // Desligado, o WSL recomeça do zero: a queda registrada e a espera crescente entre
+    // tentativas de subir agente ficaram para trás, e a próxima distro ligada é lida na hora.
+    wsl::saude::esquecer();
+    agentes.esquecer_falhas();
+    Ok(())
 }
 
 /// Solta os agentes quando o supervisor já leu a lista de depois do desligamento.
@@ -178,10 +203,8 @@ async fn devolver_cache(app: tauri::AppHandle, agentes: Estado<'_>, recursos: St
 }
 
 #[derive(Serialize)]
-struct Armazenamento {
+struct Discos {
     discos: Vec<armazenamento::DiscoVirtual>,
-    docker: Option<armazenamento::ResumoDocker>,
-    erro_docker: Option<String>,
     limpeza: cache::LimpezaProgramada,
     distros_ligadas: Vec<String>,
     /// Todas as registradas, ligadas ou não, para a análise de pastas.
@@ -190,35 +213,52 @@ struct Armazenamento {
 
 const DISTRO_DOCKER: &str = "docker-desktop";
 
-/// Discos e resumo do Docker. O `df -v` do Docker leva segundos, então isto só roda quando a
-/// aba Disco pede.
+/// Os discos, a limpeza programada e as distros: o tamanho vem do arquivo e o ocupado de um `df`
+/// por distro ligada, então volta em menos de um segundo. O Docker vem à parte.
 #[tauri::command]
-async fn ler_armazenamento(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Armazenamento, String> {
+async fn ler_discos(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<Discos, String> {
     let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
     bloqueante(move || {
         let ligadas = agentes.ligadas();
-        let (docker, erro_docker) = if agentes.rodando(DISTRO_DOCKER) {
-            match armazenamento::resumo_docker() {
-                Ok((resumo, _)) => {
-                    *recursos.volumes_sem_uso.lock().unwrap() = resumo.volumes_sem_uso.clone();
-                    *recursos.projetos_docker.lock().unwrap() = resumo.projetos.clone();
-                    (Some(resumo), None)
-                }
-                Err(e) => (None, Some(e)),
-            }
-        } else {
-            (None, None)
-        };
-        Ok(Armazenamento {
+        Ok(Discos {
             discos: armazenamento::discos(&ligadas),
-            docker,
-            erro_docker,
             limpeza: recursos.preferencias.lock().unwrap().limpeza.clone(),
             distros_ligadas: ligadas.into_iter().filter(|d| d != DISTRO_DOCKER).collect(),
             distros: armazenamento::distros_registradas(),
         })
     })
     .await
+}
+
+/// Sem `forcar`, devolve na hora a última leitura guardada, se houver; a tela mostra e pede uma
+/// nova se ela estiver velha. O `docker system df` leva segundos (medido: ~5 s por consulta).
+#[tauri::command]
+async fn ler_espaco_docker(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, forcar: bool) -> Result<armazenamento::EspacoDocker, String> {
+    // "Docker desligado" guardado não vale se ele ligou depois.
+    let guardada = recursos.espaco_docker.lock().unwrap().clone();
+    if let Some(g) = guardada.filter(|g| !forcar && (g.docker.is_some() || g.erro.is_some() || !agentes.rodando(DISTRO_DOCKER))) {
+        return Ok(g);
+    }
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || Ok(recursos.ler_espaco_docker(agentes.rodando(DISTRO_DOCKER)))).await
+}
+
+/// Lê o espaço do Docker uma vez, assim que ele estiver ligado, para a aba Disco já abrir com
+/// ele. Desiste depois de 10 min sem Docker: quem não tem Docker não paga nada.
+fn antecipar_espaco_docker(agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
+    std::thread::spawn(move || {
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            if recursos.espaco_docker.lock().unwrap().is_some() {
+                return;
+            }
+            if agentes.rodando(DISTRO_DOCKER) {
+                let lido = recursos.ler_espaco_docker(true);
+                info!("espaço do Docker lido de antemão: {}", if lido.erro.is_some() { "com erro" } else { "ok" });
+                return;
+            }
+        }
+    });
 }
 
 /// Distro desligada só é analisada com `ligar`, que a tela pede depois de confirmar. O app não
@@ -570,13 +610,7 @@ pub fn run() {
     tauri::Builder::default()
         // Uma segunda abertura (pela tecla de atalho, pelo menu) só traz esta janela para
         // frente: duas instâncias subiriam dois agentes em cada distro.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(janela) = app.get_webview_window("main") {
-                let _ = janela.unminimize();
-                let _ = janela.show();
-                let _ = janela.set_focus();
-            }
-        }))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| bandeja::mostrar(app)))
         // Logo depois, para o log já pegar o que os outros plugins e o setup registram.
         .plugin(registro::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -595,16 +629,41 @@ pub fn run() {
             app.manage(Arc::clone(&agentes));
             let recursos = Arc::new(Recursos::novo(&dados));
             app.manage(Arc::clone(&recursos));
+            antecipar_espaco_docker(Arc::clone(&agentes), Arc::clone(&recursos));
             recursos::vigiar(app.handle().clone(), Arc::clone(&agentes), recursos);
             agentes::supervisionar(app.handle().clone(), agentes);
+            bandeja::montar(app)?;
+            // A janela nasce escondida (tauri.conf.json) e só aparece quando não foi o Windows
+            // que abriu o app em segundo plano; assim ela não pisca na abertura.
+            if std::env::args().any(|a| a == bandeja::ARGUMENTO) {
+                info!("aberto em segundo plano, na área de notificação");
+                bandeja::esconder(app.handle());
+            } else {
+                bandeja::mostrar(app.handle());
+            }
             Ok(())
         })
-        .on_window_event(|janela, evento| {
+        .on_window_event(|janela, evento| match evento {
             // Minimizar chega como redimensionamento; restaurar também.
-            if let WindowEvent::Resized(_) = evento {
+            WindowEvent::Resized(_) => {
                 let minimizada = janela.is_minimized().unwrap_or(false);
                 janela.state::<Arc<Agentes>>().pausar(minimizada);
             }
+            WindowEvent::CloseRequested { api, .. } => {
+                let recursos = janela.state::<Arc<Recursos>>();
+                if recursos.preferencias.lock().unwrap().fechar_para_bandeja {
+                    api.prevent_close();
+                    bandeja::esconder(janela.app_handle());
+                    if recursos.primeira_vez_na_bandeja() {
+                        recursos::notificar(
+                            janela.app_handle(),
+                            "A Toca do Pinguim continua aberta",
+                            "Ela fica na área de notificação, ao lado do relógio. Para sair de vez, use Sair no menu do ícone.",
+                        );
+                    }
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             listar_distros,
@@ -622,7 +681,8 @@ pub fn run() {
             reiniciar_conteineres,
             devolver_cache,
             definir_devolucao,
-            ler_armazenamento,
+            ler_discos,
+            ler_espaco_docker,
             analisar_pastas,
             apagar_pastas,
             compactar_disco,
@@ -642,6 +702,8 @@ pub fn run() {
             registro::abrir_pasta_de_logs,
             atalho::ler_atalho_teclado,
             atalho::definir_atalho_teclado,
+            ler_segundo_plano,
+            definir_segundo_plano,
         ])
         .build(tauri::generate_context!())
         .expect("falha ao montar o app")

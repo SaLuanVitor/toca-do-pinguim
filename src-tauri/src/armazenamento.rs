@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use crate::docker;
 use crate::wsl;
 
-const PRAZO_DF: Duration = Duration::from_secs(60);
+/// O `df` responde em ~200 ms (medido). Com o WSL travado, ele espera até o prazo, e a aba Disco
+/// esperava junto: medido, 45 a 57 s numa trava.
+const PRAZO_DF: Duration = Duration::from_secs(5);
 /// Medido com a máquina sem memória: o `docker system df` levou 8 e 14 s, e na primeira
 /// leitura da tela, junto com as outras, passou de 60 s.
 const PRAZO_DOCKER: Duration = Duration::from_secs(2 * 60);
@@ -96,6 +98,15 @@ pub struct ResumoDocker {
     pub sobras_bytes: u64,
     /// Do que mais ocupa para o que menos ocupa.
     pub projetos: Vec<ProjetoDocker>,
+}
+
+/// A última leitura do espaço do Docker. `docker` e `erro` vazios: o Docker Desktop não estava
+/// ligado quando o app leu.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct EspacoDocker {
+    pub docker: Option<ResumoDocker>,
+    pub erro: Option<String>,
+    pub lido_ms: u64,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -191,12 +202,18 @@ fn usado_do_df(texto: &str) -> Option<u64> {
 pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
     let ligada = |d: &str| ligadas.iter().any(|l| l == d);
     let mut lista = Vec::new();
+    // (posição na lista, distro, ponto de montagem) dos `df` a rodar; cada um leva ~200 ms, e
+    // em paralelo a tela não espera a soma.
+    let mut medir: Vec<(usize, String, &str)> = Vec::new();
     for r in registradas() {
         let Ok(entradas) = std::fs::read_dir(&r.base) else { continue };
         for e in entradas.flatten().filter(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("vhdx"))) {
             let tamanho = e.metadata().map_or(0, |m| m.len());
+            if ligada(&r.nome) && r.nome != "docker-desktop" && !crate::wsl::saude::tem_queda(Some(&r.nome)) {
+                medir.push((lista.len(), r.nome.clone(), "/"));
+            }
             lista.push(DiscoVirtual {
-                usado_bytes: if ligada(&r.nome) && r.nome != "docker-desktop" { usado(&r.nome, "/") } else { None },
+                usado_bytes: None,
                 nome: r.nome.clone(),
                 caminho: e.path().display().to_string(),
                 tamanho_bytes: tamanho,
@@ -213,7 +230,7 @@ pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
             nome: "Docker (dados)".to_string(),
             caminho: atual.display().to_string(),
             tamanho_bytes: std::fs::metadata(&atual).map_or(0, |m| m.len()),
-            usado_bytes: if ligada("docker-desktop") { usado("docker-desktop", "/mnt/docker-desktop-disk") } else { None },
+            usado_bytes: None,
             esparso: esparso(&atual),
             compactavel: false,
             nota: None,
@@ -232,6 +249,17 @@ pub fn discos(ligadas: &[String]) -> Vec<DiscoVirtual> {
                 )),
             });
         }
+    }
+    let dados_do_docker = lista.iter().position(|d| d.nome == "Docker (dados)");
+    if let Some(i) = dados_do_docker.filter(|_| ligada("docker-desktop") && !crate::wsl::saude::tem_queda(Some("docker-desktop"))) {
+        medir.push((i, "docker-desktop".to_string(), "/mnt/docker-desktop-disk"));
+    }
+    let medidos: Vec<(usize, Option<u64>)> = std::thread::scope(|s| {
+        let tarefas: Vec<_> = medir.iter().map(|(i, distro, ponto)| (*i, s.spawn(move || usado(distro, ponto)))).collect();
+        tarefas.into_iter().map(|(i, t)| (i, t.join().ok().flatten())).collect()
+    });
+    for (i, usado) in medidos {
+        lista[i].usado_bytes = usado;
     }
     for swap in arquivos_de_swap() {
         lista.push(DiscoVirtual {
@@ -420,8 +448,14 @@ fn montagens_do_container(nome: &str, rotulos: &str) -> Vec<(String, String, Str
 }
 
 pub fn resumo_docker() -> Result<(ResumoDocker, Vec<(String, String, String)>), String> {
-    let categorias = ler_categorias(&docker::executar(&["system", "df", "--format", "{{json .}}"], PRAZO_DOCKER)?);
-    let detalhe = ler_detalhe(&docker::executar(&["system", "df", "-v", "--format", "{{json .}}"], PRAZO_ANALISE)?);
+    // Medido: cerca de 5 s cada uma. Em sequência, a tela esperava a soma.
+    let (categorias, detalhe) = std::thread::scope(|s| {
+        let categorias = s.spawn(|| docker::executar(&["system", "df", "--format", "{{json .}}"], PRAZO_DOCKER));
+        let detalhe = docker::executar(&["system", "df", "-v", "--format", "{{json .}}"], PRAZO_ANALISE);
+        (categorias.join().unwrap_or_else(|_| Err("a leitura do Docker parou no meio".to_string())), detalhe)
+    });
+    let categorias = ler_categorias(&categorias?);
+    let detalhe = ler_detalhe(&detalhe?);
     Ok((
         ResumoDocker {
             categorias,
