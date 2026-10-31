@@ -28,6 +28,12 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   ela estava sem atividade: o app esperava o prazo de ociosidade do WSL mais 5 s antes de subir o
   agente, para não segurá-la ligada. Quando é você quem liga, essa espera não vale mais; medido,
   0,8 s.
+- A aba Desempenho > Disco só aparecia quando tudo terminava de ser lido, e o espaço do Docker
+  leva cerca de 5 s por consulta, com duas consultas em sequência. Com o WSL travado, ela ainda
+  esperava até 60 s pelo `df` da distro travada. Agora os discos e o Docker chegam cada um no seu
+  tempo, as consultas rodam em paralelo, o Docker é lido de antemão quando liga e a última
+  leitura fica guardada; distro travada não é consultada, e o `df` desiste em 5 s. Medido com o
+  WSL travado: Docker em 4,6 s e discos em 5,1 s ao abrir o app, e 0,1 s ao voltar à aba.
 
 ## [0.10.0] - 2026-10-30
 
