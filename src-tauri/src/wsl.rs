@@ -380,8 +380,13 @@ mod testes {
         assert!(!falha_de_funcionamento("Wsl/Service/WSL_E_DISTRO_NOT_FOUND"));
     }
 
+    /// Os testes de saúde dividem o estado global do módulo: em paralelo, o que esquece quedas
+    /// apagava a do outro, e um em cada ~6 `cargo test` falhava.
+    static SAUDE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn so_a_virada_de_estado_vira_mudanca() {
+        let _vez = SAUDE.lock().unwrap_or_else(|e| e.into_inner());
         let alvo = Some("distro-do-teste-de-saude");
         saude::falhou(alvo, "primeira".into());
         saude::falhou(alvo, "segunda".into());
@@ -401,6 +406,7 @@ mod testes {
 
     #[test]
     fn queda_de_distro_desligada_e_esquecida() {
+        let _vez = SAUDE.lock().unwrap_or_else(|e| e.into_inner());
         let alvo = Some("distro-desligada-do-teste");
         saude::falhou(alvo, "não respondeu".into());
         assert!(saude::tem_queda(alvo));

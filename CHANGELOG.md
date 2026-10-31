@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.11.0] - 2026-10-30
+
 ### Adicionado
 
 - **Segundo plano.** O app ganhou um ícone na área de notificação, entre os ícones ocultos: um
@@ -304,7 +306,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.8.0...v0.8.1
