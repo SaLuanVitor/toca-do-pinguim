@@ -33,6 +33,10 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   desabilitados, até os números novos chegarem.
 - Dentro de uma distro, a lista agora diz por que as distros do Docker Desktop ficam de fora: o
   que elas guardam está em Espaço do Docker.
+- Quando devolver o cache falhava, o aviso dizia só "Ubuntu recusou:", sem motivo: o app lia
+  apenas a saída de erro, e o `wsl.exe` escreve os próprios erros na saída comum. Agora o aviso
+  traz o texto das duas e, sem texto nenhum, o código de saída; o log também registra esse
+  motivo em toda chamada longa ao WSL que falha.
 
 ## [0.11.0] - 2026-10-30
 

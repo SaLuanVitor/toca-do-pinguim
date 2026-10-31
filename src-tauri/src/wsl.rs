@@ -103,8 +103,28 @@ pub fn executar_longo(args: &[&str], prazo: Duration) -> Result<Output, String> 
             Err(e) => return Err(e.to_string()),
         }
     };
-    info!("{rotulo}: {} ms, saída {:?}", inicio.elapsed().as_millis(), status.code());
-    Ok(Output { status, stdout: saida.join().unwrap_or_default(), stderr: erro.join().unwrap_or_default() })
+    let saida = Output { status, stdout: saida.join().unwrap_or_default(), stderr: erro.join().unwrap_or_default() };
+    if status.success() {
+        info!("{rotulo}: {} ms, saída {:?}", inicio.elapsed().as_millis(), status.code());
+    } else {
+        warn!("{rotulo}: {} ms, saída {:?}: {}", inicio.elapsed().as_millis(), status.code(), motivo_da_falha(&saida));
+    }
+    Ok(saida)
+}
+
+/// O texto que explica uma saída diferente de zero. O `wsl.exe` escreve os próprios erros na
+/// saída comum, não na de erro, então as duas entram. Sem texto nenhum, sobra o código.
+pub fn motivo_da_falha(saida: &Output) -> String {
+    let texto = format!("{} {}", decodificar(&saida.stdout), decodificar(&saida.stderr));
+    let texto = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+    if texto.is_empty() {
+        match saida.status.code() {
+            Some(codigo) => format!("o wsl.exe saiu com o código {codigo} sem dizer o motivo"),
+            None => "o wsl.exe foi encerrado sem dizer o motivo".to_string(),
+        }
+    } else {
+        texto
+    }
 }
 
 pub fn com_prazo(comando: &mut Command, prazo: Duration) -> Result<Output, String> {
@@ -365,11 +385,7 @@ pub fn desligar() -> Result<(), String> {
 /// parada, a cópia não a liga.
 pub fn exportar(nome: &str, destino: &str) -> Result<(), String> {
     let saida = executar_longo(&["--export", nome, destino], PRAZO_EXPORTAR)?;
-    if saida.status.success() {
-        Ok(())
-    } else {
-        Err(format!("{} {}", decodificar(&saida.stdout).trim(), decodificar(&saida.stderr).trim()).trim().to_string())
-    }
+    if saida.status.success() { Ok(()) } else { Err(motivo_da_falha(&saida)) }
 }
 
 /// Remove a distro do WSL e apaga a pasta dela, com o disco. Não tem volta.
@@ -390,6 +406,22 @@ mod testes {
         let msg = "Uma tentativa de conexão falhou porque o componente conectado não respondeu.\r\nCódigo de erro: Wsl/Service/0x8007274c\r\n";
         assert_eq!(codigo_de_erro(msg).as_deref(), Some("Wsl/Service/0x8007274c"));
         assert_eq!(codigo_de_erro("Nenhuma distribuição em execução."), None);
+    }
+
+    #[test]
+    fn o_motivo_vem_da_saida_comum_ou_do_codigo() {
+        use std::os::windows::process::ExitStatusExt;
+        let saida = |stdout: &str, stderr: &str, codigo: u32| Output {
+            status: std::process::ExitStatus::from_raw(codigo),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        };
+        assert_eq!(
+            motivo_da_falha(&saida("Tempo esgotado.\r\nCódigo de erro: Wsl/Service/0x8007274c\r\n", "", 1)),
+            "Tempo esgotado. Código de erro: Wsl/Service/0x8007274c"
+        );
+        assert_eq!(motivo_da_falha(&saida("", "sh: 1: falhou\n", 2)), "sh: 1: falhou");
+        assert_eq!(motivo_da_falha(&saida("", "", u32::MAX)), "o wsl.exe saiu com o código -1 sem dizer o motivo");
     }
 
     #[test]
