@@ -26,6 +26,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   marca o que está sendo lido. Sem leitura guardada, cada seção diz que está aguardando, desde o
   primeiro instante. Medido com a versão de depuração: na primeira abertura, discos em
   4,8 s e Docker em 12,1 s; na seguinte, os dois em 1,3 s.
+- Depois de uma limpeza do Docker, o resultado aparecia no topo da página, fora da vista de quem
+  estava na seção do Docker, e a tabela continuava com os números de antes até a releitura
+  terminar, uns 10 s depois: a limpeza parecia não ter acontecido, e um segundo clique não tinha o
+  que apagar. Agora o resultado aparece na própria seção, e a tabela fica esmaecida, com os botões
+  desabilitados, até os números novos chegarem.
+- Dentro de uma distro, a lista agora diz por que as distros do Docker Desktop ficam de fora: o
+  que elas guardam está em Espaço do Docker.
 
 ## [0.11.0] - 2026-10-30
 

@@ -36,6 +36,12 @@
   const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
   let limpando = $state<string | null>(null);
   let resultado = $state('');
+  // O resultado de uma limpeza do Docker aparece na própria seção: o do topo fica fora da vista
+  // de quem está lá embaixo. Enquanto o Docker é relido depois dela, os números são os de antes
+  // da limpeza, e os botões esperam.
+  let resultadoDocker = $state('');
+  let conferindo = $state(false);
+  const bloqueado = $derived(!!limpando || conferindo);
 
   let distro = $state('');
   let analise = $state<AnalisePastas | null>(null);
@@ -90,6 +96,15 @@
     lerDocker(forcar);
   }
 
+  async function conferirDepoisDeLimpar() {
+    conferindo = true;
+    try {
+      await Promise.all([lerDiscos(true), lerDocker(true)]);
+    } finally {
+      conferindo = false;
+    }
+  }
+
   function categoria(tipo: string) {
     return espaco?.docker?.categorias.find((c) => c.tipo === tipo);
   }
@@ -101,16 +116,17 @@
       acao: 'Apagar',
       executar: async () => {
         limpando = qual;
-        resultado = '';
+        resultadoDocker = '';
         try {
           const liberado = await api.limparDocker(qual, volumes);
-          resultado = `${titulo.replace(/\?$/, '')}: ${bytes(liberado)} liberados dentro do disco do Docker.`;
-          await ler();
+          resultadoDocker = `${titulo.replace(/\?$/, '')}: ${bytes(liberado)} liberados dentro do disco do Docker.`;
         } catch (e) {
           estado.avisar(String(e));
+          return;
         } finally {
           limpando = null;
         }
+        await conferirDepoisDeLimpar();
       },
     };
   }
@@ -219,16 +235,17 @@
       acao: 'Apagar',
       executar: async () => {
         limpando = `parados:${p.nome}`;
-        resultado = '';
+        resultadoDocker = '';
         try {
           const liberado = await api.limparParadosDoProjeto(p.nome);
-          resultado = `Containers parados de ${p.nome} apagados: ${bytes(liberado)} liberados dentro do disco do Docker.`;
-          await ler();
+          resultadoDocker = `Containers parados de ${p.nome} apagados: ${bytes(liberado)} liberados dentro do disco do Docker.`;
         } catch (e) {
           estado.avisar(String(e));
+          return;
         } finally {
           limpando = null;
         }
+        await conferirDepoisDeLimpar();
       },
     };
   }
@@ -387,6 +404,12 @@
         </button>
         {#if analisando}<span class="nota">Percorre o disco inteiro da distro; pode levar alguns minutos.</span>{/if}
       </div>
+      {#if temDocker}
+        <p class="nota">
+          A lista traz as distros que você usa. As do Docker Desktop ficam de fora: o que elas guardam está em
+          Espaço do Docker, logo abaixo.
+        </p>
+      {/if}
       {#if analise}
         <p class="nota" role="status">
           {analise.analisado_ms ? `Analisada em ${data.format(analise.analisado_ms)}.` : ''}
@@ -435,7 +458,7 @@
           {/each}
         </ul>
         <div class="analisar">
-          <button class="botao perigo" disabled={!!limpando || escolhidas.length === 0} onclick={apagarPastas}>
+          <button class="botao perigo" disabled={bloqueado || escolhidas.length === 0} onclick={apagarPastas}>
             {limpando === 'pastas' ? 'Apagando' : `Apagar os marcados (${bytes(escolhidasBytes)})`}
           </button>
         </div>
@@ -444,7 +467,7 @@
   </section>
 
   {#if temDocker}
-  <section class="cartao" aria-labelledby="titulo-docker-armazenamento">
+  <section class="cartao" class:desatualizada={conferindo} aria-labelledby="titulo-docker-armazenamento">
     <div class="cabeca">
       <h2 id="titulo-docker-armazenamento">Espaço do Docker</h2>
       <span
@@ -464,6 +487,12 @@
       {@const containers = categoria('Containers')}
       {@const volumes = categoria('Local Volumes')}
       {@const build = categoria('Build Cache')}
+      {#if resultadoDocker || conferindo}
+        <p class="resultado leitura" role="status">
+          {#if conferindo}<Girando />{/if}
+          {resultadoDocker}{conferindo ? ' Atualizando os números do Docker; até lá, a tabela mostra os de antes da limpeza.' : ''}
+        </p>
+      {/if}
       <table>
         <thead>
           <tr>
@@ -482,7 +511,7 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || imagens.recuperavel_bytes === 0}
+                  disabled={bloqueado || imagens.recuperavel_bytes === 0}
                   onclick={() =>
                     limparDocker(
                       'imagens_sem_uso',
@@ -501,7 +530,7 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || espaco.docker.sobras === 0}
+                  disabled={bloqueado || espaco.docker.sobras === 0}
                   title="Containers parados sem projeto do Compose: {espaco.docker.sobras}, {bytes(espaco.docker.sobras_bytes)}"
                   onclick={() =>
                     limparDocker(
@@ -512,7 +541,7 @@
                 >
                 <button
                   class="botao"
-                  disabled={!!limpando || containers.quantidade === containers.ativos}
+                  disabled={bloqueado || containers.quantidade === containers.ativos}
                   onclick={() =>
                     limparDocker(
                       'parados',
@@ -551,7 +580,7 @@
                   </ul>
                   <button
                     class="botao perigo"
-                    disabled={!!limpando || volumesEscolhidos.length === 0}
+                    disabled={bloqueado || volumesEscolhidos.length === 0}
                     onclick={() =>
                       limparDocker(
                         'volumes',
@@ -572,7 +601,7 @@
               <td class="acao">
                 <button
                   class="botao"
-                  disabled={!!limpando || build.total_bytes === 0}
+                  disabled={bloqueado || build.total_bytes === 0}
                   onclick={() =>
                     limparDocker(
                       'cache_de_build',
@@ -614,12 +643,12 @@
                 <td class="numero">{bytes(p.containers_bytes + p.imagens_bytes + volumesBytes)}</td>
                 <td class="acao">
                   {#if p.parados}
-                    <button class="botao" disabled={!!limpando} onclick={() => apagarParadosDoProjeto(p)}
+                    <button class="botao" disabled={bloqueado} onclick={() => apagarParadosDoProjeto(p)}
                       >{limpando === `parados:${p.nome}` ? 'Apagando' : `Parados (${p.parados})`}</button
                     >
                   {/if}
                   {#if semUso.length}
-                    <button class="botao" disabled={!!limpando} onclick={() => apagarVolumesDoProjeto(p.nome, semUso)}
+                    <button class="botao" disabled={bloqueado} onclick={() => apagarVolumesDoProjeto(p.nome, semUso)}
                       >{limpando === 'volumes' ? 'Apagando' : `Volumes sem uso (${semUso.length})`}</button
                     >
                   {/if}
@@ -694,6 +723,10 @@
 
   .topo .botao {
     gap: 6px;
+  }
+
+  .desatualizada table {
+    opacity: 0.55;
   }
 
   .leitura {

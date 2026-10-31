@@ -441,6 +441,7 @@ export function criarDemonstracao(): Api {
       const liberado = cat.recuperavel_bytes;
       cat.total_bytes -= liberado;
       cat.recuperavel_bytes = 0;
+      if (qual === 'sobras' || qual === 'parados') Object.assign(armazenamento.docker!, { sobras: 0, sobras_bytes: 0 });
       registrar('armazenamento', 'docker-desktop', `O app limpou o Docker: ${(liberado / GIB).toFixed(1).replace('.', ',')} GB liberados`);
       return liberado;
     },
