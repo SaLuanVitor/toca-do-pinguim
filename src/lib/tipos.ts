@@ -11,6 +11,8 @@ export interface Processo {
   rss: number;
   /** De -20 a 19; acima de 0, o processo cede a vez aos de prioridade normal. */
   nice: number;
+  /** Leitura e gravação no disco, em bytes por segundo. */
+  disco_bps: number;
 }
 
 export interface Porta {
@@ -123,6 +125,8 @@ export interface Pesado {
   rss: number;
   /** Quantos estão esperando disco ou rede (estado D). */
   esperando: number;
+  /** Leitura e gravação no disco, em bytes por segundo. */
+  disco_bps: number;
 }
 
 /** Pressão alta na VM por 2 min: médias de 60 s, em %, e quem pesa. */

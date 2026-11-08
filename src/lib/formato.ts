@@ -7,6 +7,11 @@ export function bytes(n: number): string {
   return `${numero1.format(n / 1024 / 1024 / 1024)} GB`;
 }
 
+/** Bytes por segundo como taxa de disco: "0,0 MB/s", "42,2 MB/s". */
+export function taxa(bps: number): string {
+  return `${numero1.format(bps / 1024 / 1024)} MB/s`;
+}
+
 export function pct(n: number): string {
   return `${numero1.format(n)}%`;
 }

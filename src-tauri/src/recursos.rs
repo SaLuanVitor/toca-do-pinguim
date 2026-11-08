@@ -6,7 +6,7 @@
 //! mostra quem dentro da VM ocupa mais, por projeto do Docker.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -69,6 +69,8 @@ pub struct Recursos {
     /// Pedido de nova leitura do Docker logo depois de parar ou ligar containers.
     atualizar_docker: AtomicBool,
     pub devolvendo: AtomicBool,
+    /// Devoluções automáticas que falharam seguidas; espaça as próximas.
+    pub falhas_devolucao: AtomicU32,
     pub ultima_devolucao: Mutex<Option<Instant>>,
     pub devolucao: Mutex<Option<Devolucao>>,
     pub preferencias: Mutex<Preferencias>,
@@ -111,6 +113,7 @@ impl Recursos {
             docker: Mutex::default(),
             atualizar_docker: AtomicBool::new(false),
             devolvendo: AtomicBool::new(false),
+            falhas_devolucao: AtomicU32::new(0),
             ultima_devolucao: Mutex::new(None),
             devolucao: Mutex::new(None),
             preferencias: Mutex::new(Preferencias::ler(&caminho_preferencias)),
@@ -424,11 +427,22 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                     && sem_resposta.0 == 0
                     && !crate::wsl::saude::alguma_queda()
                     && !recursos.devolvendo.load(Ordering::Relaxed)
-                    && cache::pode_devolver_sozinho(m.wsl_bytes.is_some(), livre, agentes.cache_vm(), &gatilho, desde)
+                    && cache::pode_devolver_sozinho(
+                        m.wsl_bytes.is_some(),
+                        livre,
+                        agentes.cache_vm(),
+                        &gatilho,
+                        desde,
+                        &cache::Situacao {
+                            disco_full: agentes.pressao().map(|(p, _)| p.disco_full.avg60),
+                            falhas_seguidas: recursos.falhas_devolucao.load(Ordering::Relaxed),
+                        },
+                    )
                 {
                     let (app, agentes, recursos) = (app.clone(), Arc::clone(&agentes), Arc::clone(&recursos));
-                    thread::spawn(move || {
-                        let _ = cache::devolver(app, agentes, recursos, true);
+                    thread::spawn(move || match cache::devolver(app.clone(), Arc::clone(&agentes), Arc::clone(&recursos), true) {
+                        Ok(()) => recursos.falhas_devolucao.store(0, Ordering::Relaxed),
+                        Err(e) => avisar_devolucao_falhou(&app, &agentes, &recursos, &e),
                     });
                 }
             }
@@ -538,6 +552,20 @@ fn limpar_programado(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, l:
         info!("{texto}");
         agentes.registrar(app, "armazenamento", None, texto);
     }
+}
+
+/// A devolução automática falhou: ela abre uma sessão na distro, e a sessão não respondeu. Na
+/// primeira falha seguida, isso vira aviso, porque em 08/11/2026 as três travas do WSL vieram
+/// depois de devoluções assim; as seguintes só vão para o log.
+fn avisar_devolucao_falhou(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, erro: &str) {
+    let falhas = recursos.falhas_devolucao.fetch_add(1, Ordering::Relaxed) + 1;
+    if falhas > 1 || !erro.contains("não respondeu") {
+        return;
+    }
+    let texto = "Devolver o cache não terminou: a sessão aberta na distro não respondeu em 30 s. Isso pode ser o começo de uma trava do WSL; se o Docker ou o app ficarem lentos, alivie o disco e a CPU agora. A próxima devolução automática fica para daqui a 20 min.".to_string();
+    warn!("{texto}");
+    agentes.registrar(app, "wsl", None, texto.clone());
+    notificar(app, "O WSL está demorando para responder", &texto);
 }
 
 /// Pressão alta por 2 min vira aviso com quem pesa; enquanto ele vale, a lista se atualiza a

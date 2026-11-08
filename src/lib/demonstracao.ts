@@ -69,9 +69,10 @@ export function criarDemonstracao(): Api {
   if (travado) estado.saude = { alvo: null, motivo: 'wsl.exe não respondeu em 30 s', desde_ms: Date.now() - 12 * 60_000 };
   // `?pressao` abre com a VM sobrecarregada, antes de travar.
   const pesadosDemo = [
-    { distro: 'docker-desktop', nome: 'postgres', quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0 },
-    { distro: 'docker-desktop', nome: 'php', quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6 },
-    { distro: 'Ubuntu', nome: 'node', quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0 },
+    { distro: 'docker-desktop', nome: 'postgres', quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0, disco_bps: 0 },
+    { distro: 'docker-desktop', nome: 'rsync', quantos: 1, cpu_nucleos: 0.2, rss: 0, esperando: 0, disco_bps: 38 * 1024 ** 2 },
+    { distro: 'docker-desktop', nome: 'php', quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6, disco_bps: 0 },
+    { distro: 'Ubuntu', nome: 'node', quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0, disco_bps: 0 },
   ];
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('pressao')) {
     estado.pressao = { desde_ms: Date.now() - 3 * 60_000, disco_full: 18.4, memoria_full: 0.6, cpu_some: 64.2, cpu_vm: 71, pesados: pesadosDemo };
@@ -100,6 +101,7 @@ export function criarDemonstracao(): Api {
       cpu_pct: carga,
       rss: rssMb * 1024 * 1024,
       nice: 0,
+      disco_bps: n === 'rsync' ? 38 * 1024 ** 2 : n === 'postgres' ? 1.2 * 1024 ** 2 : 0,
     }));
   }
 

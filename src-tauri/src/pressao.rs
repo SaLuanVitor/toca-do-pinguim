@@ -23,6 +23,9 @@ const LOG_A_CADA: Duration = Duration::from_secs(60);
 /// Grupos que entram na lista de quem pesa.
 const MAIS_PESADOS: usize = 5;
 const GIB: u64 = 1 << 30;
+const MIB: u64 = 1 << 20;
+/// Abaixo disto, ler e gravar no disco não pesa: entra na lista quem passa de 5 MB/s.
+const DISCO_PESADO: u64 = 5 * MIB;
 
 /// Processos de mesmo nome numa distro, somados.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -35,6 +38,8 @@ pub struct Pesado {
     pub rss: u64,
     /// Quantos estão em estado D, esperando disco ou rede.
     pub esperando: u32,
+    /// Leitura e gravação no disco, em bytes por segundo.
+    pub disco_bps: u64,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -61,10 +66,12 @@ pub fn escolher(distros: &[(String, u32, Vec<Processo>)]) -> Vec<Pesado> {
                 cpu_nucleos: 0.0,
                 rss: 0,
                 esperando: 0,
+                disco_bps: 0,
             });
             g.quantos += 1;
             g.cpu_nucleos += p.cpu_pct * *cpus as f32 / 100.0;
             g.rss += p.rss;
+            g.disco_bps += p.disco_bps;
             if p.estado == 'D' {
                 g.esperando += 1;
             }
@@ -75,8 +82,10 @@ pub fn escolher(distros: &[(String, u32, Vec<Processo>)]) -> Vec<Pesado> {
     let mut escolhidos: Vec<Pesado> = todos.iter().filter(|g| g.cpu_nucleos >= 0.5).take(3).cloned().collect();
     let mut esperando: Vec<&Pesado> = todos.iter().filter(|g| g.esperando > 0).collect();
     esperando.sort_by_key(|g| std::cmp::Reverse(g.esperando));
+    let mut no_disco: Vec<&Pesado> = todos.iter().filter(|g| g.disco_bps >= DISCO_PESADO).collect();
+    no_disco.sort_by_key(|g| std::cmp::Reverse(g.disco_bps));
     let mais_memoria = todos.iter().filter(|g| g.rss >= GIB).max_by_key(|g| g.rss);
-    for g in esperando.into_iter().take(2).chain(mais_memoria) {
+    for g in no_disco.into_iter().take(2).chain(esperando.into_iter().take(2)).chain(mais_memoria) {
         if !escolhidos.iter().any(|e| e.distro == g.distro && e.nome == g.nome) {
             escolhidos.push(g.clone());
         }
@@ -102,6 +111,9 @@ pub fn descrever(pesados: &[Pesado]) -> String {
             }
             if p.rss >= GIB {
                 partes.push(format!("{} GB", numero(p.rss as f32 / GIB as f32)));
+            }
+            if p.disco_bps >= DISCO_PESADO {
+                partes.push(format!("{} MB/s de disco", numero(p.disco_bps as f32 / MIB as f32)));
             }
             if p.esperando > 0 {
                 partes.push(if p.esperando == p.quantos { "esperando disco".to_string() } else { format!("{} esperando disco", p.esperando) });
@@ -180,7 +192,17 @@ mod testes {
     use protocolo::Espera;
 
     fn processo(nome: &str, estado: char, cpu_pct: f32, rss: u64) -> Processo {
-        Processo { pid: 1, ppid: 0, usuario: "root".into(), estado, nome: nome.into(), cmdline: String::new(), cpu_pct, rss, nice: 0 }
+        Processo { pid: 1, ppid: 0, usuario: "root".into(), estado, nome: nome.into(), cmdline: String::new(), cpu_pct, rss, nice: 0, disco_bps: 0 }
+    }
+
+    #[test]
+    fn quem_mais_usa_o_disco_entra_primeiro_entre_os_sem_cpu() {
+        let mut runner = processo("gitlab-runner-helper", 'R', 0.2, 0);
+        runner.disco_bps = 40 * MIB;
+        let mut pouco = processo("cron", 'S', 0.0, 0);
+        pouco.disco_bps = MIB;
+        let p = escolher(&[("docker-desktop".into(), 10, vec![runner, pouco, processo("php", 'D', 0.0, 0)])]);
+        assert_eq!(descrever(&p), "gitlab-runner-helper em docker-desktop (40,0 MB/s de disco); php em docker-desktop (esperando disco)");
     }
 
     #[test]

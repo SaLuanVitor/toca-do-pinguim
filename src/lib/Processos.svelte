@@ -3,13 +3,13 @@
   import { encerrarProcesso, mudarPrioridade } from './acoes.svelte';
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
-  import { bytes, ha, pct, rotuloEstado, rotuloSuspeita } from './formato';
+  import { bytes, ha, pct, rotuloEstado, rotuloSuspeita, taxa } from './formato';
   import Icone from './Icone.svelte';
   import { comparar, Ordenacao } from './ordenacao.svelte';
   import { lerPreferencia, salvarPreferencia } from './preferencias';
   import { SIGKILL, SIGTERM, type Processo } from './tipos';
 
-  type Coluna = 'nome' | 'distro' | 'pid' | 'usuario' | 'estado' | 'cpu_pct' | 'rss' | 'cmdline';
+  type Coluna = 'nome' | 'distro' | 'pid' | 'usuario' | 'estado' | 'cpu_pct' | 'rss' | 'disco_bps' | 'cmdline';
   interface Linha {
     distro: string;
     p: Processo;
@@ -20,6 +20,7 @@
     processos: Processo[];
     cpu: number;
     mem: number;
+    disco: number;
   }
   type Visual = { tipo: 'grupo'; g: Grupo } | { tipo: 'proc'; l: Linha };
 
@@ -73,6 +74,7 @@
     { id: 'estado', titulo: 'Status', classe: 'c-estado' },
     { id: 'cpu_pct', titulo: 'CPU', numerica: true, classe: 'c-cpu' },
     { id: 'rss', titulo: 'RAM', numerica: true, classe: 'c-rss' },
+    { id: 'disco_bps', titulo: 'Disco', numerica: true, classe: 'c-disco' },
     { id: 'cmdline', titulo: 'Linha de comando', classe: 'c-cmd' },
   ]);
 
@@ -85,6 +87,7 @@
     switch (c) {
       case 'cpu_pct': return Math.round(p.cpu_pct * 10);
       case 'rss': return Math.round(p.rss / DECIMO_DE_MB);
+      case 'disco_bps': return Math.round(p.disco_bps / DECIMO_DE_MB);
       case 'estado': return rotuloEstado(p.estado);
       case 'distro': return l.distro;
       default: return p[c];
@@ -132,6 +135,7 @@
             : todos,
           cpu: todos.reduce((s, p) => s + p.cpu_pct, 0),
           mem: todos.reduce((s, p) => s + p.rss, 0),
+          disco: todos.reduce((s, p) => s + p.disco_bps, 0),
         };
       });
   });
@@ -436,6 +440,7 @@
               <td class="numero" title="Soma do RSS dos processos: memória compartilhada entra uma vez por processo">
                 {g.conectado ? bytes(g.mem) : ''}
               </td>
+              <td class="numero">{g.conectado ? taxa(g.disco) : ''}</td>
               <td></td>
             </tr>
           {:else}
@@ -472,6 +477,8 @@
               </td>
               <td class="numero" style={calor(p.cpu_pct / 25)}>{pct(p.cpu_pct)}</td>
               <td class="numero" style={calor(vm ? (p.rss / vm.mem_total) * 8 : 0)}>{bytes(p.rss)}</td>
+              <!-- 50 MB/s já é o calor máximo: um disco saturado por um processo só. -->
+              <td class="numero" style={calor(p.disco_bps / (50 * 1024 * 1024))}>{taxa(p.disco_bps)}</td>
               <td class="cmd" title={p.cmdline}>{p.cmdline}</td>
             </tr>
           {/if}
@@ -613,6 +620,7 @@
   thead :global(th.c-estado) { width: 120px; }
   thead :global(th.c-cpu) { width: 80px; }
   thead :global(th.c-rss) { width: 104px; }
+  thead :global(th.c-disco) { width: 96px; }
 
   thead :global(th button) {
     height: 52px;

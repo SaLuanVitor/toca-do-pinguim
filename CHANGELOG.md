@@ -27,6 +27,16 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   passa de 10% na média de 60 s por 2 min, o app avisa na tela, na notificação e na Atividade,
   dizendo quem mais pesa: os processos que mais usam CPU, os que esperam disco e o maior em
   memória, por distro. O limiar é inicial; o log registra a pressão acima de 5%, para calibrá-lo.
+- **Disco por processo.** O agente lê o que cada processo leu e gravou no disco
+  (`/proc/<pid>/io`), e a aba Processos ganhou a coluna Disco, em MB/s, com a soma por distro. Os
+  avisos de sobrecarga e de Docker sem resposta passam a apontar quem mais usa o disco, a partir
+  de 5 MB/s. Medido com uma gravação de controle no Ubuntu: 32 a 42 MB/s na coluna, com a espera de
+  disco subindo junto.
+- **A devolução automática do cache respeita o disco.** Ela não roda com a espera de disco acima
+  de 5% na média de 60 s, porque começa com um `sync`, que força a gravação do que está pendente
+  justo quando o disco não dá conta. Depois de uma falha, o intervalo dobra a cada falha seguida,
+  de 10 min até 2 h; antes, a falha se repetia a cada 10 min. A primeira falha seguida vira aviso:
+  em 08/11, as três travas do WSL vieram depois de devoluções que esgotaram o prazo.
 - **CPU dos containers.** Em Desempenho > Processamento, cada container ligado mostra quanto usa
   de CPU, em núcleos, e se tem limite, com o botão para limitar ou tirar o limite na hora, sem
   reiniciar (`docker update --cpus`). Medido: o limite sobrevive a reiniciar o container e some se

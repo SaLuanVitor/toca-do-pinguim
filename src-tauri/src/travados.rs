@@ -146,6 +146,7 @@ mod testes {
                     cpu_pct,
                     rss: 0,
                     nice: 0,
+                    disco_bps: 0,
                 })
                 .collect(),
             portas: None,

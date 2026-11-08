@@ -45,6 +45,8 @@ struct Bruto {
     inicio: u64,
     rss_paginas: u64,
     nice: i8,
+    /// Bytes lidos e gravados no disco desde que o processo nasceu; `None` sem permissão.
+    io: Option<u64>,
     uid: u32,
 }
 
@@ -55,6 +57,8 @@ struct Coletor {
     anterior_uptime: Option<f64>,
     anterior_cpu: Option<CpuVm>,
     anterior_proc: HashMap<(i32, u64), u64>,
+    /// Bytes de disco de cada processo na amostra anterior, para a taxa.
+    anterior_io: HashMap<(i32, u64), u64>,
     /// A linha de comando só muda num `exec`, que troca o nome do processo; com o nome na
     /// chave, cada processo tem o `cmdline` lido uma vez só.
     cmdlines: HashMap<(i32, u64, String), String>,
@@ -75,6 +79,7 @@ impl Coletor {
             anterior_uptime: None,
             anterior_cpu: None,
             anterior_proc: HashMap::new(),
+            anterior_io: HashMap::new(),
             cmdlines: HashMap::new(),
             anterior_self: None,
             kmsg: kernel::Kmsg::abrir(),
@@ -99,6 +104,7 @@ impl Coletor {
 
         let capacidade = dt.map(|d| d * self.tick_hz * cpus as f64);
         let mut atual_proc = HashMap::with_capacity(brutos.len());
+        let mut atual_io = HashMap::with_capacity(brutos.len());
         let mut cmdlines = HashMap::with_capacity(brutos.len());
         let processos = brutos
             .into_iter()
@@ -110,6 +116,13 @@ impl Coletor {
                     }
                     _ => 0.0,
                 };
+                let disco_bps = match (self.anterior_io.get(&chave), b.io, dt) {
+                    (Some(antes), Some(agora), Some(d)) if agora >= *antes => ((agora - antes) as f64 / d) as u64,
+                    _ => 0,
+                };
+                if let Some(io) = b.io {
+                    atual_io.insert(chave, io);
+                }
                 atual_proc.insert(chave, b.ticks);
                 let chave_cmd = (b.pid, b.inicio, b.nome.clone());
                 let cmdline = self
@@ -127,6 +140,7 @@ impl Coletor {
                     cpu_pct,
                     rss: b.rss_paginas * self.pagina,
                     nice: b.nice,
+                    disco_bps,
                 }
             })
             .collect();
@@ -143,6 +157,7 @@ impl Coletor {
         self.anterior_uptime = Some(uptime);
         self.anterior_cpu = Some(cpu);
         self.anterior_proc = atual_proc;
+        self.anterior_io = atual_io;
         self.cmdlines = cmdlines;
         self.anterior_self = Some(ticks_self);
         self.seq += 1;
@@ -225,6 +240,13 @@ fn threads(pid: i32) -> Vec<i32> {
     fs::read_dir(format!("/proc/{pid}/task"))
         .map(|d| d.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect())
         .unwrap_or_default()
+}
+
+/// `read_bytes` e `write_bytes` são o que de fato foi ao disco; `rchar` e `wchar` contam também
+/// o que veio do cache e de pipes.
+fn ler_io(texto: &str) -> Option<u64> {
+    let campo = |nome: &str| texto.lines().find_map(|l| l.strip_prefix(nome)?.trim().parse::<u64>().ok());
+    Some(campo("read_bytes:")? + campo("write_bytes:")?)
 }
 
 fn ler_uptime() -> f64 {
@@ -321,6 +343,7 @@ fn ler_processo(pid: i32) -> Option<Bruto> {
         inicio: num(19),
         rss_paginas: num(21),
         nice: f.get(16).and_then(|v| v.parse().ok()).unwrap_or(0),
+        io: fs::read_to_string(format!("/proc/{pid}/io")).ok().and_then(|t| ler_io(&t)),
         uid,
     })
 }
@@ -496,6 +519,7 @@ mod testes {
             cpu_pct: 0.0,
             rss: 0,
             nice: 0,
+            disco_bps: 0,
         }
     }
 
@@ -542,6 +566,13 @@ mod testes {
             p.push(processo(219, 218, "sleep"));
         }
         p
+    }
+
+    #[test]
+    fn le_o_que_foi_ao_disco() {
+        let io = "rchar: 9000\nwchar: 800\nsyscr: 5\nsyscw: 2\nread_bytes: 4096\nwrite_bytes: 8192\ncancelled_write_bytes: 0\n";
+        assert_eq!(ler_io(io), Some(12288));
+        assert_eq!(ler_io("rchar: 1\n"), None);
     }
 
     #[test]

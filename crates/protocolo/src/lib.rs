@@ -99,6 +99,10 @@ pub struct Processo {
     /// De -20 a 19; acima de 0, o processo cede a vez aos de prioridade normal.
     #[serde(default)]
     pub nice: i8,
+    /// Leitura e gravação no disco, em bytes por segundo, desde a amostra anterior. Vem de
+    /// `/proc/<pid>/io`, que só o root lê para processos de outros usuários.
+    #[serde(default)]
+    pub disco_bps: u64,
 }
 
 /// Socket em escuta. A rede é uma só para todas as distros, então o mesmo socket aparece

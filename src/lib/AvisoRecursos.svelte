@@ -22,6 +22,7 @@
     const partes: string[] = [];
     if (p.cpu_nucleos >= 0.5) partes.push(`${numero(p.cpu_nucleos)} ${p.cpu_nucleos < 1.5 ? 'núcleo' : 'núcleos'}`);
     if (p.rss >= GIB) partes.push(`${numero(p.rss / GIB)} GB`);
+    if (p.disco_bps >= 5 * 1024 ** 2) partes.push(`${numero(p.disco_bps / 1024 ** 2)} MB/s de disco`);
     if (p.esperando > 0) partes.push(p.esperando === p.quantos ? 'esperando disco' : `${p.esperando} esperando disco`);
     return `${p.quantos > 1 ? `${p.quantos} ` : ''}${p.nome} em ${p.distro}: ${partes.join(', ')}`;
   }
