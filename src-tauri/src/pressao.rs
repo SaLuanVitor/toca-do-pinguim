@@ -13,6 +13,9 @@ use serde::Serialize;
 /// a pressão. Fora dela, no mesmo dia, o disco teve "full" de 5% na média de 60 s. O log
 /// registra toda leitura acima da metade do limiar, para calibrar.
 pub const LIMIAR: f32 = 10.0;
+/// CPU da VM, em % do total. Para a CPU o kernel não mede o "full" do sistema (fica em zero), e
+/// o sinal é o uso dela. Também é limiar inicial, a calibrar pelo log.
+pub const LIMIAR_CPU: f32 = 90.0;
 /// O limiar precisa durar isto antes do aviso: um pico curto de disco não é afogamento.
 const DURACAO: Duration = Duration::from_secs(120);
 /// Uma linha de log por minuto, no máximo, com a pressão acima da metade do limiar.
@@ -40,6 +43,8 @@ pub struct AvisoPressao {
     pub disco_full: f32,
     pub memoria_full: f32,
     pub cpu_some: f32,
+    /// Uso da CPU da VM, em % do total.
+    pub cpu_vm: f32,
     pub pesados: Vec<Pesado>,
 }
 
@@ -115,6 +120,16 @@ pub enum Mudanca {
     Voltou,
 }
 
+/// Quanto a leitura está do limiar: 1 é chegar nele, no pior dos três (disco, memória, CPU).
+pub fn nivel(p: &Pressao, cpu_vm: f32) -> f32 {
+    (p.disco_full.avg60 / LIMIAR).max(p.memoria_full.avg60 / LIMIAR).max(cpu_vm / LIMIAR_CPU)
+}
+
+/// Se o que mais pesa é a CPU, e não a espera por disco ou memória.
+pub fn pela_cpu(p: &Pressao, cpu_vm: f32) -> bool {
+    cpu_vm / LIMIAR_CPU >= p.disco_full.avg60.max(p.memoria_full.avg60) / LIMIAR
+}
+
 /// Acompanha a pressão a cada leitura e diz quando avisar e quando o aviso acaba. A volta pede
 /// metade do limiar, para o aviso não piscar em torno dele.
 #[derive(Default)]
@@ -126,18 +141,20 @@ pub struct Vigia {
 }
 
 impl Vigia {
-    pub fn avaliar(&mut self, p: &Pressao, agora: Instant, agora_ms: u64) -> Mudanca {
-        let pior = p.disco_full.avg60.max(p.memoria_full.avg60);
-        if pior >= LIMIAR / 2.0 && self.ultimo_log.is_none_or(|t| agora.duration_since(t) >= LOG_A_CADA) {
+    pub fn avaliar(&mut self, p: &Pressao, cpu_vm: f32, agora: Instant, agora_ms: u64) -> Mudanca {
+        let nivel = nivel(p, cpu_vm);
+        let vale_log = p.disco_full.avg60.max(p.memoria_full.avg60) >= LIMIAR / 2.0 || cpu_vm >= LIMIAR_CPU;
+        if vale_log && self.ultimo_log.is_none_or(|t| agora.duration_since(t) >= LOG_A_CADA) {
             self.ultimo_log = Some(agora);
             log::info!(
-                "pressão da VM (média de 60 s): disco full {:.1}%, memória full {:.1}%, CPU some {:.1}%",
+                "pressão da VM (média de 60 s): disco full {:.1}%, memória full {:.1}%, CPU some {:.1}%; CPU da VM {:.0}%",
                 p.disco_full.avg60,
                 p.memoria_full.avg60,
-                p.cpu_some.avg60
+                p.cpu_some.avg60,
+                cpu_vm
             );
         }
-        if pior >= LIMIAR {
+        if nivel >= 1.0 {
             let desde = *self.desde.get_or_insert_with(|| {
                 self.desde_ms = agora_ms;
                 agora
@@ -146,7 +163,7 @@ impl Vigia {
                 self.avisando = true;
                 return Mudanca::Avisar;
             }
-        } else if pior < LIMIAR / 2.0 {
+        } else if nivel < 0.5 {
             self.desde = None;
             if self.avisando {
                 self.avisando = false;
@@ -163,7 +180,7 @@ mod testes {
     use protocolo::Espera;
 
     fn processo(nome: &str, estado: char, cpu_pct: f32, rss: u64) -> Processo {
-        Processo { pid: 1, ppid: 0, usuario: "root".into(), estado, nome: nome.into(), cmdline: String::new(), cpu_pct, rss }
+        Processo { pid: 1, ppid: 0, usuario: "root".into(), estado, nome: nome.into(), cmdline: String::new(), cpu_pct, rss, nice: 0 }
     }
 
     #[test]
@@ -204,14 +221,14 @@ mod testes {
         let mut v = Vigia::default();
         let t0 = Instant::now();
         let em = |s: u64| t0 + Duration::from_secs(s);
-        assert!(matches!(v.avaliar(&pressao(12.0), em(0), 0), Mudanca::Nada));
-        assert!(matches!(v.avaliar(&pressao(12.0), em(119), 0), Mudanca::Nada));
-        assert!(matches!(v.avaliar(&pressao(12.0), em(120), 0), Mudanca::Avisar));
-        assert!(matches!(v.avaliar(&pressao(12.0), em(200), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&pressao(12.0), 0.0, em(0), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&pressao(12.0), 0.0, em(119), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&pressao(12.0), 0.0, em(120), 0), Mudanca::Avisar));
+        assert!(matches!(v.avaliar(&pressao(12.0), 0.0, em(200), 0), Mudanca::Nada));
         // Entre a metade e o limiar o aviso fica: sem piscar.
-        assert!(matches!(v.avaliar(&pressao(7.0), em(210), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&pressao(7.0), 0.0, em(210), 0), Mudanca::Nada));
         assert!(v.avisando);
-        assert!(matches!(v.avaliar(&pressao(4.0), em(220), 0), Mudanca::Voltou));
+        assert!(matches!(v.avaliar(&pressao(4.0), 0.0, em(220), 0), Mudanca::Voltou));
         assert!(!v.avisando);
     }
 
@@ -220,9 +237,24 @@ mod testes {
         let mut v = Vigia::default();
         let t0 = Instant::now();
         let em = |s: u64| t0 + Duration::from_secs(s);
-        v.avaliar(&pressao(30.0), em(0), 0);
-        v.avaliar(&pressao(3.0), em(60), 0);
-        assert!(matches!(v.avaliar(&pressao(30.0), em(100), 0), Mudanca::Nada));
-        assert!(matches!(v.avaliar(&pressao(30.0), em(219), 0), Mudanca::Nada));
+        v.avaliar(&pressao(30.0), 0.0, em(0), 0);
+        v.avaliar(&pressao(3.0), 0.0, em(60), 0);
+        assert!(matches!(v.avaliar(&pressao(30.0), 0.0, em(100), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&pressao(30.0), 0.0, em(219), 0), Mudanca::Nada));
+    }
+
+    #[test]
+    fn cpu_cheia_tambem_avisa_e_diz_que_e_a_cpu() {
+        let mut v = Vigia::default();
+        let t0 = Instant::now();
+        let em = |s: u64| t0 + Duration::from_secs(s);
+        let calmo = pressao(1.0);
+        assert!(matches!(v.avaliar(&calmo, 95.0, em(0), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&calmo, 92.0, em(120), 0), Mudanca::Avisar));
+        assert!(pela_cpu(&calmo, 92.0));
+        assert!(!pela_cpu(&pressao(30.0), 92.0));
+        // 60% está acima da metade (45%): o aviso fica.
+        assert!(matches!(v.avaliar(&calmo, 60.0, em(130), 0), Mudanca::Nada));
+        assert!(matches!(v.avaliar(&calmo, 40.0, em(140), 0), Mudanca::Voltou));
     }
 }

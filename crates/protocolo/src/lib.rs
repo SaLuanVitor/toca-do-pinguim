@@ -20,6 +20,8 @@ pub enum Mensagem {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Comando {
     Sinal { pid: i32, sinal: i32 },
+    /// Nice para o processo, as threads dele e os descendentes vivos.
+    Prioridade { pid: i32, nice: i32 },
     Intervalo { ms: u64 },
     Sair,
 }
@@ -94,6 +96,9 @@ pub struct Processo {
     /// Percentual do total de CPUs, como o Gerenciador de Tarefas mostra.
     pub cpu_pct: f32,
     pub rss: u64,
+    /// De -20 a 19; acima de 0, o processo cede a vez aos de prioridade normal.
+    #[serde(default)]
+    pub nice: i8,
 }
 
 /// Socket em escuta. A rede é uma só para todas as distros, então o mesmo socket aparece

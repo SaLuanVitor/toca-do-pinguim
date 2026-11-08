@@ -89,6 +89,12 @@ pub struct Erro {
     pub mensagem: String,
 }
 
+/// O que foi pedido ao agente, para registrar quando a resposta chegar.
+enum Pedido {
+    Sinal(i32),
+    Prioridade(i32),
+}
+
 enum Slot {
     Iniciando,
     Vivo { id: u64, entrada: ChildStdin, _filho: Child },
@@ -104,7 +110,7 @@ pub struct Agentes {
     ligadas: Mutex<HashSet<String>>,
     /// Sinais enviados e ainda sem resposta, por distro, na ordem de envio: o agente
     /// responde na mesma ordem.
-    pendentes: Mutex<HashMap<String, VecDeque<(i32, String, i32)>>>,
+    pendentes: Mutex<HashMap<String, VecDeque<(i32, String, Pedido)>>>,
     pub historico: Mutex<Historico>,
     pub atividade: Mutex<Atividade>,
     /// Processos presos, por distro.
@@ -112,8 +118,9 @@ pub struct Agentes {
     intervalo_ms: AtomicU64,
     /// Cache de arquivos da VM na última amostra; 0 enquanto nenhuma chegou.
     cache_vm: AtomicU64,
-    /// Pressão da VM na última amostra que a trouxe. É uma só para todas as distros.
-    pressao: Mutex<Option<(Instant, Pressao)>>,
+    /// Pressão e CPU da VM na última amostra que trouxe a pressão. São uma só para todas as
+    /// distros.
+    pressao: Mutex<Option<(Instant, Pressao, f32)>>,
     /// Processos da última amostra de cada distro, com o número de CPUs, para dizer quem pesa.
     processos: Mutex<HashMap<String, ProcessosDaDistro>>,
     espera_ociosidade_ms: AtomicI64,
@@ -156,12 +163,35 @@ impl Agentes {
                     .unwrap()
                     .entry(distro.to_string())
                     .or_default()
-                    .push_back((pid, nome, sinal));
+                    .push_back((pid, nome, Pedido::Sinal(sinal)));
                 Ok(())
             }
             Some(Slot::Iniciando) => Err(format!("o agente de {distro} ainda está iniciando")),
             None => Err(format!("{distro} não tem agente em execução")),
         }
+    }
+
+    pub fn definir_prioridade(&self, distro: &str, pid: i32, nice: i32, nome: String) -> Result<(), String> {
+        let mut slots = self.slots.lock().unwrap();
+        match slots.get_mut(distro) {
+            Some(Slot::Vivo { entrada, .. }) => {
+                escrever(entrada, &Comando::Prioridade { pid, nice })?;
+                self.pendentes
+                    .lock()
+                    .unwrap()
+                    .entry(distro.to_string())
+                    .or_default()
+                    .push_back((pid, nome, Pedido::Prioridade(nice)));
+                Ok(())
+            }
+            Some(Slot::Iniciando) => Err(format!("o agente de {distro} ainda está iniciando")),
+            None => Err(format!("{distro} não tem agente em execução")),
+        }
+    }
+
+    /// Núcleos da VM pela amostra mais recente de qualquer distro.
+    pub fn cpus_vm(&self) -> Option<u32> {
+        self.processos.lock().unwrap().values().max_by_key(|(quando, _, _)| *quando).map(|(_, cpus, _)| *cpus)
     }
 
     pub fn definir_intervalo(&self, ms: u64) {
@@ -177,8 +207,8 @@ impl Agentes {
 
     /// A pressão da VM, se alguma amostra a trouxe nos últimos 30 s. Agente que parou de
     /// mandar dados não deixa uma leitura velha valendo.
-    pub fn pressao(&self) -> Option<Pressao> {
-        self.pressao.lock().unwrap().filter(|(quando, _)| quando.elapsed() < AMOSTRA_VALE).map(|(_, p)| p)
+    pub fn pressao(&self) -> Option<(Pressao, f32)> {
+        self.pressao.lock().unwrap().filter(|(quando, _, _)| quando.elapsed() < AMOSTRA_VALE).map(|(_, p, cpu)| (p, cpu))
     }
 
     /// Quem mais pesa nas distros com amostra recente.
@@ -356,7 +386,7 @@ impl Agentes {
                     let cache = if partes > 0 { partes } else { amostra.mem_disponivel.saturating_sub(amostra.mem_livre) };
                     self.cache_vm.store(cache, Ordering::Relaxed);
                     if let Some(p) = &amostra.pressao {
-                        *self.pressao.lock().unwrap() = Some((Instant::now(), **p));
+                        *self.pressao.lock().unwrap() = Some((Instant::now(), **p, amostra.cpu_vm_pct));
                     }
                     self.processos.lock().unwrap().insert(distro.clone(), (Instant::now(), amostra.cpus, amostra.processos.clone()));
                     self.vigiar_travados(&app, &distro, &amostra);
@@ -372,9 +402,14 @@ impl Agentes {
                 }
                 Ok(Mensagem::Resposta { ok, erro }) => {
                     let pedido = self.pendentes.lock().unwrap().get_mut(&distro).and_then(VecDeque::pop_front);
-                    if let (true, Some((pid, nome, sinal))) = (ok, pedido) {
-                        let como = if sinal == 9 { "forçou o encerramento de" } else { "pediu o encerramento de" };
-                        self.registrar(&app, "processo", Some(&distro), format!("O app {como} {nome} (PID {pid})"));
+                    if let (true, Some((pid, nome, pedido))) = (ok, pedido) {
+                        let texto = match pedido {
+                            Pedido::Sinal(9) => format!("O app forçou o encerramento de {nome} (PID {pid})"),
+                            Pedido::Sinal(_) => format!("O app pediu o encerramento de {nome} (PID {pid})"),
+                            Pedido::Prioridade(0) => format!("O app devolveu a prioridade normal a {nome} (PID {pid}) e aos filhos dele"),
+                            Pedido::Prioridade(_) => format!("O app baixou a prioridade de {nome} (PID {pid}) e dos filhos dele"),
+                        };
+                        self.registrar(&app, "processo", Some(&distro), texto);
                     }
                     let _ = app.emit("resposta", RespostaDistro { distro: &distro, ok, erro });
                 }

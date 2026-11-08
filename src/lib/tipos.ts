@@ -9,6 +9,8 @@ export interface Processo {
   cmdline: string;
   cpu_pct: number;
   rss: number;
+  /** De -20 a 19; acima de 0, o processo cede a vez aos de prioridade normal. */
+  nice: number;
 }
 
 export interface Porta {
@@ -82,6 +84,10 @@ export interface Conteiner {
   memoria_bytes: number;
   /** 0 quando o container não tem limite de memória. */
   limite_bytes: number;
+  /** CPU em núcleos: 1 é um núcleo inteiro. */
+  cpu_nucleos: number;
+  /** Limite de CPU em núcleos; 0 sem limite. */
+  limite_cpus: number;
   reinicios: number;
   em_ciclo: boolean;
   /** healthy, unhealthy ou starting; null sem healthcheck. */
@@ -125,6 +131,8 @@ export interface AvisoPressao {
   disco_full: number;
   memoria_full: number;
   cpu_some: number;
+  /** Uso da CPU da VM, em % do total. */
+  cpu_vm: number;
   pesados: Pesado[];
 }
 

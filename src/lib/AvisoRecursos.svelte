@@ -78,10 +78,15 @@
 {:else if estado.pressao}
   <div class="aviso" role="alert">
     <span>
-      <strong>A VM do WSL está sobrecarregada</strong> desde {hora.format(estado.pressao.desde_ms)}: no último minuto, ela ficou
-      parada esperando {estado.pressao.disco_full >= estado.pressao.memoria_full ? 'disco' : 'memória'}
-      {Math.round(Math.max(estado.pressao.disco_full, estado.pressao.memoria_full))}% do tempo. Se continuar, o Docker e o WSL
-      podem travar: pare o que não precisa agora.
+      <strong>A VM do WSL está sobrecarregada</strong> desde {hora.format(estado.pressao.desde_ms)}:
+      {#if estado.pressao.cpu_vm / 90 >= Math.max(estado.pressao.disco_full, estado.pressao.memoria_full) / 10}
+        a CPU dela está em {Math.round(estado.pressao.cpu_vm)}%.
+      {:else}
+        no último minuto, ela ficou parada esperando {estado.pressao.disco_full >= estado.pressao.memoria_full ? 'disco' : 'memória'}
+        {Math.round(Math.max(estado.pressao.disco_full, estado.pressao.memoria_full))}% do tempo.
+      {/if}
+      Se continuar, o Docker e o WSL podem travar: limite a CPU do container que mais pesa, em Desempenho &gt; Processamento,
+      baixe a prioridade de um processo ou pare o que não precisa agora.
       {@render pesados(estado.pressao.pesados)}
     </span>
     <button class="botao" onclick={() => (estado.pagina = 'processos')}>Ver processos</button>

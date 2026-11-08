@@ -84,6 +84,16 @@ export function desligarWsl() {
   };
 }
 
+/** Baixa (nice 10) ou devolve a prioridade normal ao processo, às threads e aos filhos dele. */
+export async function mudarPrioridade(distro: string, pid: number, nome: string, baixa: boolean) {
+  if (pid <= 1) return;
+  try {
+    await api.definirPrioridade(distro, pid, nome, baixa);
+  } catch (e) {
+    estado.avisar(String(e));
+  }
+}
+
 export async function encerrarProcesso(distro: string, pid: number, nome: string, sinal: number) {
   if (pid <= 1) return;
   try {

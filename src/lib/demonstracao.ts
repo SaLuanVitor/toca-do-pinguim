@@ -74,7 +74,7 @@ export function criarDemonstracao(): Api {
     { distro: 'Ubuntu', nome: 'node', quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0 },
   ];
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('pressao')) {
-    estado.pressao = { desde_ms: Date.now() - 3 * 60_000, disco_full: 18.4, memoria_full: 0.6, cpu_some: 64.2, pesados: pesadosDemo };
+    estado.pressao = { desde_ms: Date.now() - 3 * 60_000, disco_full: 18.4, memoria_full: 0.6, cpu_some: 64.2, cpu_vm: 71, pesados: pesadosDemo };
   }
   const distros: Distro[] = [
     { nome: 'Ubuntu', versao: 2, padrao: true, rodando: true },
@@ -99,6 +99,7 @@ export function criarDemonstracao(): Api {
       cmdline,
       cpu_pct: carga,
       rss: rssMb * 1024 * 1024,
+      nice: 0,
     }));
   }
 
@@ -178,6 +179,8 @@ export function criarDemonstracao(): Api {
     estado: 'running',
     memoria_bytes: mb * 1024 ** 2,
     limite_bytes: nome === 'loja-relatorios' ? 512 * 1024 ** 2 : 0,
+    cpu_nucleos: nome.includes('db') ? 1.4 : nome.includes('api') ? 0.6 : 0.05,
+    limite_cpus: nome === 'loja-relatorios' ? 1 : 0,
     reinicios: nome === 'bot-api-1' ? 20 : 0,
     em_ciclo: nome === 'bot-api-1',
     saude: nome === 'loja-api' ? 'unhealthy' : nome.includes('db') || nome.includes('mssql') ? 'healthy' : null,
@@ -405,6 +408,20 @@ export function criarDemonstracao(): Api {
       const liberado = 6.4 * GIB;
       registrar('distro', nome, `O app excluiu a distro ${nome} e liberou 6,4 GB${exportarPara ? `; a cópia ficou em ${exportarPara}` : ''}`);
       return { liberado_bytes: liberado, exportado: exportarPara };
+    },
+    limitarCpuConteiner: async (id, nome, nucleos) => {
+      await esperar(600);
+      const c = conteineres.find((x) => x.id === id);
+      if (!c) throw 'container inválido';
+      c.limite_cpus = nucleos ?? 0;
+      publicarRecursos();
+      registrar('docker', 'docker-desktop', nucleos === null ? `O app tirou o limite de CPU de ${nome}` : `O app limitou ${nome} a ${String(nucleos).replace('.', ',')} núcleo(s) de CPU`);
+    },
+    definirPrioridade: async (distro, pid, nome, baixa) => {
+      if (pid <= 1) throw `PID ${pid} é protegido`;
+      const p = processos[distro]?.find((x) => x.pid === pid);
+      if (p) p.nice = baixa ? 10 : 0;
+      registrar('processo', distro, baixa ? `O app baixou a prioridade de ${nome} (PID ${pid}) e dos filhos dele` : `O app devolveu a prioridade normal a ${nome} (PID ${pid}) e aos filhos dele`);
     },
     abrirDockerDesktop: async () => {
       await esperar(1500);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { encerrarProcesso } from './acoes.svelte';
+  import { encerrarProcesso, mudarPrioridade } from './acoes.svelte';
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
   import { estado } from './estado.svelte';
   import { bytes, ha, pct, rotuloEstado, rotuloSuspeita } from './formato';
@@ -263,6 +263,12 @@
     }
   });
 
+  async function prioridade() {
+    const alvo = selecionado;
+    menu = null;
+    if (alvo) await mudarPrioridade(alvo.distro, alvo.p.pid, alvo.p.nome, alvo.p.nice <= 0);
+  }
+
   async function copiar() {
     const alvo = selecionado;
     menu = null;
@@ -457,6 +463,7 @@
               <td>{p.usuario}</td>
               <td class="status">
                 {rotuloEstado(p.estado)}
+                {#if p.nice > 0}<span class="suspeito">prioridade baixa</span>{/if}
                 {#if suspeito}
                   <span class="suspeito">
                     {rotuloSuspeita(suspeito.motivo)}, {ha(suspeito.desde_ms)}{suspeito.motivo === 'zumbi' ? ` (pai: PID ${suspeito.ppid})` : ''}
@@ -500,6 +507,9 @@
     </button>
     <button role="menuitem" disabled={protegido} onclick={() => sinal(SIGKILL)}>
       Forçar encerramento <kbd>Shift+Delete</kbd>
+    </button>
+    <button role="menuitem" disabled={protegido} onclick={prioridade}>
+      {selecionado && selecionado.p.nice > 0 ? 'Devolver a prioridade normal' : 'Baixar prioridade'}
     </button>
     <hr />
     <button role="menuitem" onclick={copiar}>Copiar linha de comando</button>

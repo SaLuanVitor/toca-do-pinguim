@@ -37,6 +37,9 @@ export interface Api {
   pastaDeDocumentos(): Promise<string | null>;
   excluirDistro(nome: string, exportarPara: string | null): Promise<Exclusao>;
   abrirDockerDesktop(): Promise<void>;
+  /** `nucleos` null tira o limite. */
+  limitarCpuConteiner(id: string, nome: string, nucleos: number | null): Promise<void>;
+  definirPrioridade(distro: string, pid: number, nome: string, baixa: boolean): Promise<void>;
   enviarSinal(distro: string, pid: number, sinal: number, nome: string): Promise<void>;
   definirIntervalo(ms: number): Promise<void>;
   listarAtividade(): Promise<Evento[]>;
@@ -111,6 +114,8 @@ async function conectarTauri(): Promise<Api> {
     pastaDeDocumentos: () => invoke('pasta_de_documentos'),
     excluirDistro: (nome, exportarPara) => invoke('excluir_distro', { nome, exportarPara }),
     abrirDockerDesktop: () => invoke('abrir_docker_desktop'),
+    limitarCpuConteiner: (id, nome, nucleos) => invoke('limitar_cpu_conteiner', { id, nome, nucleos }),
+    definirPrioridade: (distro, pid, nome, baixa) => invoke('definir_prioridade', { distro, pid, nome, baixa }),
     enviarSinal: (distro, pid, sinal, nome) => invoke('enviar_sinal', { distro, pid, sinal, nome }),
     definirIntervalo: (ms) => invoke('definir_intervalo', { ms }),
     listarAtividade: () => invoke('listar_atividade'),

@@ -27,6 +27,16 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
   passa de 10% na média de 60 s por 2 min, o app avisa na tela, na notificação e na Atividade,
   dizendo quem mais pesa: os processos que mais usam CPU, os que esperam disco e o maior em
   memória, por distro. O limiar é inicial; o log registra a pressão acima de 5%, para calibrá-lo.
+- **CPU dos containers.** Em Desempenho > Processamento, cada container ligado mostra quanto usa
+  de CPU, em núcleos, e se tem limite, com o botão para limitar ou tirar o limite na hora, sem
+  reiniciar (`docker update --cpus`). Medido: o limite sobrevive a reiniciar o container e some se
+  o Compose o recriar; `--cpus 0` não tira o limite, então tirar é dar todas as CPUs da VM.
+- **Baixar a prioridade de um processo.** No menu do processo, na aba Processos, "Baixar
+  prioridade" põe o processo em nice 10, junto com todas as threads e os filhos vivos, e ele passa
+  a ceder a vez aos de prioridade normal; "Devolver a prioridade normal" desfaz. Medido num
+  processo com quatro threads: todas foram de 0 para 10. A coluna Status mostra "prioridade baixa".
+- O aviso de sobrecarga também olha a CPU da VM: acima de 90% por 2 min, ele avisa e diz que o
+  problema é a CPU. Também é limiar inicial.
 - O aviso de Docker sem resposta também diz quem mais pesa nas distros, e os dois têm um botão
   para a aba Processos.
 - Depois do desligamento forçado com o Docker ligado, um aviso diz que o Docker Desktop caiu

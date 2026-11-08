@@ -44,6 +44,7 @@ struct Bruto {
     ticks: u64,
     inicio: u64,
     rss_paginas: u64,
+    nice: i8,
     uid: u32,
 }
 
@@ -125,6 +126,7 @@ impl Coletor {
                     nome: b.nome,
                     cpu_pct,
                     rss: b.rss_paginas * self.pagina,
+                    nice: b.nice,
                 }
             })
             .collect();
@@ -173,6 +175,56 @@ impl Coletor {
             },
         }
     }
+}
+
+/// No Linux o nice é de cada thread, e `setpriority` num PID muda só a thread principal: um
+/// `sqlservr` ou um `node` com dezenas de threads seguiria igual. Por isso vão todas as threads
+/// do processo e dos descendentes vivos; os filhos criados depois herdam de quem os cria.
+fn definir_prioridade(pid: i32, nice: i32) -> Result<(), String> {
+    if pid <= 1 {
+        return Err(format!("PID {pid} é protegido"));
+    }
+    if !(-20..=19).contains(&nice) {
+        return Err(format!("prioridade {nice} fora da faixa de -20 a 19"));
+    }
+    let pais: Vec<(i32, i32)> = ler_processos().into_iter().map(|b| (b.pid, b.ppid)).collect();
+    let alvos = descendentes(pid, &pais);
+    let mut falhas = 0;
+    let mut total = 0;
+    for p in alvos {
+        for tid in threads(p) {
+            total += 1;
+            // SAFETY: setpriority só mexe no agendamento da thread; o retorno é conferido.
+            if unsafe { libc::setpriority(libc::PRIO_PROCESS, tid as libc::id_t, nice) } != 0 {
+                falhas += 1;
+            }
+        }
+    }
+    match (total, falhas) {
+        (0, _) => Err(format!("PID {pid} não existe mais")),
+        (_, 0) => Ok(()),
+        (t, f) if f == t => Err(io::Error::last_os_error().to_string()),
+        // Thread que terminou no meio do caminho não é erro.
+        _ => Ok(()),
+    }
+}
+
+/// O processo e todos os descendentes, pela lista `(pid, ppid)`.
+fn descendentes(raiz: i32, pais: &[(i32, i32)]) -> Vec<i32> {
+    let mut alvos = vec![raiz];
+    let mut i = 0;
+    while i < alvos.len() {
+        let atual = alvos[i];
+        alvos.extend(pais.iter().filter(|(_, ppid)| *ppid == atual).map(|(pid, _)| *pid));
+        i += 1;
+    }
+    alvos
+}
+
+fn threads(pid: i32) -> Vec<i32> {
+    fs::read_dir(format!("/proc/{pid}/task"))
+        .map(|d| d.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect())
+        .unwrap_or_default()
 }
 
 fn ler_uptime() -> f64 {
@@ -268,6 +320,7 @@ fn ler_processo(pid: i32) -> Option<Bruto> {
         ticks: num(11) + num(12),
         inicio: num(19),
         rss_paginas: num(21),
+        nice: f.get(16).and_then(|v| v.parse().ok()).unwrap_or(0),
         uid,
     })
 }
@@ -413,6 +466,13 @@ fn main() {
                         return;
                     }
                 }
+                Ok(Some(Comando::Prioridade { pid, nice })) => {
+                    let r = definir_prioridade(pid, nice);
+                    let resposta = Mensagem::Resposta { ok: r.is_ok(), erro: r.err() };
+                    if escrever(&mut saida, &resposta).is_err() {
+                        return;
+                    }
+                }
                 Ok(Some(Comando::Intervalo { ms })) => intervalo = Duration::from_millis(ms.max(100)),
                 Ok(Some(Comando::Sair)) | Ok(None) | Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => break,
@@ -435,6 +495,7 @@ mod testes {
             cmdline: String::new(),
             cpu_pct: 0.0,
             rss: 0,
+            nice: 0,
         }
     }
 
@@ -481,6 +542,21 @@ mod testes {
             p.push(processo(219, 218, "sleep"));
         }
         p
+    }
+
+    #[test]
+    fn descendentes_seguem_a_arvore_toda() {
+        let pais = [(10, 1), (11, 10), (12, 11), (13, 10), (20, 1), (21, 20)];
+        let mut d = descendentes(10, &pais);
+        d.sort();
+        assert_eq!(d, [10, 11, 12, 13]);
+        assert_eq!(descendentes(21, &pais), [21]);
+    }
+
+    #[test]
+    fn prioridade_protege_o_init_e_a_faixa() {
+        assert!(definir_prioridade(1, 10).is_err());
+        assert!(definir_prioridade(5000, 25).is_err());
     }
 
     #[test]

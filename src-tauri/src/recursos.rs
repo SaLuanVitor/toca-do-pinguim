@@ -365,6 +365,11 @@ pub fn explicar_wsl(usada: u64, wsl: u64, cache: Option<u64>, conteineres: &[Con
     }
 }
 
+/// "1,5" para 1.5: número com vírgula e uma casa, para texto.
+pub fn gb_texto(v: f32) -> String {
+    format!("{v:.1}").replace('.', ",")
+}
+
 pub fn gb(bytes: u64) -> String {
     format!("{:.1}", bytes as f64 / (1u64 << 30) as f64).replace('.', ",")
 }
@@ -538,12 +543,12 @@ fn limpar_programado(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, l:
 /// Pressão alta por 2 min vira aviso com quem pesa; enquanto ele vale, a lista se atualiza a
 /// cada leitura. Sem amostra recente com pressão, nada muda.
 fn vigiar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, vigia: &mut crate::pressao::Vigia) {
-    use crate::pressao::{descrever, AvisoPressao, Mudanca};
-    let Some(p) = agentes.pressao() else { return };
-    let mudanca = vigia.avaliar(&p, Instant::now(), agora_ms());
+    use crate::pressao::{descrever, pela_cpu, AvisoPressao, Mudanca};
+    let Some((p, cpu_vm)) = agentes.pressao() else { return };
+    let mudanca = vigia.avaliar(&p, cpu_vm, Instant::now(), agora_ms());
     if let Mudanca::Voltou = mudanca {
         info!("pressão da VM voltou ao normal");
-        agentes.registrar(app, "memoria", None, "A pressão de disco e memória na VM do WSL voltou ao normal".to_string());
+        agentes.registrar(app, "memoria", None, "A carga da VM do WSL voltou ao normal".to_string());
         *recursos.pressao.lock().unwrap() = None;
         let _ = app.emit("pressao_vm", None::<AvisoPressao>);
         return;
@@ -556,14 +561,19 @@ fn vigiar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, vigia
         disco_full: p.disco_full.avg60,
         memoria_full: p.memoria_full.avg60,
         cpu_some: p.cpu_some.avg60,
+        cpu_vm,
         pesados: agentes.pesados(),
     };
     if let Mudanca::Avisar = mudanca {
-        let recurso = if p.disco_full.avg60 >= p.memoria_full.avg60 { "disco" } else { "memória" };
         let quem = if aviso.pesados.is_empty() { String::new() } else { format!(" Mais pesados: {}.", descrever(&aviso.pesados)) };
+        let carga = if pela_cpu(&p, cpu_vm) {
+            format!("A CPU da VM do WSL está em {cpu_vm:.0}% há 2 min")
+        } else {
+            let recurso = if p.disco_full.avg60 >= p.memoria_full.avg60 { "disco" } else { "memória" };
+            format!("A VM do WSL está parada esperando {recurso} {:.0}% do tempo no último minuto", p.disco_full.avg60.max(p.memoria_full.avg60))
+        };
         let texto = format!(
-            "A VM do WSL está parada esperando {recurso} {:.0}% do tempo no último minuto. Se continuar, o Docker e o WSL podem travar: pare o que não precisa agora.{quem}",
-            p.disco_full.avg60.max(p.memoria_full.avg60)
+            "{carga}. Se continuar, o Docker e o WSL podem travar: limite a CPU do container que mais pesa, baixe a prioridade de um processo ou pare o que não precisa agora.{quem}"
         );
         warn!("{texto}");
         agentes.registrar(app, "memoria", None, texto.clone());
@@ -672,6 +682,8 @@ mod testes {
             estado: "running".to_string(),
             memoria_bytes: mb << 20,
             limite_bytes: 0,
+            cpu_nucleos: 0.0,
+            limite_cpus: 0.0,
             reinicios: 0,
             em_ciclo: false,
             saude: None,
@@ -696,6 +708,8 @@ mod testes {
             estado: "running".to_string(),
             memoria_bytes: mb << 20,
             limite_bytes: 0,
+            cpu_nucleos: 0.0,
+            limite_cpus: 0.0,
             reinicios: 0,
             em_ciclo: false,
             saude: None,

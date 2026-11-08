@@ -145,6 +145,7 @@ mod testes {
                     cmdline: String::new(),
                     cpu_pct,
                     rss: 0,
+                    nice: 0,
                 })
                 .collect(),
             portas: None,

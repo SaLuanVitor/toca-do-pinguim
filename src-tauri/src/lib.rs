@@ -125,6 +125,37 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>, forcar: bool) -
     .await
 }
 
+/// Com `nucleos` vazio, tira o limite: dá ao container todas as CPUs da VM.
+#[tauri::command]
+async fn limitar_cpu_conteiner(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    id: String,
+    nome: String,
+    nucleos: Option<f32>,
+) -> Result<(), String> {
+    recursos.conferir_ids(std::slice::from_ref(&id))?;
+    let total = agentes.cpus_vm().ok_or("ainda não há leitura da VM para saber quantos núcleos ela tem")? as f32;
+    if nucleos.is_some_and(|n| n > total) {
+        return Err(format!("a VM tem {total} núcleos; o limite não pode passar disso"));
+    }
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        info!("pedido: limitar a CPU de {nome} a {nucleos:?} núcleo(s)");
+        let resultado = docker::limitar_cpu(&id, nucleos.unwrap_or(total));
+        recursos.pedir_atualizacao();
+        resultado?;
+        let texto = match nucleos {
+            Some(n) => format!("O app limitou {nome} a {} núcleo(s) de CPU", recursos::gb_texto(n)),
+            None => format!("O app tirou o limite de CPU de {nome}"),
+        };
+        agentes.registrar(&app, "docker", Some("docker-desktop"), texto);
+        Ok(())
+    })
+    .await
+}
+
 /// Depois de o WSL cair à força, o Docker Desktop que estava fechado não volta sozinho.
 #[tauri::command]
 fn abrir_docker_desktop() -> Result<(), String> {
@@ -258,6 +289,18 @@ fn enviar_sinal(estado: Estado<'_>, distro: String, pid: i32, sinal: i32, nome: 
     info!("pedido: sinal {sinal} para {nome} (PID {pid}) em {distro}");
     estado.enviar_sinal(&distro, pid, sinal, nome)
 }
+
+/// `baixa` põe o processo e os filhos dele em prioridade baixa (nice 10); falso devolve a
+/// normal (0).
+#[tauri::command]
+fn definir_prioridade(estado: Estado<'_>, distro: String, pid: i32, nome: String, baixa: bool) -> Result<(), String> {
+    let nice = if baixa { PRIORIDADE_BAIXA } else { 0 };
+    info!("pedido: prioridade {nice} para {nome} (PID {pid}) em {distro}");
+    estado.definir_prioridade(&distro, pid, nice, nome)
+}
+
+/// Nice 10: o processo cede a vez a quem tem prioridade normal, sem parar quando a CPU sobra.
+const PRIORIDADE_BAIXA: i32 = 10;
 
 #[tauri::command]
 fn definir_intervalo(estado: Estado<'_>, ms: u64) {
@@ -838,6 +881,8 @@ pub fn run() {
             pasta_de_documentos,
             excluir_distro,
             abrir_docker_desktop,
+            limitar_cpu_conteiner,
+            definir_prioridade,
             apagar_pastas,
             compactar_disco,
             limpar_docker,
