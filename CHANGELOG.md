@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.13.0] - 2026-11-08
+
 ### Corrigido
 
 - Com o WSL travado, "Desligar o WSL" não destravava: o `wsl --shutdown` comum espera o que
@@ -403,7 +405,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.9.0...v0.10.0
