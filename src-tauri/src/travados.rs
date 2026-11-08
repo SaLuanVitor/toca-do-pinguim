@@ -145,10 +145,13 @@ mod testes {
                     cmdline: String::new(),
                     cpu_pct,
                     rss: 0,
+                    nice: 0,
+                    disco_bps: 0,
                 })
                 .collect(),
             portas: None,
             kernel: Vec::new(),
+            pressao: None,
             agente: CustoAgente::default(),
         }
     }

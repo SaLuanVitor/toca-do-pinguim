@@ -5,6 +5,61 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.13.0] - 2026-11-08
+
+### Corrigido
+
+- Com o WSL travado, "Desligar o WSL" não destravava: o `wsl --shutdown` comum espera o que
+  está em andamento terminar, e ficou 180 s sem resposta. Agora o aviso de WSL travado e o botão
+  da aba Distros oferecem o desligamento forçado (`wsl --shutdown --force`), que derrubou a VM
+  travada em 1 s, medido no WSL 2.6.1. Fora da trava vai o desligamento comum, e se ele não
+  voltar em 60 s o app oferece o forçado.
+- Durante a trava, o botão "Desligar WSL" da aba Distros ficava desabilitado, porque o app não
+  conseguia saber quais distros estavam ligadas. Agora ele fica ativo, e Iniciar, Reiniciar,
+  Terminar e Excluir ficam desabilitados com a explicação: cada um só deixaria mais um `wsl.exe`
+  preso. As distros aparecem como "Sem resposta".
+- Com o WSL travado, o app tentava listar as distros a cada 32 s, e cada tentativa prendia um
+  `wsl.exe` por 30 s. Agora o intervalo cresce até 2 min e volta ao normal assim que o WSL
+  responde ou é desligado.
+
+### Adicionado
+
+- **Aviso de VM sobrecarregada.** O agente passa a ler a pressão do kernel (`/proc/pressure`):
+  quanto do tempo os processos ficaram parados esperando disco ou memória. Quando essa espera
+  passa de 10% na média de 60 s por 2 min, o app avisa na tela, na notificação e na Atividade,
+  dizendo quem mais pesa: os processos que mais usam CPU, os que esperam disco e o maior em
+  memória, por distro. O limiar é inicial; o log registra a pressão acima de 5%, para calibrá-lo.
+- **Disco por processo.** O agente lê o que cada processo leu e gravou no disco
+  (`/proc/<pid>/io`), e a aba Processos ganhou a coluna Disco, em MB/s, com a soma por distro. Os
+  avisos de sobrecarga e de Docker sem resposta passam a apontar quem mais usa o disco, a partir
+  de 5 MB/s. Medido com uma gravação de controle no Ubuntu: 32 a 42 MB/s na coluna, com a espera de
+  disco subindo junto.
+- **A devolução automática do cache respeita o disco.** Ela não roda com a espera de disco acima
+  de 5% na média de 60 s, porque começa com um `sync`, que força a gravação do que está pendente
+  justo quando o disco não dá conta. Depois de uma falha, o intervalo dobra a cada falha seguida,
+  de 10 min até 2 h; antes, a falha se repetia a cada 10 min. A primeira falha seguida vira aviso:
+  em 08/11, as três travas do WSL vieram depois de devoluções que esgotaram o prazo.
+- **CPU dos containers.** Em Desempenho > Processamento, cada container ligado mostra quanto usa
+  de CPU, em núcleos, e se tem limite, com o botão para limitar ou tirar o limite na hora, sem
+  reiniciar (`docker update --cpus`). Medido: o limite sobrevive a reiniciar o container e some se
+  o Compose o recriar; `--cpus 0` não tira o limite, então tirar é dar todas as CPUs da VM.
+- **Baixar a prioridade de um processo.** No menu do processo, na aba Processos, "Baixar
+  prioridade" põe o processo em nice 10, junto com todas as threads e os filhos vivos, e ele passa
+  a ceder a vez aos de prioridade normal; "Devolver a prioridade normal" desfaz. Medido num
+  processo com quatro threads: todas foram de 0 para 10. A coluna Status mostra "prioridade baixa".
+- O aviso de sobrecarga também olha a CPU da VM: acima de 90% por 2 min, ele avisa e diz que o
+  problema é a CPU. Também é limiar inicial.
+- O aviso de Docker sem resposta também diz quem mais pesa nas distros, e os dois têm um botão
+  para a aba Processos.
+- Depois do desligamento forçado com o Docker ligado, um aviso diz que o Docker Desktop caiu
+  junto e traz o botão "Abrir o Docker Desktop". Medido em 08/11: aberto, ele religou sozinho em
+  17 s; fechado, não volta. O aviso some quando o Docker volta.
+- Aviso de Docker sem resposta: depois de três leituras seguidas sem resposta, perto de 2 min, o
+  app avisa que o WSL pode travar em seguida e sugere parar os projetos mais pesados enquanto
+  ainda dá. Nas travas medidas, o Docker parou de responder antes do WSL. Nesse estado, e com o
+  WSL travado, a devolução automática do cache não roda: ela esgotou o prazo 25 min antes da
+  trava de 08/11.
+
 ## [0.12.0] - 2026-10-31
 
 ### Adicionado
@@ -350,7 +405,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.9.0...v0.10.0

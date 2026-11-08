@@ -16,7 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use log::{error, info, warn};
-use protocolo::{Amostra, Comando, Mensagem};
+use protocolo::{Amostra, Comando, Mensagem, Pressao, Processo};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -33,6 +33,18 @@ static AGENTE: &[u8] = include_bytes!(concat!(
 ));
 
 const PAUSA_SUPERVISOR: Duration = Duration::from_secs(2);
+/// Quando chegou, quantas CPUs a VM tem e os processos.
+type ProcessosDaDistro = (Instant, u32, Vec<Processo>);
+
+/// Amostra mais velha que isto não serve para a pressão nem para dizer quem pesa.
+const AMOSTRA_VALE: Duration = Duration::from_secs(30);
+
+/// Espera a mais entre tentativas de listar as distros enquanto o WSL não responde: cada
+/// tentativa prende um `wsl.exe` por 30 s, e repetir a cada 32 s só soma processo preso.
+/// Medido em 08/11/2026: 35 tentativas em 18 min de trava.
+fn espera_lista(falhas: u32) -> Duration {
+    Duration::from_secs((30 * u64::from(falhas.saturating_sub(1))).min(90))
+}
 const ESPERA_APOS_FALHA: Duration = Duration::from_secs(30);
 const ESPERA_MAXIMA_APOS_FALHA: Duration = Duration::from_secs(5 * 60);
 
@@ -77,6 +89,12 @@ pub struct Erro {
     pub mensagem: String,
 }
 
+/// O que foi pedido ao agente, para registrar quando a resposta chegar.
+enum Pedido {
+    Sinal(i32),
+    Prioridade(i32),
+}
+
 enum Slot {
     Iniciando,
     Vivo { id: u64, entrada: ChildStdin, _filho: Child },
@@ -92,7 +110,7 @@ pub struct Agentes {
     ligadas: Mutex<HashSet<String>>,
     /// Sinais enviados e ainda sem resposta, por distro, na ordem de envio: o agente
     /// responde na mesma ordem.
-    pendentes: Mutex<HashMap<String, VecDeque<(i32, String, i32)>>>,
+    pendentes: Mutex<HashMap<String, VecDeque<(i32, String, Pedido)>>>,
     pub historico: Mutex<Historico>,
     pub atividade: Mutex<Atividade>,
     /// Processos presos, por distro.
@@ -100,6 +118,11 @@ pub struct Agentes {
     intervalo_ms: AtomicU64,
     /// Cache de arquivos da VM na última amostra; 0 enquanto nenhuma chegou.
     cache_vm: AtomicU64,
+    /// Pressão e CPU da VM na última amostra que trouxe a pressão. São uma só para todas as
+    /// distros.
+    pressao: Mutex<Option<(Instant, Pressao, f32)>>,
+    /// Processos da última amostra de cada distro, com o número de CPUs, para dizer quem pesa.
+    processos: Mutex<HashMap<String, ProcessosDaDistro>>,
     espera_ociosidade_ms: AtomicI64,
     pausado: AtomicBool,
     /// Enquanto o app desliga o WSL, nenhum agente sobe: uma leitura da lista feita antes do
@@ -121,6 +144,8 @@ impl Agentes {
             travados: Mutex::new(HashMap::new()),
             intervalo_ms: AtomicU64::new(1000),
             cache_vm: AtomicU64::new(0),
+            pressao: Mutex::new(None),
+            processos: Mutex::new(HashMap::new()),
             espera_ociosidade_ms: AtomicI64::new(WslConfig::ler().espera_ociosidade_ms()),
             pausado: AtomicBool::new(false),
             segurando: AtomicBool::new(false),
@@ -138,12 +163,35 @@ impl Agentes {
                     .unwrap()
                     .entry(distro.to_string())
                     .or_default()
-                    .push_back((pid, nome, sinal));
+                    .push_back((pid, nome, Pedido::Sinal(sinal)));
                 Ok(())
             }
             Some(Slot::Iniciando) => Err(format!("o agente de {distro} ainda está iniciando")),
             None => Err(format!("{distro} não tem agente em execução")),
         }
+    }
+
+    pub fn definir_prioridade(&self, distro: &str, pid: i32, nice: i32, nome: String) -> Result<(), String> {
+        let mut slots = self.slots.lock().unwrap();
+        match slots.get_mut(distro) {
+            Some(Slot::Vivo { entrada, .. }) => {
+                escrever(entrada, &Comando::Prioridade { pid, nice })?;
+                self.pendentes
+                    .lock()
+                    .unwrap()
+                    .entry(distro.to_string())
+                    .or_default()
+                    .push_back((pid, nome, Pedido::Prioridade(nice)));
+                Ok(())
+            }
+            Some(Slot::Iniciando) => Err(format!("o agente de {distro} ainda está iniciando")),
+            None => Err(format!("{distro} não tem agente em execução")),
+        }
+    }
+
+    /// Núcleos da VM pela amostra mais recente de qualquer distro.
+    pub fn cpus_vm(&self) -> Option<u32> {
+        self.processos.lock().unwrap().values().max_by_key(|(quando, _, _)| *quando).map(|(_, cpus, _)| *cpus)
     }
 
     pub fn definir_intervalo(&self, ms: u64) {
@@ -155,6 +203,25 @@ impl Agentes {
 
     pub fn cache_vm(&self) -> Option<u64> {
         Some(self.cache_vm.load(Ordering::Relaxed)).filter(|&b| b > 0)
+    }
+
+    /// A pressão da VM, se alguma amostra a trouxe nos últimos 30 s. Agente que parou de
+    /// mandar dados não deixa uma leitura velha valendo.
+    pub fn pressao(&self) -> Option<(Pressao, f32)> {
+        self.pressao.lock().unwrap().filter(|(quando, _, _)| quando.elapsed() < AMOSTRA_VALE).map(|(_, p, cpu)| (p, cpu))
+    }
+
+    /// Quem mais pesa nas distros com amostra recente.
+    pub fn pesados(&self) -> Vec<crate::pressao::Pesado> {
+        let distros: Vec<(String, u32, Vec<Processo>)> = self
+            .processos
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, (quando, _, _))| quando.elapsed() < AMOSTRA_VALE)
+            .map(|(d, (_, cpus, ps))| (d.clone(), *cpus, ps.clone()))
+            .collect();
+        crate::pressao::escolher(&distros)
     }
 
     pub fn pausado(&self) -> bool {
@@ -318,6 +385,10 @@ impl Agentes {
                     let partes = amostra.mem_blocos + amostra.mem_arquivos + amostra.mem_tabelas;
                     let cache = if partes > 0 { partes } else { amostra.mem_disponivel.saturating_sub(amostra.mem_livre) };
                     self.cache_vm.store(cache, Ordering::Relaxed);
+                    if let Some(p) = &amostra.pressao {
+                        *self.pressao.lock().unwrap() = Some((Instant::now(), **p, amostra.cpu_vm_pct));
+                    }
+                    self.processos.lock().unwrap().insert(distro.clone(), (Instant::now(), amostra.cpus, amostra.processos.clone()));
                     self.vigiar_travados(&app, &distro, &amostra);
                     if !amostra.kernel.is_empty() {
                         let mut atividade = self.atividade.lock().unwrap();
@@ -331,9 +402,14 @@ impl Agentes {
                 }
                 Ok(Mensagem::Resposta { ok, erro }) => {
                     let pedido = self.pendentes.lock().unwrap().get_mut(&distro).and_then(VecDeque::pop_front);
-                    if let (true, Some((pid, nome, sinal))) = (ok, pedido) {
-                        let como = if sinal == 9 { "forçou o encerramento de" } else { "pediu o encerramento de" };
-                        self.registrar(&app, "processo", Some(&distro), format!("O app {como} {nome} (PID {pid})"));
+                    if let (true, Some((pid, nome, pedido))) = (ok, pedido) {
+                        let texto = match pedido {
+                            Pedido::Sinal(9) => format!("O app forçou o encerramento de {nome} (PID {pid})"),
+                            Pedido::Sinal(_) => format!("O app pediu o encerramento de {nome} (PID {pid})"),
+                            Pedido::Prioridade(0) => format!("O app devolveu a prioridade normal a {nome} (PID {pid}) e aos filhos dele"),
+                            Pedido::Prioridade(_) => format!("O app baixou a prioridade de {nome} (PID {pid}) e dos filhos dele"),
+                        };
+                        self.registrar(&app, "processo", Some(&distro), texto);
                     }
                     let _ = app.emit("resposta", RespostaDistro { distro: &distro, ok, erro });
                 }
@@ -488,12 +564,14 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
     thread::spawn(move || {
         let mut ultima: Option<Vec<Distro>> = None;
         let mut travado = false;
+        let mut falhas_lista: u32 = 0;
         loop {
             agentes
                 .espera_ociosidade_ms
                 .store(WslConfig::ler().espera_ociosidade_ms(), Ordering::Relaxed);
             match wsl::listar() {
                 Ok(lista) => {
+                    falhas_lista = 0;
                     let rodando: HashSet<&str> =
                         lista.iter().filter(|d| d.rodando).map(|d| d.nome.as_str()).collect();
                     if let Some(antes) = &ultima {
@@ -521,6 +599,7 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                     }
                 }
                 Err(mensagem) => {
+                    falhas_lista += 1;
                     warn!("lista de distros indisponível: {mensagem}");
                     let _ = app.emit("erro", Erro { distro: None, mensagem });
                 }
@@ -560,6 +639,11 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                 agentes.registrar(&app, "wsl", alvo.as_deref(), texto);
             }
             thread::sleep(PAUSA_SUPERVISOR);
+            // A espera acaba antes se a queda sair, como depois de o WSL ser desligado.
+            let mais = Instant::now() + espera_lista(falhas_lista);
+            while Instant::now() < mais && wsl::saude::alguma_queda() {
+                thread::sleep(Duration::from_secs(1));
+            }
         }
     });
 }
@@ -567,6 +651,12 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn lista_espaca_ate_90_s_com_o_wsl_travado() {
+        let s = |n| espera_lista(n).as_secs();
+        assert_eq!([s(0), s(1), s(2), s(3), s(4), s(50)], [0, 0, 30, 60, 90, 90]);
+    }
 
     #[test]
     fn espera_dobra_a_cada_falha_ate_cinco_minutos() {

@@ -9,6 +9,10 @@ export interface Processo {
   cmdline: string;
   cpu_pct: number;
   rss: number;
+  /** De -20 a 19; acima de 0, o processo cede a vez aos de prioridade normal. */
+  nice: number;
+  /** Leitura e gravação no disco, em bytes por segundo. */
+  disco_bps: number;
 }
 
 export interface Porta {
@@ -82,6 +86,10 @@ export interface Conteiner {
   memoria_bytes: number;
   /** 0 quando o container não tem limite de memória. */
   limite_bytes: number;
+  /** CPU em núcleos: 1 é um núcleo inteiro. */
+  cpu_nucleos: number;
+  /** Limite de CPU em núcleos; 0 sem limite. */
+  limite_cpus: number;
   reinicios: number;
   em_ciclo: boolean;
   /** healthy, unhealthy ou starting; null sem healthcheck. */
@@ -101,6 +109,35 @@ export interface Docker {
   ligado: boolean;
   conteineres: Conteiner[];
   erro: string | null;
+  /** Desde quando o Docker não responde, a partir da terceira leitura seguida sem resposta. */
+  sem_resposta_desde_ms: number | null;
+  /** Quem mais pesava nas distros quando o Docker parou de responder. */
+  pesados: Pesado[];
+}
+
+/** Processos de mesmo nome numa distro, somados. */
+export interface Pesado {
+  distro: string;
+  nome: string;
+  quantos: number;
+  /** 1,0 é um núcleo inteiro. */
+  cpu_nucleos: number;
+  rss: number;
+  /** Quantos estão esperando disco ou rede (estado D). */
+  esperando: number;
+  /** Leitura e gravação no disco, em bytes por segundo. */
+  disco_bps: number;
+}
+
+/** Pressão alta na VM por 2 min: médias de 60 s, em %, e quem pesa. */
+export interface AvisoPressao {
+  desde_ms: number;
+  disco_full: number;
+  memoria_full: number;
+  cpu_some: number;
+  /** Uso da CPU da VM, em % do total. */
+  cpu_vm: number;
+  pesados: Pesado[];
 }
 
 /** Queda em curso do WSL; null quando ele responde. */
@@ -123,6 +160,7 @@ export interface Devolucao {
 export interface EstadoRecursos {
   memoria: MemoriaWindows;
   docker: Docker;
+  pressao: AvisoPressao | null;
   saude: SituacaoWsl | null;
   devolucao: Devolucao | null;
   devolver_cache_automatico: boolean;

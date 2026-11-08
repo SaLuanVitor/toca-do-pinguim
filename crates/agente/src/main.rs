@@ -18,7 +18,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use protocolo::{Amostra, Comando, CustoAgente, Mensagem, Processo};
+use protocolo::{Amostra, Comando, CustoAgente, Espera, Mensagem, Pressao, Processo};
 
 const CMDLINE_MAX: usize = 512;
 
@@ -44,6 +44,9 @@ struct Bruto {
     ticks: u64,
     inicio: u64,
     rss_paginas: u64,
+    nice: i8,
+    /// Bytes lidos e gravados no disco desde que o processo nasceu; `None` sem permissão.
+    io: Option<u64>,
     uid: u32,
 }
 
@@ -54,6 +57,8 @@ struct Coletor {
     anterior_uptime: Option<f64>,
     anterior_cpu: Option<CpuVm>,
     anterior_proc: HashMap<(i32, u64), u64>,
+    /// Bytes de disco de cada processo na amostra anterior, para a taxa.
+    anterior_io: HashMap<(i32, u64), u64>,
     /// A linha de comando só muda num `exec`, que troca o nome do processo; com o nome na
     /// chave, cada processo tem o `cmdline` lido uma vez só.
     cmdlines: HashMap<(i32, u64, String), String>,
@@ -74,6 +79,7 @@ impl Coletor {
             anterior_uptime: None,
             anterior_cpu: None,
             anterior_proc: HashMap::new(),
+            anterior_io: HashMap::new(),
             cmdlines: HashMap::new(),
             anterior_self: None,
             kmsg: kernel::Kmsg::abrir(),
@@ -98,6 +104,7 @@ impl Coletor {
 
         let capacidade = dt.map(|d| d * self.tick_hz * cpus as f64);
         let mut atual_proc = HashMap::with_capacity(brutos.len());
+        let mut atual_io = HashMap::with_capacity(brutos.len());
         let mut cmdlines = HashMap::with_capacity(brutos.len());
         let processos = brutos
             .into_iter()
@@ -109,6 +116,13 @@ impl Coletor {
                     }
                     _ => 0.0,
                 };
+                let disco_bps = match (self.anterior_io.get(&chave), b.io, dt) {
+                    (Some(antes), Some(agora), Some(d)) if agora >= *antes => ((agora - antes) as f64 / d) as u64,
+                    _ => 0,
+                };
+                if let Some(io) = b.io {
+                    atual_io.insert(chave, io);
+                }
                 atual_proc.insert(chave, b.ticks);
                 let chave_cmd = (b.pid, b.inicio, b.nome.clone());
                 let cmdline = self
@@ -125,6 +139,8 @@ impl Coletor {
                     nome: b.nome,
                     cpu_pct,
                     rss: b.rss_paginas * self.pagina,
+                    nice: b.nice,
+                    disco_bps,
                 }
             })
             .collect();
@@ -141,6 +157,7 @@ impl Coletor {
         self.anterior_uptime = Some(uptime);
         self.anterior_cpu = Some(cpu);
         self.anterior_proc = atual_proc;
+        self.anterior_io = atual_io;
         self.cmdlines = cmdlines;
         self.anterior_self = Some(ticks_self);
         self.seq += 1;
@@ -165,6 +182,7 @@ impl Coletor {
             processos,
             portas,
             kernel,
+            pressao: ler_pressao().map(Box::new),
             agente: CustoAgente {
                 rss: rss_self * self.pagina,
                 cpu_pct: cpu_self,
@@ -172,6 +190,63 @@ impl Coletor {
             },
         }
     }
+}
+
+/// No Linux o nice é de cada thread, e `setpriority` num PID muda só a thread principal: um
+/// `sqlservr` ou um `node` com dezenas de threads seguiria igual. Por isso vão todas as threads
+/// do processo e dos descendentes vivos; os filhos criados depois herdam de quem os cria.
+fn definir_prioridade(pid: i32, nice: i32) -> Result<(), String> {
+    if pid <= 1 {
+        return Err(format!("PID {pid} é protegido"));
+    }
+    if !(-20..=19).contains(&nice) {
+        return Err(format!("prioridade {nice} fora da faixa de -20 a 19"));
+    }
+    let pais: Vec<(i32, i32)> = ler_processos().into_iter().map(|b| (b.pid, b.ppid)).collect();
+    let alvos = descendentes(pid, &pais);
+    let mut falhas = 0;
+    let mut total = 0;
+    for p in alvos {
+        for tid in threads(p) {
+            total += 1;
+            // SAFETY: setpriority só mexe no agendamento da thread; o retorno é conferido.
+            if unsafe { libc::setpriority(libc::PRIO_PROCESS, tid as libc::id_t, nice) } != 0 {
+                falhas += 1;
+            }
+        }
+    }
+    match (total, falhas) {
+        (0, _) => Err(format!("PID {pid} não existe mais")),
+        (_, 0) => Ok(()),
+        (t, f) if f == t => Err(io::Error::last_os_error().to_string()),
+        // Thread que terminou no meio do caminho não é erro.
+        _ => Ok(()),
+    }
+}
+
+/// O processo e todos os descendentes, pela lista `(pid, ppid)`.
+fn descendentes(raiz: i32, pais: &[(i32, i32)]) -> Vec<i32> {
+    let mut alvos = vec![raiz];
+    let mut i = 0;
+    while i < alvos.len() {
+        let atual = alvos[i];
+        alvos.extend(pais.iter().filter(|(_, ppid)| *ppid == atual).map(|(pid, _)| *pid));
+        i += 1;
+    }
+    alvos
+}
+
+fn threads(pid: i32) -> Vec<i32> {
+    fs::read_dir(format!("/proc/{pid}/task"))
+        .map(|d| d.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect())
+        .unwrap_or_default()
+}
+
+/// `read_bytes` e `write_bytes` são o que de fato foi ao disco; `rchar` e `wchar` contam também
+/// o que veio do cache e de pipes.
+fn ler_io(texto: &str) -> Option<u64> {
+    let campo = |nome: &str| texto.lines().find_map(|l| l.strip_prefix(nome)?.trim().parse::<u64>().ok());
+    Some(campo("read_bytes:")? + campo("write_bytes:")?)
 }
 
 fn ler_uptime() -> f64 {
@@ -197,6 +272,34 @@ fn ler_cpu_vm() -> (CpuVm, u32) {
         }
     }
     (vm, cpus.max(1))
+}
+
+/// Sem `/proc/pressure/cpu`, o kernel não tem PSI, e a amostra vai sem pressão.
+fn ler_pressao() -> Option<Pressao> {
+    let ler = |recurso: &str| fs::read_to_string(format!("/proc/pressure/{recurso}")).ok();
+    let cpu = ler("cpu")?;
+    let memoria = ler("memory").unwrap_or_default();
+    let disco = ler("io").unwrap_or_default();
+    Some(Pressao {
+        cpu_some: espera(&cpu, "some"),
+        memoria_some: espera(&memoria, "some"),
+        memoria_full: espera(&memoria, "full"),
+        disco_some: espera(&disco, "some"),
+        disco_full: espera(&disco, "full"),
+    })
+}
+
+/// "some avg10=48.62 avg60=40.22 avg300=16.77 total=63686185" vira as médias de 10 s e 60 s.
+fn espera(texto: &str, tipo: &str) -> Espera {
+    let Some(linha) = texto.lines().find(|l| l.starts_with(tipo)) else { return Espera::default() };
+    let valor = |chave: &str| {
+        linha
+            .split_whitespace()
+            .find_map(|c| c.strip_prefix(chave))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0)
+    };
+    Espera { avg10: valor("avg10="), avg60: valor("avg60=") }
 }
 
 fn ler_meminfo() -> HashMap<String, u64> {
@@ -239,6 +342,8 @@ fn ler_processo(pid: i32) -> Option<Bruto> {
         ticks: num(11) + num(12),
         inicio: num(19),
         rss_paginas: num(21),
+        nice: f.get(16).and_then(|v| v.parse().ok()).unwrap_or(0),
+        io: fs::read_to_string(format!("/proc/{pid}/io")).ok().and_then(|t| ler_io(&t)),
         uid,
     })
 }
@@ -384,6 +489,13 @@ fn main() {
                         return;
                     }
                 }
+                Ok(Some(Comando::Prioridade { pid, nice })) => {
+                    let r = definir_prioridade(pid, nice);
+                    let resposta = Mensagem::Resposta { ok: r.is_ok(), erro: r.err() };
+                    if escrever(&mut saida, &resposta).is_err() {
+                        return;
+                    }
+                }
                 Ok(Some(Comando::Intervalo { ms })) => intervalo = Duration::from_millis(ms.max(100)),
                 Ok(Some(Comando::Sair)) | Ok(None) | Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => break,
@@ -406,6 +518,8 @@ mod testes {
             cmdline: String::new(),
             cpu_pct: 0.0,
             rss: 0,
+            nice: 0,
+            disco_bps: 0,
         }
     }
 
@@ -426,6 +540,7 @@ mod testes {
             processos,
             portas: None,
             kernel: Vec::new(),
+            pressao: None,
             agente: CustoAgente::default(),
         }
     }
@@ -451,6 +566,37 @@ mod testes {
             p.push(processo(219, 218, "sleep"));
         }
         p
+    }
+
+    #[test]
+    fn le_o_que_foi_ao_disco() {
+        let io = "rchar: 9000\nwchar: 800\nsyscr: 5\nsyscw: 2\nread_bytes: 4096\nwrite_bytes: 8192\ncancelled_write_bytes: 0\n";
+        assert_eq!(ler_io(io), Some(12288));
+        assert_eq!(ler_io("rchar: 1\n"), None);
+    }
+
+    #[test]
+    fn descendentes_seguem_a_arvore_toda() {
+        let pais = [(10, 1), (11, 10), (12, 11), (13, 10), (20, 1), (21, 20)];
+        let mut d = descendentes(10, &pais);
+        d.sort();
+        assert_eq!(d, [10, 11, 12, 13]);
+        assert_eq!(descendentes(21, &pais), [21]);
+    }
+
+    #[test]
+    fn prioridade_protege_o_init_e_a_faixa() {
+        assert!(definir_prioridade(1, 10).is_err());
+        assert!(definir_prioridade(5000, 25).is_err());
+    }
+
+    #[test]
+    fn le_as_medias_da_pressao() {
+        let io = "some avg10=48.62 avg60=40.22 avg300=16.77 total=63686185\nfull avg10=5.82 avg60=5.14 avg300=2.71 total=12443534\n";
+        assert_eq!(espera(io, "some"), Espera { avg10: 48.62, avg60: 40.22 });
+        assert_eq!(espera(io, "full"), Espera { avg10: 5.82, avg60: 5.14 });
+        assert_eq!(espera("some avg10=1.00 avg60=2.00 avg300=0.00 total=1\n", "full"), Espera::default());
+        assert_eq!(espera("", "some"), Espera::default());
     }
 
     #[test]

@@ -42,14 +42,56 @@ export function reiniciar(d: Distro) {
   };
 }
 
+// Com o WSL travado, o desligamento comum espera o que travou e não volta (medido: 180 s); o
+// forçado derruba a VM na hora (medido: 1 s). Sem trava, vai o comum, e o forçado só é oferecido
+// se ele não voltar no prazo.
+const TEXTO_FORCAR =
+  'O desligamento forçado derruba a VM do WSL sem esperar nada terminar: todas as distros e todos os containers param na hora, e o que estava só na memória deles se perde. Se o Docker Desktop não voltar sozinho, abra-o de novo.';
+
+function pedirForca(titulo: string, motivo: string) {
+  estado.pedido = {
+    titulo,
+    texto: `${motivo} ${TEXTO_FORCAR}`,
+    acao: 'Forçar o desligamento',
+    executar: () =>
+      executar('WSL', 'Forçando', async () => {
+        const docker = estado.docker.ligado;
+        await api.desligarWsl(true);
+        // O Docker Desktop aberto costuma religar a distro dele sozinho (medido: 17 s); o
+        // fechado, não. O aviso some quando ele volta.
+        if (docker) estado.dockerDerrubadoMs = Date.now();
+      }),
+  };
+}
+
 export function desligarWsl() {
+  if (estado.saude) {
+    pedirForca('Forçar o desligamento do WSL?', 'O WSL não está respondendo, e o desligamento comum fica esperando o que travou.');
+    return;
+  }
   const ligadas = estado.distros.filter((d) => d.rodando).map((d) => d.nome);
   estado.pedido = {
     titulo: 'Desligar o WSL?',
     texto: `Todas as distros são terminadas (${ligadas.join(', ') || 'nenhuma ligada agora'}) e a VM do WSL é desligada, liberando a memória dela no Windows.`,
     acao: 'Desligar',
-    executar: () => executar('WSL', 'Desligando', () => api.desligarWsl()),
+    executar: async () => {
+      let desligou = true;
+      await executar('WSL', 'Desligando', async () => {
+        desligou = await api.desligarWsl(false);
+      });
+      if (!desligou) pedirForca('O WSL não desligou. Forçar?', 'O desligamento comum não voltou em 60 s: o WSL está travado.');
+    },
   };
+}
+
+/** Baixa (nice 10) ou devolve a prioridade normal ao processo, às threads e aos filhos dele. */
+export async function mudarPrioridade(distro: string, pid: number, nome: string, baixa: boolean) {
+  if (pid <= 1) return;
+  try {
+    await api.definirPrioridade(distro, pid, nome, baixa);
+  } catch (e) {
+    estado.avisar(String(e));
+  }
 }
 
 export async function encerrarProcesso(distro: string, pid: number, nome: string, sinal: number) {
