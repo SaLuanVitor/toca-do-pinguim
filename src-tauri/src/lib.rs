@@ -10,6 +10,7 @@ mod config;
 mod configuracao;
 mod docker;
 mod historico;
+mod pressao;
 mod recursos;
 mod registro;
 mod travados;
@@ -122,6 +123,14 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>, forcar: bool) -
         }
     })
     .await
+}
+
+/// Depois de o WSL cair à força, o Docker Desktop que estava fechado não volta sozinho.
+#[tauri::command]
+fn abrir_docker_desktop() -> Result<(), String> {
+    let exe = docker::caminho_docker_desktop().ok_or("o Docker Desktop não foi encontrado nesta máquina")?;
+    info!("pedido: abrir o Docker Desktop ({})", exe.display());
+    std::process::Command::new(&exe).spawn().map(|_| ()).map_err(|e| format!("não foi possível abrir o Docker Desktop: {e}"))
 }
 
 #[derive(Serialize)]
@@ -259,6 +268,7 @@ fn definir_intervalo(estado: Estado<'_>, ms: u64) {
 struct EstadoRecursos {
     memoria: recursos::MemoriaWindows,
     docker: recursos::Docker,
+    pressao: Option<pressao::AvisoPressao>,
     saude: Option<wsl::saude::Situacao>,
     devolucao: Option<cache::Devolucao>,
     devolver_cache_automatico: bool,
@@ -274,6 +284,7 @@ fn estado_recursos(recursos: State<'_, Arc<Recursos>>) -> EstadoRecursos {
     EstadoRecursos {
         memoria: recursos.memoria.lock().unwrap().clone(),
         docker: recursos.docker.lock().unwrap().clone(),
+        pressao: recursos.pressao.lock().unwrap().clone(),
         saude: wsl::saude::atual(),
         devolucao: recursos.devolucao.lock().unwrap().clone(),
         devolver_cache_automatico: prefs.devolver_cache_automatico,
@@ -826,6 +837,7 @@ pub fn run() {
             ultima_analise,
             pasta_de_documentos,
             excluir_distro,
+            abrir_docker_desktop,
             apagar_pastas,
             compactar_disco,
             limpar_docker,

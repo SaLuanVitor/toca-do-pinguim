@@ -149,6 +149,7 @@ mod testes {
                 .collect(),
             portas: None,
             kernel: Vec::new(),
+            pressao: None,
             agente: CustoAgente::default(),
         }
     }

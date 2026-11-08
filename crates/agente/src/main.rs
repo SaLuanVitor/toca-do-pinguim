@@ -18,7 +18,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use protocolo::{Amostra, Comando, CustoAgente, Mensagem, Processo};
+use protocolo::{Amostra, Comando, CustoAgente, Espera, Mensagem, Pressao, Processo};
 
 const CMDLINE_MAX: usize = 512;
 
@@ -165,6 +165,7 @@ impl Coletor {
             processos,
             portas,
             kernel,
+            pressao: ler_pressao().map(Box::new),
             agente: CustoAgente {
                 rss: rss_self * self.pagina,
                 cpu_pct: cpu_self,
@@ -197,6 +198,34 @@ fn ler_cpu_vm() -> (CpuVm, u32) {
         }
     }
     (vm, cpus.max(1))
+}
+
+/// Sem `/proc/pressure/cpu`, o kernel não tem PSI, e a amostra vai sem pressão.
+fn ler_pressao() -> Option<Pressao> {
+    let ler = |recurso: &str| fs::read_to_string(format!("/proc/pressure/{recurso}")).ok();
+    let cpu = ler("cpu")?;
+    let memoria = ler("memory").unwrap_or_default();
+    let disco = ler("io").unwrap_or_default();
+    Some(Pressao {
+        cpu_some: espera(&cpu, "some"),
+        memoria_some: espera(&memoria, "some"),
+        memoria_full: espera(&memoria, "full"),
+        disco_some: espera(&disco, "some"),
+        disco_full: espera(&disco, "full"),
+    })
+}
+
+/// "some avg10=48.62 avg60=40.22 avg300=16.77 total=63686185" vira as médias de 10 s e 60 s.
+fn espera(texto: &str, tipo: &str) -> Espera {
+    let Some(linha) = texto.lines().find(|l| l.starts_with(tipo)) else { return Espera::default() };
+    let valor = |chave: &str| {
+        linha
+            .split_whitespace()
+            .find_map(|c| c.strip_prefix(chave))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0)
+    };
+    Espera { avg10: valor("avg10="), avg60: valor("avg60=") }
 }
 
 fn ler_meminfo() -> HashMap<String, u64> {
@@ -426,6 +455,7 @@ mod testes {
             processos,
             portas: None,
             kernel: Vec::new(),
+            pressao: None,
             agente: CustoAgente::default(),
         }
     }
@@ -451,6 +481,15 @@ mod testes {
             p.push(processo(219, 218, "sleep"));
         }
         p
+    }
+
+    #[test]
+    fn le_as_medias_da_pressao() {
+        let io = "some avg10=48.62 avg60=40.22 avg300=16.77 total=63686185\nfull avg10=5.82 avg60=5.14 avg300=2.71 total=12443534\n";
+        assert_eq!(espera(io, "some"), Espera { avg10: 48.62, avg60: 40.22 });
+        assert_eq!(espera(io, "full"), Espera { avg10: 5.82, avg60: 5.14 });
+        assert_eq!(espera("some avg10=1.00 avg60=2.00 avg300=0.00 total=1\n", "full"), Espera::default());
+        assert_eq!(espera("", "some"), Espera::default());
     }
 
     #[test]

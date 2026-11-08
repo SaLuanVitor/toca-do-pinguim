@@ -67,6 +67,15 @@ export function criarDemonstracao(): Api {
   // `?travado` na URL abre a demonstração com o WSL e o Docker sem responder.
   let travado = typeof location !== 'undefined' && new URLSearchParams(location.search).has('travado');
   if (travado) estado.saude = { alvo: null, motivo: 'wsl.exe não respondeu em 30 s', desde_ms: Date.now() - 12 * 60_000 };
+  // `?pressao` abre com a VM sobrecarregada, antes de travar.
+  const pesadosDemo = [
+    { distro: 'docker-desktop', nome: 'postgres', quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0 },
+    { distro: 'docker-desktop', nome: 'php', quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6 },
+    { distro: 'Ubuntu', nome: 'node', quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0 },
+  ];
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('pressao')) {
+    estado.pressao = { desde_ms: Date.now() - 3 * 60_000, disco_full: 18.4, memoria_full: 0.6, cpu_some: 64.2, pesados: pesadosDemo };
+  }
   const distros: Distro[] = [
     { nome: 'Ubuntu', versao: 2, padrao: true, rodando: true },
     { nome: 'Debian', versao: 2, padrao: false, rodando: false },
@@ -191,6 +200,7 @@ export function criarDemonstracao(): Api {
       conteineres: docker && !travado ? conteineres.map((c) => ({ ...c })) : [],
       erro: travado ? 'docker ps não respondeu em 30 s' : null,
       sem_resposta_desde_ms: travado ? Date.now() - 25 * 60_000 : null,
+      pesados: travado ? pesadosDemo : [],
     };
   }
 
@@ -396,6 +406,13 @@ export function criarDemonstracao(): Api {
       registrar('distro', nome, `O app excluiu a distro ${nome} e liberou 6,4 GB${exportarPara ? `; a cópia ficou em ${exportarPara}` : ''}`);
       return { liberado_bytes: liberado, exportado: exportarPara };
     },
+    abrirDockerDesktop: async () => {
+      await esperar(1500);
+      achar('docker-desktop').rodando = true;
+      ligar('docker-desktop');
+      publicar();
+      publicarRecursos();
+    },
     desligarWsl: async (forcar) => {
       // Travado, o desligamento comum não volta; o forçado derruba a VM em seguida.
       if (travado && !forcar) {
@@ -424,7 +441,7 @@ export function criarDemonstracao(): Api {
     listarAtividade: async () => eventosIniciais,
     estadoRecursos: async () => {
       publicarRecursos();
-      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: estado.saude, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
+      return { memoria: estado.memoriaWindows!, docker: estado.docker, pressao: estado.pressao, saude: estado.saude, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
     },
     // Encurtado para a tela: no app real, as medidas saem 15 s e 2 min depois.
     devolverCache: async () => {

@@ -137,6 +137,27 @@ fn so_sumiu_objeto(erro: &str) -> bool {
 
 /// Projetos do Compose aparecem mesmo parados, para poderem ser ligados de volta; avulsos,
 /// só rodando. Parados e avulsos são, em geral, sobras de builds.
+/// Onde o Docker Desktop está instalado: a pasta que o desinstalador dele registra e, sem ela,
+/// a padrão em Arquivos de Programas.
+pub fn caminho_docker_desktop() -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    let largo = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let chave = largo(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop");
+    let valor = largo("InstallLocation");
+    let mut buffer = vec![0u16; 1024];
+    let mut tamanho = (buffer.len() * 2) as u32;
+    // SAFETY: textos terminados em zero e buffer do tamanho informado.
+    let ok = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, chave.as_ptr(), valor.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buffer.as_mut_ptr().cast(), &mut tamanho)
+    } == 0;
+    let registrada = ok.then(|| {
+        let fim = buffer.iter().position(|&c| c == 0).unwrap_or(0);
+        std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..fim]))
+    });
+    let padrao = std::env::var_os("ProgramFiles").map(|p| std::path::PathBuf::from(p).join("Docker").join("Docker"));
+    registrada.into_iter().chain(padrao).map(|pasta| pasta.join("Docker Desktop.exe")).find(|exe| exe.is_file())
+}
+
 /// Erro de prazo esgotado: o Docker está ligado e não responde. Erro rápido, como o do motor
 /// ainda subindo, não conta.
 pub fn sem_resposta(erro: &str) -> bool {

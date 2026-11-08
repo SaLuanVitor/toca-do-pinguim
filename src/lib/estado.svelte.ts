@@ -1,5 +1,5 @@
 import { lerPreferencia, salvarPreferencia } from './preferencias';
-import type { AbaDesempenho, Amostra, Devolucao, Distro, Docker, Evento, Gatilho, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
+import type { AbaDesempenho, Amostra, AvisoPressao, Devolucao, Distro, Docker, Evento, Gatilho, MemoriaWindows, Pagina, Pedido, Porta, SituacaoWsl, Suspeito } from './tipos';
 
 const PONTOS_HISTORICO = 60;
 const EVENTOS_NA_TELA = 500;
@@ -30,7 +30,10 @@ class Estado {
   historico = $state.raw<Ponto[]>([]);
   eventos = $state.raw<Evento[]>([]);
   memoriaWindows = $state.raw<MemoriaWindows | null>(null);
-  docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null, sem_resposta_desde_ms: null });
+  docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null, sem_resposta_desde_ms: null, pesados: [] });
+  pressao = $state.raw<AvisoPressao | null>(null);
+  /** Quando o app derrubou o WSL à força com o Docker ligado; null depois que ele volta. */
+  dockerDerrubadoMs = $state<number | null>(null);
   /** Queda em curso do WSL, ou null quando ele responde. */
   saude = $state.raw<SituacaoWsl | null>(null);
   devolucao = $state.raw<Devolucao | null>(null);

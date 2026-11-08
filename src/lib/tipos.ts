@@ -103,6 +103,29 @@ export interface Docker {
   erro: string | null;
   /** Desde quando o Docker não responde, a partir da terceira leitura seguida sem resposta. */
   sem_resposta_desde_ms: number | null;
+  /** Quem mais pesava nas distros quando o Docker parou de responder. */
+  pesados: Pesado[];
+}
+
+/** Processos de mesmo nome numa distro, somados. */
+export interface Pesado {
+  distro: string;
+  nome: string;
+  quantos: number;
+  /** 1,0 é um núcleo inteiro. */
+  cpu_nucleos: number;
+  rss: number;
+  /** Quantos estão esperando disco ou rede (estado D). */
+  esperando: number;
+}
+
+/** Pressão alta na VM por 2 min: médias de 60 s, em %, e quem pesa. */
+export interface AvisoPressao {
+  desde_ms: number;
+  disco_full: number;
+  memoria_full: number;
+  cpu_some: number;
+  pesados: Pesado[];
 }
 
 /** Queda em curso do WSL; null quando ele responde. */
@@ -125,6 +148,7 @@ export interface Devolucao {
 export interface EstadoRecursos {
   memoria: MemoriaWindows;
   docker: Docker;
+  pressao: AvisoPressao | null;
   saude: SituacaoWsl | null;
   devolucao: Devolucao | null;
   devolver_cache_automatico: boolean;

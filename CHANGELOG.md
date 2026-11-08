@@ -22,6 +22,16 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ### Adicionado
 
+- **Aviso de VM sobrecarregada.** O agente passa a ler a pressão do kernel (`/proc/pressure`):
+  quanto do tempo os processos ficaram parados esperando disco ou memória. Quando essa espera
+  passa de 10% na média de 60 s por 2 min, o app avisa na tela, na notificação e na Atividade,
+  dizendo quem mais pesa: os processos que mais usam CPU, os que esperam disco e o maior em
+  memória, por distro. O limiar é inicial; o log registra a pressão acima de 5%, para calibrá-lo.
+- O aviso de Docker sem resposta também diz quem mais pesa nas distros, e os dois têm um botão
+  para a aba Processos.
+- Depois do desligamento forçado com o Docker ligado, um aviso diz que o Docker Desktop caiu
+  junto e traz o botão "Abrir o Docker Desktop". Medido em 08/11: aberto, ele religou sozinho em
+  17 s; fechado, não volta. O aviso some quando o Docker volta.
 - Aviso de Docker sem resposta: depois de três leituras seguidas sem resposta, perto de 2 min, o
   app avisa que o WSL pode travar em seguida e sugere parar os projetos mais pesados enquanto
   ainda dá. Nas travas medidas, o Docker parou de responder antes do WSL. Nesse estado, e com o

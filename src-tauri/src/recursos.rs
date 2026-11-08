@@ -56,6 +56,8 @@ pub struct Docker {
     pub erro: Option<String>,
     /// Desde quando o Docker não responde, a partir da terceira leitura seguida sem resposta.
     pub sem_resposta_desde_ms: Option<u64>,
+    /// Quem mais pesava nas distros quando o Docker parou de responder.
+    pub pesados: Vec<crate::pressao::Pesado>,
 }
 
 /// Leituras seguidas sem resposta até o aviso. Cada uma espera 30 s, então são perto de 2 min.
@@ -81,6 +83,8 @@ pub struct Recursos {
     pub projetos_docker: Mutex<Vec<ProjetoDocker>>,
     /// A última leitura do espaço do Docker, para a aba Disco abrir já com ela.
     pub espaco_docker: Mutex<Option<EspacoDocker>>,
+    /// O aviso de pressão alta na VM, enquanto ele vale.
+    pub pressao: Mutex<Option<crate::pressao::AvisoPressao>>,
     /// A última leitura dos discos. Esta e a do Docker ficam também em `leituras.json`, para a
     /// aba abrir com elas logo que o app abre.
     pub discos: Mutex<Option<Discos>>,
@@ -116,6 +120,7 @@ impl Recursos {
             volumes_sem_uso: Mutex::default(),
             projetos_docker: Mutex::default(),
             espaco_docker: Mutex::new(leituras.espaco_docker),
+            pressao: Mutex::new(None),
             discos: Mutex::new(leituras.discos),
             caminho_leituras,
             leitura_docker: Mutex::default(),
@@ -379,6 +384,7 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
         let mut conferiu_limpeza: Option<Instant> = None;
         // Leituras seguidas do Docker sem resposta e quando a primeira aconteceu.
         let mut sem_resposta: (u32, u64) = (0, 0);
+        let mut vigia_pressao = crate::pressao::Vigia::default();
         loop {
             if conferiu_limpeza.is_none_or(|t| t.elapsed() >= A_CADA_LIMPEZA) {
                 conferiu_limpeza = Some(Instant::now());
@@ -399,6 +405,7 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 }
                 *recursos.memoria.lock().unwrap() = m.clone();
                 let _ = app.emit("memoria_windows", &m);
+                vigiar_pressao(&app, &agentes, &recursos, &mut vigia_pressao);
                 let (automatico, gatilho) = {
                     let p = recursos.preferencias.lock().unwrap();
                     (p.devolver_cache_automatico, p.gatilho.clone())
@@ -437,7 +444,7 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                             agentes.registrar(&app, "docker", Some(DISTRO_DOCKER), format!("O Docker voltou a responder depois de {minutos} min"));
                         }
                         sem_resposta = (0, 0);
-                        Docker { ligado, conteineres, erro: None, sem_resposta_desde_ms: None }
+                        Docker { ligado, conteineres, erro: None, sem_resposta_desde_ms: None, pesados: Vec::new() }
                     }
                     Err(erro) => {
                         warn!("leitura do Docker falhou: {erro}");
@@ -450,11 +457,12 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                                 avisar_docker_sem_resposta(&app, &agentes, sem_resposta.1);
                             }
                         }
-                        Docker { ligado, conteineres: Vec::new(), erro: Some(erro), sem_resposta_desde_ms: None }
+                        Docker { ligado, conteineres: Vec::new(), erro: Some(erro), sem_resposta_desde_ms: None, pesados: Vec::new() }
                     }
                 };
                 if sem_resposta.0 >= SEM_RESPOSTA_PARA_AVISAR {
                     estado.sem_resposta_desde_ms = Some(sem_resposta.1);
+                    estado.pesados = agentes.pesados();
                 }
                 registrar_problemas(&app, &agentes, &estado.conteineres, &mut problemas_antes);
                 *recursos.docker.lock().unwrap() = estado.clone();
@@ -527,12 +535,52 @@ fn limpar_programado(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, l:
     }
 }
 
+/// Pressão alta por 2 min vira aviso com quem pesa; enquanto ele vale, a lista se atualiza a
+/// cada leitura. Sem amostra recente com pressão, nada muda.
+fn vigiar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, vigia: &mut crate::pressao::Vigia) {
+    use crate::pressao::{descrever, AvisoPressao, Mudanca};
+    let Some(p) = agentes.pressao() else { return };
+    let mudanca = vigia.avaliar(&p, Instant::now(), agora_ms());
+    if let Mudanca::Voltou = mudanca {
+        info!("pressão da VM voltou ao normal");
+        agentes.registrar(app, "memoria", None, "A pressão de disco e memória na VM do WSL voltou ao normal".to_string());
+        *recursos.pressao.lock().unwrap() = None;
+        let _ = app.emit("pressao_vm", None::<AvisoPressao>);
+        return;
+    }
+    if !vigia.avisando {
+        return;
+    }
+    let aviso = AvisoPressao {
+        desde_ms: vigia.desde_ms,
+        disco_full: p.disco_full.avg60,
+        memoria_full: p.memoria_full.avg60,
+        cpu_some: p.cpu_some.avg60,
+        pesados: agentes.pesados(),
+    };
+    if let Mudanca::Avisar = mudanca {
+        let recurso = if p.disco_full.avg60 >= p.memoria_full.avg60 { "disco" } else { "memória" };
+        let quem = if aviso.pesados.is_empty() { String::new() } else { format!(" Mais pesados: {}.", descrever(&aviso.pesados)) };
+        let texto = format!(
+            "A VM do WSL está parada esperando {recurso} {:.0}% do tempo no último minuto. Se continuar, o Docker e o WSL podem travar: pare o que não precisa agora.{quem}",
+            p.disco_full.avg60.max(p.memoria_full.avg60)
+        );
+        warn!("{texto}");
+        agentes.registrar(app, "memoria", None, texto.clone());
+        notificar(app, "A VM do WSL está sobrecarregada", &texto);
+    }
+    *recursos.pressao.lock().unwrap() = Some(aviso.clone());
+    let _ = app.emit("pressao_vm", Some(aviso));
+}
+
 /// O Docker parado de responder veio antes do WSL inteiro travar nas travas medidas: avisar
 /// aqui dá tempo de parar o que pesa enquanto o WSL ainda obedece.
 fn avisar_docker_sem_resposta(app: &AppHandle, agentes: &Agentes, desde_ms: u64) {
     let minutos = agora_ms().saturating_sub(desde_ms).div_ceil(60_000);
+    let pesados = agentes.pesados();
+    let quem = if pesados.is_empty() { String::new() } else { format!(" Mais pesados agora: {}.", crate::pressao::descrever(&pesados)) };
     let texto = format!(
-        "O Docker não responde há {minutos} min. O WSL pode travar em seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá."
+        "O Docker não responde há {minutos} min. O WSL pode travar em seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá.{quem}"
     );
     warn!("{texto}");
     agentes.registrar(app, "docker", Some(DISTRO_DOCKER), texto.clone());

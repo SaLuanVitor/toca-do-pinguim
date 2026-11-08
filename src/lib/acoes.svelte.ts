@@ -53,7 +53,14 @@ function pedirForca(titulo: string, motivo: string) {
     titulo,
     texto: `${motivo} ${TEXTO_FORCAR}`,
     acao: 'Forçar o desligamento',
-    executar: () => executar('WSL', 'Forçando', () => api.desligarWsl(true).then(() => {})),
+    executar: () =>
+      executar('WSL', 'Forçando', async () => {
+        const docker = estado.docker.ligado;
+        await api.desligarWsl(true);
+        // O Docker Desktop aberto costuma religar a distro dele sozinho (medido: 17 s); o
+        // fechado, não. O aviso some quando ele volta.
+        if (docker) estado.dockerDerrubadoMs = Date.now();
+      }),
   };
 }
 

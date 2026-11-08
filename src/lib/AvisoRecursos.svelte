@@ -1,11 +1,50 @@
 <script lang="ts">
   // Aviso que vale em qualquer página. O de RAM acabando fica só em Desempenho > Memória, e a
-  // entrada Desempenho no menu ganha um sinal enquanto ele estiver ativo.
+  // entrada Desempenho no menu ganha um sinal enquanto ele estiver ativo. Um aviso por vez, do
+  // mais grave ao mais cedo: WSL travado, Docker derrubado, Docker sem resposta, VM sob pressão.
+  import { api } from './api';
   import { desligarWsl, ocupadas } from './acoes.svelte';
   import { estado } from './estado.svelte';
+  import type { Pesado } from './tipos';
 
   const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const GIB = 1024 ** 3;
+  let abrindo = $state(false);
+
+  $effect(() => {
+    if (estado.docker.ligado) estado.dockerDerrubadoMs = null;
+  });
+
+  const numero = (v: number) => v.toFixed(1).replace('.', ',');
+
+  /** "2 postgres em docker-desktop: 1,9 núcleos, 3,4 GB". */
+  function descrever(p: Pesado): string {
+    const partes: string[] = [];
+    if (p.cpu_nucleos >= 0.5) partes.push(`${numero(p.cpu_nucleos)} ${p.cpu_nucleos < 1.5 ? 'núcleo' : 'núcleos'}`);
+    if (p.rss >= GIB) partes.push(`${numero(p.rss / GIB)} GB`);
+    if (p.esperando > 0) partes.push(p.esperando === p.quantos ? 'esperando disco' : `${p.esperando} esperando disco`);
+    return `${p.quantos > 1 ? `${p.quantos} ` : ''}${p.nome} em ${p.distro}: ${partes.join(', ')}`;
+  }
+
+  async function abrirDocker() {
+    abrindo = true;
+    try {
+      await api.abrirDockerDesktop();
+    } catch (e) {
+      estado.avisar(String(e));
+    } finally {
+      abrindo = false;
+    }
+  }
 </script>
+
+{#snippet pesados(lista: Pesado[])}
+  {#if lista.length}
+    <ul class="pesados" aria-label="Quem mais pesa">
+      {#each lista as p (`${p.distro}/${p.nome}`)}<li>{descrever(p)}</li>{/each}
+    </ul>
+  {/if}
+{/snippet}
 
 {#if estado.saude}
   <div class="aviso perigo" role="alert">
@@ -17,13 +56,35 @@
     </span>
     <button class="botao primario" onclick={desligarWsl} disabled={!!ocupadas.WSL}>{ocupadas.WSL ?? 'Forçar o desligamento'}</button>
   </div>
+{:else if estado.dockerDerrubadoMs && !estado.docker.ligado}
+  <div class="aviso" role="status">
+    <span>
+      <strong>O Docker Desktop caiu junto com o WSL</strong> às {hora.format(estado.dockerDerrubadoMs)}. Se ele estava aberto,
+      costuma religar sozinho em alguns segundos; se não voltar, abra-o.
+    </span>
+    <button class="botao" onclick={abrirDocker} disabled={abrindo}>{abrindo ? 'Abrindo' : 'Abrir o Docker Desktop'}</button>
+    <button class="botao sutil" onclick={() => (estado.dockerDerrubadoMs = null)}>Dispensar</button>
+  </div>
 {:else if estado.docker.sem_resposta_desde_ms}
   <div class="aviso" role="alert">
     <span>
       <strong>O Docker não responde</strong> desde {hora.format(estado.docker.sem_resposta_desde_ms)}. O WSL pode travar em
       seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá. Se o WSL travar, o app oferece o
       desligamento forçado.
+      {@render pesados(estado.docker.pesados)}
     </span>
+    <button class="botao" onclick={() => (estado.pagina = 'processos')}>Ver processos</button>
+  </div>
+{:else if estado.pressao}
+  <div class="aviso" role="alert">
+    <span>
+      <strong>A VM do WSL está sobrecarregada</strong> desde {hora.format(estado.pressao.desde_ms)}: no último minuto, ela ficou
+      parada esperando {estado.pressao.disco_full >= estado.pressao.memoria_full ? 'disco' : 'memória'}
+      {Math.round(Math.max(estado.pressao.disco_full, estado.pressao.memoria_full))}% do tempo. Se continuar, o Docker e o WSL
+      podem travar: pare o que não precisa agora.
+      {@render pesados(estado.pressao.pesados)}
+    </span>
+    <button class="botao" onclick={() => (estado.pagina = 'processos')}>Ver processos</button>
   </div>
 {/if}
 
@@ -50,5 +111,10 @@
   .aviso span {
     flex: 1;
     min-width: 200px;
+  }
+
+  .pesados {
+    margin: 6px 0 0;
+    padding-left: 18px;
   }
 </style>

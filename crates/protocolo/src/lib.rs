@@ -58,7 +58,29 @@ pub struct Amostra {
     /// Linhas do log do kernel lidas desde a amostra anterior que interessam ao usuário.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kernel: Vec<EventoKernel>,
+    /// Da VM inteira, como a CPU. Ausente em kernel sem `/proc/pressure` e em agente antigo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pressao: Option<Box<Pressao>>,
     pub agente: CustoAgente,
+}
+
+/// Uma linha de `/proc/pressure`: em %, a fatia do tempo em que tarefas esperaram pelo
+/// recurso, nas médias de 10 s e de 60 s.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq)]
+pub struct Espera {
+    pub avg10: f32,
+    pub avg60: f32,
+}
+
+/// Pressão do kernel. `some`: ao menos uma tarefa esperava pelo recurso. `full`: todas as que
+/// não estavam ociosas esperavam ao mesmo tempo, e a VM não andava.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq)]
+pub struct Pressao {
+    pub cpu_some: Espera,
+    pub memoria_some: Espera,
+    pub memoria_full: Espera,
+    pub disco_some: Espera,
+    pub disco_full: Espera,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

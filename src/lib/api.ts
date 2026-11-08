@@ -6,6 +6,7 @@ import type {
   Compactacao,
   SegundoPlano,
   AtalhoTeclado,
+  AvisoPressao,
   Atualizacao,
   ConteudoWslconfig,
   Devolucao,
@@ -35,6 +36,7 @@ export interface Api {
   desligarWsl(forcar: boolean): Promise<boolean>;
   pastaDeDocumentos(): Promise<string | null>;
   excluirDistro(nome: string, exportarPara: string | null): Promise<Exclusao>;
+  abrirDockerDesktop(): Promise<void>;
   enviarSinal(distro: string, pid: number, sinal: number, nome: string): Promise<void>;
   definirIntervalo(ms: number): Promise<void>;
   listarAtividade(): Promise<Evento[]>;
@@ -93,6 +95,7 @@ async function conectarTauri(): Promise<Api> {
   await listen<MemoriaWindows>('memoria_windows', (e) => (estado.memoriaWindows = e.payload));
   await listen<Docker>('docker', (e) => (estado.docker = e.payload));
   await listen<SituacaoWsl | null>('saude_wsl', (e) => (estado.saude = e.payload));
+  await listen<AvisoPressao | null>('pressao_vm', (e) => (estado.pressao = e.payload));
   await listen<Devolucao>('devolucao', (e) => (estado.devolucao = e.payload));
   await listen<{ distro: string; lista: Suspeito[] }>('suspeitos', (e) => estado.receberSuspeitos(e.payload.distro, e.payload.lista));
   await listen<{ distro: string | null; mensagem: string }>('erro', (e) =>
@@ -107,6 +110,7 @@ async function conectarTauri(): Promise<Api> {
     desligarWsl: (forcar) => invoke('desligar_wsl', { forcar }),
     pastaDeDocumentos: () => invoke('pasta_de_documentos'),
     excluirDistro: (nome, exportarPara) => invoke('excluir_distro', { nome, exportarPara }),
+    abrirDockerDesktop: () => invoke('abrir_docker_desktop'),
     enviarSinal: (distro, pid, sinal, nome) => invoke('enviar_sinal', { distro, pid, sinal, nome }),
     definirIntervalo: (ms) => invoke('definir_intervalo', { ms }),
     listarAtividade: () => invoke('listar_atividade'),
@@ -158,6 +162,7 @@ export async function conectar() {
     const recursos = await api.estadoRecursos();
     estado.memoriaWindows = recursos.memoria.total_bytes ? recursos.memoria : null;
     estado.docker = recursos.docker;
+    estado.pressao = recursos.pressao;
     estado.saude = recursos.saude;
     estado.devolucao = recursos.devolucao;
     estado.devolverCacheAutomatico = recursos.devolver_cache_automatico;

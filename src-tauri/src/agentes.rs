@@ -16,7 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use log::{error, info, warn};
-use protocolo::{Amostra, Comando, Mensagem};
+use protocolo::{Amostra, Comando, Mensagem, Pressao, Processo};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -33,6 +33,11 @@ static AGENTE: &[u8] = include_bytes!(concat!(
 ));
 
 const PAUSA_SUPERVISOR: Duration = Duration::from_secs(2);
+/// Quando chegou, quantas CPUs a VM tem e os processos.
+type ProcessosDaDistro = (Instant, u32, Vec<Processo>);
+
+/// Amostra mais velha que isto não serve para a pressão nem para dizer quem pesa.
+const AMOSTRA_VALE: Duration = Duration::from_secs(30);
 
 /// Espera a mais entre tentativas de listar as distros enquanto o WSL não responde: cada
 /// tentativa prende um `wsl.exe` por 30 s, e repetir a cada 32 s só soma processo preso.
@@ -107,6 +112,10 @@ pub struct Agentes {
     intervalo_ms: AtomicU64,
     /// Cache de arquivos da VM na última amostra; 0 enquanto nenhuma chegou.
     cache_vm: AtomicU64,
+    /// Pressão da VM na última amostra que a trouxe. É uma só para todas as distros.
+    pressao: Mutex<Option<(Instant, Pressao)>>,
+    /// Processos da última amostra de cada distro, com o número de CPUs, para dizer quem pesa.
+    processos: Mutex<HashMap<String, ProcessosDaDistro>>,
     espera_ociosidade_ms: AtomicI64,
     pausado: AtomicBool,
     /// Enquanto o app desliga o WSL, nenhum agente sobe: uma leitura da lista feita antes do
@@ -128,6 +137,8 @@ impl Agentes {
             travados: Mutex::new(HashMap::new()),
             intervalo_ms: AtomicU64::new(1000),
             cache_vm: AtomicU64::new(0),
+            pressao: Mutex::new(None),
+            processos: Mutex::new(HashMap::new()),
             espera_ociosidade_ms: AtomicI64::new(WslConfig::ler().espera_ociosidade_ms()),
             pausado: AtomicBool::new(false),
             segurando: AtomicBool::new(false),
@@ -162,6 +173,25 @@ impl Agentes {
 
     pub fn cache_vm(&self) -> Option<u64> {
         Some(self.cache_vm.load(Ordering::Relaxed)).filter(|&b| b > 0)
+    }
+
+    /// A pressão da VM, se alguma amostra a trouxe nos últimos 30 s. Agente que parou de
+    /// mandar dados não deixa uma leitura velha valendo.
+    pub fn pressao(&self) -> Option<Pressao> {
+        self.pressao.lock().unwrap().filter(|(quando, _)| quando.elapsed() < AMOSTRA_VALE).map(|(_, p)| p)
+    }
+
+    /// Quem mais pesa nas distros com amostra recente.
+    pub fn pesados(&self) -> Vec<crate::pressao::Pesado> {
+        let distros: Vec<(String, u32, Vec<Processo>)> = self
+            .processos
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, (quando, _, _))| quando.elapsed() < AMOSTRA_VALE)
+            .map(|(d, (_, cpus, ps))| (d.clone(), *cpus, ps.clone()))
+            .collect();
+        crate::pressao::escolher(&distros)
     }
 
     pub fn pausado(&self) -> bool {
@@ -325,6 +355,10 @@ impl Agentes {
                     let partes = amostra.mem_blocos + amostra.mem_arquivos + amostra.mem_tabelas;
                     let cache = if partes > 0 { partes } else { amostra.mem_disponivel.saturating_sub(amostra.mem_livre) };
                     self.cache_vm.store(cache, Ordering::Relaxed);
+                    if let Some(p) = &amostra.pressao {
+                        *self.pressao.lock().unwrap() = Some((Instant::now(), **p));
+                    }
+                    self.processos.lock().unwrap().insert(distro.clone(), (Instant::now(), amostra.cpus, amostra.processos.clone()));
                     self.vigiar_travados(&app, &distro, &amostra);
                     if !amostra.kernel.is_empty() {
                         let mut atividade = self.atividade.lock().unwrap();
