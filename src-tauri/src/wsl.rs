@@ -18,7 +18,11 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 pub const PRAZO: Duration = Duration::from_secs(30);
 /// Desligar a VM espera todas as distros terminarem. Com o WSL travado, medido, levou
 /// 117 s.
-const PRAZO_DESLIGAR: Duration = Duration::from_secs(180);
+/// O desligamento comum espera o que estiver em andamento terminar. Com o WSL travado ele não
+/// volta: medido em 08/11/2026, 180 s sem resposta.
+const PRAZO_DESLIGAR: Duration = Duration::from_secs(60);
+/// Medido em 08/11/2026, no WSL 2.6.1 travado havia 25 min: o forçado voltou em 1 s.
+const PRAZO_FORCAR: Duration = Duration::from_secs(60);
 /// A cópia de uma distro grande passa de dezenas de GB.
 const PRAZO_EXPORTAR: Duration = Duration::from_secs(2 * 60 * 60);
 const PRAZO_EXCLUIR: Duration = Duration::from_secs(120);
@@ -279,6 +283,10 @@ pub mod saude {
         }
     }
 
+    pub fn alguma_queda() -> bool {
+        QUEDAS.lock().unwrap().as_ref().is_some_and(|q| !q.is_empty())
+    }
+
     /// A distro (ou o serviço, com `None`) está em queda agora.
     pub fn tem_queda(alvo: Option<&str>) -> bool {
         QUEDAS.lock().unwrap().as_ref().is_some_and(|q| q.contains_key(&alvo.map(str::to_string)))
@@ -378,7 +386,18 @@ pub fn terminar(nome: &str) -> Result<(), String> {
 }
 
 pub fn desligar() -> Result<(), String> {
-    executar_com_prazo(&["--shutdown"], PRAZO_DESLIGAR).map(|_| ())
+    executar_com_prazo(&["--shutdown"], PRAZO_DESLIGAR).map(|_| ()).map_err(|e| {
+        if saude::tem_queda(None) {
+            format!("o WSL não desligou em {} s; travado, ele só cai pelo desligamento forçado, na aba Distros", PRAZO_DESLIGAR.as_secs())
+        } else {
+            e
+        }
+    })
+}
+
+/// `--shutdown --force` derruba a VM mesmo com operação presa, sem esperar o que roda nela.
+pub fn desligar_a_forca() -> Result<(), String> {
+    executar_com_prazo(&["--shutdown", "--force"], PRAZO_FORCAR).map(|_| ())
 }
 
 /// Copia a distro para um `.tar` que o `wsl --import` aceita de volta. Medido: com a distro

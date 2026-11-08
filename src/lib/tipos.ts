@@ -101,6 +101,8 @@ export interface Docker {
   ligado: boolean;
   conteineres: Conteiner[];
   erro: string | null;
+  /** Desde quando o Docker não responde, a partir da terceira leitura seguida sem resposta. */
+  sem_resposta_desde_ms: number | null;
 }
 
 /** Queda em curso do WSL; null quando ele responde. */

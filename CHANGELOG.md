@@ -5,6 +5,29 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+
+- Com o WSL travado, "Desligar o WSL" não destravava: o `wsl --shutdown` comum espera o que
+  está em andamento terminar, e ficou 180 s sem resposta. Agora o aviso de WSL travado e o botão
+  da aba Distros oferecem o desligamento forçado (`wsl --shutdown --force`), que derrubou a VM
+  travada em 1 s, medido no WSL 2.6.1. Fora da trava vai o desligamento comum, e se ele não
+  voltar em 60 s o app oferece o forçado.
+- Durante a trava, o botão "Desligar WSL" da aba Distros ficava desabilitado, porque o app não
+  conseguia saber quais distros estavam ligadas. Agora ele fica ativo, e Iniciar, Reiniciar,
+  Terminar e Excluir ficam desabilitados com a explicação: cada um só deixaria mais um `wsl.exe`
+  preso. As distros aparecem como "Sem resposta".
+- Com o WSL travado, o app tentava listar as distros a cada 32 s, e cada tentativa prendia um
+  `wsl.exe` por 30 s. Agora o intervalo cresce até 2 min e volta ao normal assim que o WSL
+  responde ou é desligado.
+
+### Adicionado
+
+- Aviso de Docker sem resposta: depois de três leituras seguidas sem resposta, perto de 2 min, o
+  app avisa que o WSL pode travar em seguida e sugere parar os projetos mais pesados enquanto
+  ainda dá. Nas travas medidas, o Docker parou de responder antes do WSL. Nesse estado, e com o
+  WSL travado, a devolução automática do cache não roda: ela esgotou o prazo 25 min antes da
+  trava de 08/11.
+
 ## [0.12.0] - 2026-10-31
 
 ### Adicionado

@@ -64,6 +64,9 @@ const MODELOS: Record<string, Modelo[]> = {
 };
 
 export function criarDemonstracao(): Api {
+  // `?travado` na URL abre a demonstração com o WSL e o Docker sem responder.
+  let travado = typeof location !== 'undefined' && new URLSearchParams(location.search).has('travado');
+  if (travado) estado.saude = { alvo: null, motivo: 'wsl.exe não respondeu em 30 s', desde_ms: Date.now() - 12 * 60_000 };
   const distros: Distro[] = [
     { nome: 'Ubuntu', versao: 2, padrao: true, rodando: true },
     { nome: 'Debian', versao: 2, padrao: false, rodando: false },
@@ -183,7 +186,12 @@ export function criarDemonstracao(): Api {
       wsl_bytes: distros.some((d) => d.rodando) ? wsl : null,
       pressao: disponivel < 3.17 * GIB,
     };
-    estado.docker = { ligado: docker, conteineres: docker ? conteineres.map((c) => ({ ...c })) : [], erro: null };
+    estado.docker = {
+      ligado: docker,
+      conteineres: docker && !travado ? conteineres.map((c) => ({ ...c })) : [],
+      erro: travado ? 'docker ps não respondeu em 30 s' : null,
+      sem_resposta_desde_ms: travado ? Date.now() - 25 * 60_000 : null,
+    };
   }
 
   async function agirEm(ids: string[], ligar: boolean, rotulo: string) {
@@ -388,11 +396,20 @@ export function criarDemonstracao(): Api {
       registrar('distro', nome, `O app excluiu a distro ${nome} e liberou 6,4 GB${exportarPara ? `; a cópia ficou em ${exportarPara}` : ''}`);
       return { liberado_bytes: liberado, exportado: exportarPara };
     },
-    desligarWsl: async () => {
+    desligarWsl: async (forcar) => {
+      // Travado, o desligamento comum não volta; o forçado derruba a VM em seguida.
+      if (travado && !forcar) {
+        await esperar(2000);
+        return false;
+      }
       await esperar(500);
+      travado = false;
+      estado.saude = null;
       for (const d of distros) d.rodando = false;
       publicar();
-      registrar('wsl', null, 'O app desligou o WSL');
+      publicarRecursos();
+      registrar('wsl', null, forcar ? 'O app forçou o desligamento do WSL' : 'O app desligou o WSL');
+      return true;
     },
     enviarSinal: async (distro, pid, sinal, nome) => {
       if (pid <= 1) throw 'PID 1 é protegido';
@@ -407,7 +424,7 @@ export function criarDemonstracao(): Api {
     listarAtividade: async () => eventosIniciais,
     estadoRecursos: async () => {
       publicarRecursos();
-      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
+      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: estado.saude, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
     },
     // Encurtado para a tela: no app real, as medidas saem 15 s e 2 min depois.
     devolverCache: async () => {

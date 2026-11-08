@@ -104,16 +104,22 @@ async fn reiniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: Strin
     .await
 }
 
+/// Devolve false quando o desligamento comum não voltou no prazo: o WSL está travado, e a tela
+/// oferece o forçado.
 #[tauri::command]
-async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), String> {
+async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>, forcar: bool) -> Result<bool, String> {
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
-        info!("pedido: desligar o WSL");
-        let resultado = desligar_sem_religar(&agentes);
+        info!("pedido: desligar o WSL{}", if forcar { " à força" } else { "" });
+        let resultado = desligar_sem_religar(&agentes, forcar);
         soltar_depois(&agentes);
-        resultado?;
-        agentes.registrar(&app, "wsl", None, "O app desligou o WSL".to_string());
-        Ok(())
+        if resultado? {
+            let texto = if forcar { "O app forçou o desligamento do WSL" } else { "O app desligou o WSL" };
+            agentes.registrar(&app, "wsl", None, texto.to_string());
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     })
     .await
 }
@@ -208,15 +214,25 @@ fn definir_segundo_plano(recursos: State<'_, Arc<Recursos>>, fechar_para_bandeja
 /// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
 /// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
 /// ficam segurados até `soltar_depois`.
-fn desligar_sem_religar(agentes: &Agentes) -> Result<(), String> {
+/// False: o desligamento comum não voltou no prazo e o WSL está em queda. Erro de outro tipo
+/// segue como erro.
+fn desligar_sem_religar(agentes: &Agentes, forcar: bool) -> Result<bool, String> {
     agentes.segurar(true);
     agentes.parar_todos();
-    wsl::desligar()?;
+    if forcar {
+        wsl::desligar_a_forca()?;
+    } else {
+        match wsl::desligar() {
+            Ok(()) => {}
+            Err(_) if wsl::saude::tem_queda(None) => return Ok(false),
+            Err(e) => return Err(e),
+        }
+    }
     // Desligado, o WSL recomeça do zero: a queda registrada e a espera crescente entre
     // tentativas de subir agente ficaram para trás, e a próxima distro ligada é lida na hora.
     wsl::saude::esquecer();
     agentes.esquecer_falhas();
-    Ok(())
+    Ok(true)
 }
 
 /// Solta os agentes quando o supervisor já leu a lista de depois do desligamento.
@@ -481,7 +497,9 @@ async fn compactar_disco(app: tauri::AppHandle, agentes: Estado<'_>, caminho: St
                     Err(e) => warn!("fstrim em {}: {e}", disco.nome),
                 }
             }
-            desligar_sem_religar(&agentes)?;
+            if !desligar_sem_religar(&agentes, false)? {
+                return Err("o WSL não desligou e está travado; force o desligamento na aba Distros e compacte de novo".to_string());
+            }
             agentes.registrar(&app, "wsl", None, format!("O app desligou o WSL para compactar o disco de {}", disco.nome));
             let (antes, depois) = compactar::compactar(Path::new(&disco.caminho))?;
             agentes.registrar(

@@ -54,7 +54,12 @@ pub struct Docker {
     pub ligado: bool,
     pub conteineres: Vec<Conteiner>,
     pub erro: Option<String>,
+    /// Desde quando o Docker não responde, a partir da terceira leitura seguida sem resposta.
+    pub sem_resposta_desde_ms: Option<u64>,
 }
+
+/// Leituras seguidas sem resposta até o aviso. Cada uma espera 30 s, então são perto de 2 min.
+const SEM_RESPOSTA_PARA_AVISAR: u32 = 3;
 
 pub struct Recursos {
     pub memoria: Mutex<MemoriaWindows>,
@@ -372,6 +377,8 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
         let mut ultima_memoria: Option<Instant> = None;
         let mut ultima_docker: Option<Instant> = None;
         let mut conferiu_limpeza: Option<Instant> = None;
+        // Leituras seguidas do Docker sem resposta e quando a primeira aconteceu.
+        let mut sem_resposta: (u32, u64) = (0, 0);
         loop {
             if conferiu_limpeza.is_none_or(|t| t.elapsed() >= A_CADA_LIMPEZA) {
                 conferiu_limpeza = Some(Instant::now());
@@ -398,7 +405,12 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 };
                 let desde = recursos.ultima_devolucao.lock().unwrap().map(|t| t.elapsed());
                 let livre = if m.total_bytes > 0 { m.disponivel_bytes as f64 / m.total_bytes as f64 } else { 1.0 };
+                // Com o WSL ou o Docker sem responder, devolver o cache abre mais uma chamada que
+                // trava. Medido em 08/11/2026: a devolução automática esgotou o prazo 25 min
+                // antes de o WSL parar de vez.
                 if automatico
+                    && sem_resposta.0 == 0
+                    && !crate::wsl::saude::alguma_queda()
                     && !recursos.devolvendo.load(Ordering::Relaxed)
                     && cache::pode_devolver_sozinho(m.wsl_bytes.is_some(), livre, agentes.cache_vm(), &gatilho, desde)
                 {
@@ -417,18 +429,39 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
             let vencido = ultima_docker.is_none_or(|t| t.elapsed() >= A_CADA_DOCKER);
             if ligado && (pedido || (quer && vencido)) {
                 ultima_docker = Some(Instant::now());
-                let estado = match docker::listar(&mut vigia) {
-                    Ok(conteineres) => Docker { ligado, conteineres, erro: None },
+                let mut estado = match docker::listar(&mut vigia) {
+                    Ok(conteineres) => {
+                        if sem_resposta.0 >= SEM_RESPOSTA_PARA_AVISAR {
+                            let minutos = agora_ms().saturating_sub(sem_resposta.1) / 60_000;
+                            info!("o Docker voltou a responder depois de {minutos} min");
+                            agentes.registrar(&app, "docker", Some(DISTRO_DOCKER), format!("O Docker voltou a responder depois de {minutos} min"));
+                        }
+                        sem_resposta = (0, 0);
+                        Docker { ligado, conteineres, erro: None, sem_resposta_desde_ms: None }
+                    }
                     Err(erro) => {
                         warn!("leitura do Docker falhou: {erro}");
-                        Docker { ligado, conteineres: Vec::new(), erro: Some(erro) }
+                        if docker::sem_resposta(&erro) {
+                            if sem_resposta.0 == 0 {
+                                sem_resposta.1 = agora_ms();
+                            }
+                            sem_resposta.0 += 1;
+                            if sem_resposta.0 == SEM_RESPOSTA_PARA_AVISAR {
+                                avisar_docker_sem_resposta(&app, &agentes, sem_resposta.1);
+                            }
+                        }
+                        Docker { ligado, conteineres: Vec::new(), erro: Some(erro), sem_resposta_desde_ms: None }
                     }
                 };
+                if sem_resposta.0 >= SEM_RESPOSTA_PARA_AVISAR {
+                    estado.sem_resposta_desde_ms = Some(sem_resposta.1);
+                }
                 registrar_problemas(&app, &agentes, &estado.conteineres, &mut problemas_antes);
                 *recursos.docker.lock().unwrap() = estado.clone();
                 let _ = app.emit("docker", &estado);
             } else if !ligado && recursos.docker.lock().unwrap().ligado {
                 ultima_docker = None;
+                sem_resposta = (0, 0);
                 problemas_antes.clear();
                 *recursos.docker.lock().unwrap() = Docker::default();
                 let _ = app.emit("docker", Docker::default());
@@ -492,6 +525,18 @@ fn limpar_programado(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, l:
         info!("{texto}");
         agentes.registrar(app, "armazenamento", None, texto);
     }
+}
+
+/// O Docker parado de responder veio antes do WSL inteiro travar nas travas medidas: avisar
+/// aqui dá tempo de parar o que pesa enquanto o WSL ainda obedece.
+fn avisar_docker_sem_resposta(app: &AppHandle, agentes: &Agentes, desde_ms: u64) {
+    let minutos = agora_ms().saturating_sub(desde_ms).div_ceil(60_000);
+    let texto = format!(
+        "O Docker não responde há {minutos} min. O WSL pode travar em seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá."
+    );
+    warn!("{texto}");
+    agentes.registrar(app, "docker", Some(DISTRO_DOCKER), texto.clone());
+    notificar(app, "O Docker não está respondendo", &texto);
 }
 
 fn avisar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, m: &MemoriaWindows) {

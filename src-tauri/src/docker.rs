@@ -137,6 +137,12 @@ fn so_sumiu_objeto(erro: &str) -> bool {
 
 /// Projetos do Compose aparecem mesmo parados, para poderem ser ligados de volta; avulsos,
 /// só rodando. Parados e avulsos são, em geral, sobras de builds.
+/// Erro de prazo esgotado: o Docker está ligado e não responde. Erro rápido, como o do motor
+/// ainda subindo, não conta.
+pub fn sem_resposta(erro: &str) -> bool {
+    erro.contains(" não respondeu em ")
+}
+
 pub fn listar(vigia: &mut Vigia) -> Result<Vec<Conteiner>, String> {
     let formato = format!("{{{{.ID}}}}\t{{{{.Names}}}}\t{{{{.State}}}}\t{{{{.Label \"{ROTULO_PROJETO}\"}}}}");
     let mut lista: Vec<Conteiner> = ler_ps(&executar(&["ps", "-a", "--no-trunc", "--format", &formato], PRAZO_CONSULTA)?)

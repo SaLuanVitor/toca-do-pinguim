@@ -30,7 +30,7 @@ class Estado {
   historico = $state.raw<Ponto[]>([]);
   eventos = $state.raw<Evento[]>([]);
   memoriaWindows = $state.raw<MemoriaWindows | null>(null);
-  docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null });
+  docker = $state.raw<Docker>({ ligado: false, conteineres: [], erro: null, sem_resposta_desde_ms: null });
   /** Queda em curso do WSL, ou null quando ele responde. */
   saude = $state.raw<SituacaoWsl | null>(null);
   devolucao = $state.raw<Devolucao | null>(null);

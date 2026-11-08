@@ -13,9 +13,17 @@
       <strong>O WSL não está abrindo sessões novas</strong> desde {hora.format(estado.saude.desde_ms)}{estado.saude.alvo
         ? ` em ${estado.saude.alvo}`
         : ''}: {estado.saude.motivo}. O que já está rodando, como containers e terminais abertos, continua, mas o app não
-      consegue ler as distros. Desligar o WSL o destrava; todas as distros e os containers param.
+      consegue ler as distros. Forçar o desligamento o destrava; todas as distros e os containers param.
     </span>
-    <button class="botao primario" onclick={desligarWsl} disabled={!!ocupadas.WSL}>{ocupadas.WSL ?? 'Desligar o WSL'}</button>
+    <button class="botao primario" onclick={desligarWsl} disabled={!!ocupadas.WSL}>{ocupadas.WSL ?? 'Forçar o desligamento'}</button>
+  </div>
+{:else if estado.docker.sem_resposta_desde_ms}
+  <div class="aviso" role="alert">
+    <span>
+      <strong>O Docker não responde</strong> desde {hora.format(estado.docker.sem_resposta_desde_ms)}. O WSL pode travar em
+      seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá. Se o WSL travar, o app oferece o
+      desligamento forçado.
+    </span>
   </div>
 {/if}
 

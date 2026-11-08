@@ -48,8 +48,11 @@ As capturas são do modo demonstração, com dados simulados.
   processo esperando disco ou rede, zumbi que ninguém recolhe. Cada um aparece com o motivo,
   e o container tem botão para reiniciar.
 - **O WSL que trava.** Quando o `wsl.exe` para de abrir sessões (`Wsl/Service/0x8007274c`), o app
-  avisa e oferece desligar o WSL, em vez de você descobrir pelo terminal parado. O que já está
-  rodando, como containers, continua; por isso a trava passa despercebida.
+  avisa e oferece o desligamento forçado (`wsl --shutdown --force`), em vez de você descobrir
+  pelo terminal parado. O desligamento comum espera o que travou e não volta; medido no WSL
+  2.6.1, o forçado derrubou a VM travada em 1 s. O que já está rodando, como containers,
+  continua até lá; por isso a trava passa despercebida. Quando o Docker para de responder, o app
+  avisa antes, porque nas travas medidas o Docker parou primeiro.
 - **Em segundo plano.** Fechar a janela deixa o app na área de notificação, avisando de memória
   acabando e de WSL travado; ele também pode abrir com o Windows, direto lá.
 - **Sem segurar distro ligada.** O app lê as distros por dentro, mas o agente dele sai quando a

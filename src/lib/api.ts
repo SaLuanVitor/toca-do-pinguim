@@ -31,7 +31,8 @@ export interface Api {
   iniciarDistro(nome: string): Promise<void>;
   terminarDistro(nome: string): Promise<void>;
   reiniciarDistro(nome: string): Promise<void>;
-  desligarWsl(): Promise<void>;
+  /** False: o desligamento comum não voltou no prazo, e o WSL está travado. */
+  desligarWsl(forcar: boolean): Promise<boolean>;
   pastaDeDocumentos(): Promise<string | null>;
   excluirDistro(nome: string, exportarPara: string | null): Promise<Exclusao>;
   enviarSinal(distro: string, pid: number, sinal: number, nome: string): Promise<void>;
@@ -103,7 +104,7 @@ async function conectarTauri(): Promise<Api> {
     iniciarDistro: (nome) => invoke('iniciar_distro', { nome }),
     terminarDistro: (nome) => invoke('terminar_distro', { nome }),
     reiniciarDistro: (nome) => invoke('reiniciar_distro', { nome }),
-    desligarWsl: () => invoke('desligar_wsl'),
+    desligarWsl: (forcar) => invoke('desligar_wsl', { forcar }),
     pastaDeDocumentos: () => invoke('pasta_de_documentos'),
     excluirDistro: (nome, exportarPara) => invoke('excluir_distro', { nome, exportarPara }),
     enviarSinal: (distro, pid, sinal, nome) => invoke('enviar_sinal', { distro, pid, sinal, nome }),

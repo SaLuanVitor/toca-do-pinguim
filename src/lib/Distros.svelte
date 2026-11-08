@@ -45,10 +45,14 @@
     ),
   );
   const algumaRodando = $derived(estado.distros.some((d) => d.rodando));
+  // Travado, o WSL não abre sessão: ligar, terminar ou excluir só deixaria mais um wsl.exe preso.
+  const travado = $derived(!!estado.saude);
+  const MOTIVO_TRAVADO = 'O WSL não está respondendo; desligue-o primeiro';
   let excluindo = $state<Distro | null>(null);
 
   function situacao(d: Distro): string {
     if (ocupadas[d.nome]) return ocupadas[d.nome];
+    if (estado.saude) return 'Sem resposta';
     if (!d.rodando) return 'Parada';
     return estado.ociosas.has(d.nome) ? 'Sem atividade' : 'Em execução';
   }
@@ -57,7 +61,12 @@
 <header class="barra">
   <h1>Distros</h1>
   <div class="acoes">
-    <button class="botao" disabled={!algumaRodando || !!ocupadas.WSL} onclick={desligarWsl} title={algumaRodando ? undefined : "Nenhuma distro está ligada"}>
+    <button
+      class="botao"
+      disabled={(!algumaRodando && !travado) || !!ocupadas.WSL}
+      onclick={desligarWsl}
+      title={algumaRodando || travado ? undefined : 'Nenhuma distro está ligada'}
+    >
       <Icone nome="energia" /> {ocupadas.WSL ?? 'Desligar WSL'}
     </button>
   </div>
@@ -111,14 +120,14 @@
             <td class="numero">{mem === undefined ? '' : bytes(mem)}</td>
             <td class="acoes-linha">
               {#if d.rodando}
-                <button class="botao sutil" disabled={!!ocupada} onclick={() => reiniciar(d)} aria-label="Reiniciar {d.nome}">
+                <button class="botao sutil" disabled={!!ocupada || travado} title={travado ? MOTIVO_TRAVADO : undefined} onclick={() => reiniciar(d)} aria-label="Reiniciar {d.nome}">
                   <Icone nome="reiniciar" /> Reiniciar
                 </button>
-                <button class="botao sutil" disabled={!!ocupada} onclick={() => terminar(d)} aria-label="Terminar {d.nome}">
+                <button class="botao sutil" disabled={!!ocupada || travado} title={travado ? MOTIVO_TRAVADO : undefined} onclick={() => terminar(d)} aria-label="Terminar {d.nome}">
                   <Icone nome="parar" /> Terminar
                 </button>
               {:else}
-                <button class="botao sutil" disabled={!!ocupada} onclick={() => iniciar(d)} aria-label="Iniciar {d.nome}">
+                <button class="botao sutil" disabled={!!ocupada || travado} title={travado ? MOTIVO_TRAVADO : undefined} onclick={() => iniciar(d)} aria-label="Iniciar {d.nome}">
                   <Icone nome="play" /> Iniciar
                 </button>
               {/if}
@@ -135,10 +144,10 @@
               {:else}
                 <button
                   class="botao sutil perigo"
-                  disabled={d.rodando || !!ocupada}
+                  disabled={d.rodando || !!ocupada || travado}
                   onclick={() => (excluindo = d)}
                   aria-label="Excluir {d.nome}"
-                  title={d.rodando ? 'Termine a distro antes de excluir' : undefined}
+                  title={travado ? MOTIVO_TRAVADO : d.rodando ? 'Termine a distro antes de excluir' : undefined}
                 >
                   <Icone nome="lixeira" /> Excluir
                 </button>

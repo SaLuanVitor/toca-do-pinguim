@@ -33,6 +33,13 @@ static AGENTE: &[u8] = include_bytes!(concat!(
 ));
 
 const PAUSA_SUPERVISOR: Duration = Duration::from_secs(2);
+
+/// Espera a mais entre tentativas de listar as distros enquanto o WSL não responde: cada
+/// tentativa prende um `wsl.exe` por 30 s, e repetir a cada 32 s só soma processo preso.
+/// Medido em 08/11/2026: 35 tentativas em 18 min de trava.
+fn espera_lista(falhas: u32) -> Duration {
+    Duration::from_secs((30 * u64::from(falhas.saturating_sub(1))).min(90))
+}
 const ESPERA_APOS_FALHA: Duration = Duration::from_secs(30);
 const ESPERA_MAXIMA_APOS_FALHA: Duration = Duration::from_secs(5 * 60);
 
@@ -488,12 +495,14 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
     thread::spawn(move || {
         let mut ultima: Option<Vec<Distro>> = None;
         let mut travado = false;
+        let mut falhas_lista: u32 = 0;
         loop {
             agentes
                 .espera_ociosidade_ms
                 .store(WslConfig::ler().espera_ociosidade_ms(), Ordering::Relaxed);
             match wsl::listar() {
                 Ok(lista) => {
+                    falhas_lista = 0;
                     let rodando: HashSet<&str> =
                         lista.iter().filter(|d| d.rodando).map(|d| d.nome.as_str()).collect();
                     if let Some(antes) = &ultima {
@@ -521,6 +530,7 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                     }
                 }
                 Err(mensagem) => {
+                    falhas_lista += 1;
                     warn!("lista de distros indisponível: {mensagem}");
                     let _ = app.emit("erro", Erro { distro: None, mensagem });
                 }
@@ -560,6 +570,11 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                 agentes.registrar(&app, "wsl", alvo.as_deref(), texto);
             }
             thread::sleep(PAUSA_SUPERVISOR);
+            // A espera acaba antes se a queda sair, como depois de o WSL ser desligado.
+            let mais = Instant::now() + espera_lista(falhas_lista);
+            while Instant::now() < mais && wsl::saude::alguma_queda() {
+                thread::sleep(Duration::from_secs(1));
+            }
         }
     });
 }
@@ -567,6 +582,12 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn lista_espaca_ate_90_s_com_o_wsl_travado() {
+        let s = |n| espera_lista(n).as_secs();
+        assert_eq!([s(0), s(1), s(2), s(3), s(4), s(50)], [0, 0, 30, 60, 90, 90]);
+    }
 
     #[test]
     fn espera_dobra_a_cada_falha_ate_cinco_minutos() {
