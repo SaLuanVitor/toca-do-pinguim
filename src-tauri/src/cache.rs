@@ -138,10 +138,28 @@ impl Preferencias {
 }
 
 /// `livre` é a fração da RAM do Windows disponível; `cache`, o cache descartável da VM.
-pub fn pode_devolver_sozinho(ligado: bool, livre: f64, cache: Option<u64>, g: &Gatilho, desde_a_ultima: Option<Duration>) -> bool {
+/// O que, além do gatilho, decide se a devolução automática roda agora.
+pub struct Situacao {
+    /// Espera "full" de disco na média de 60 s, em %, quando há leitura recente.
+    pub disco_full: Option<f32>,
+    /// Devoluções automáticas que falharam seguidas.
+    pub falhas_seguidas: u32,
+}
+
+/// Com o disco sob pressão, a devolução fica para depois: ela começa com um `sync`, que força a
+/// gravação do que está pendente justo quando o disco já não dá conta. Medido em 08/11/2026: as
+/// três travas do dia vieram depois de devoluções que esgotaram o prazo com o disco nessa faixa.
+const DISCO_SEM_DEVOLVER: f32 = crate::pressao::LIMIAR / 2.0;
+/// Depois de falhas seguidas, o intervalo dobra até este teto; antes, a falha se repetia a cada
+/// 10 min (18:30, 18:40 e 18:50 em 08/11).
+const INTERVALO_MAXIMO: Duration = Duration::from_secs(2 * 60 * 60);
+
+pub fn pode_devolver_sozinho(ligado: bool, livre: f64, cache: Option<u64>, g: &Gatilho, desde_a_ultima: Option<Duration>, s: &Situacao) -> bool {
     let pouca_memoria = livre * 100.0 < f64::from(g.minimo_livre_pct);
     let muito_cache = matches!((cache, g.cache_maximo_bytes), (Some(c), Some(maximo)) if c > maximo);
-    ligado && (pouca_memoria || muito_cache) && desde_a_ultima.is_none_or(|d| d >= INTERVALO_AUTOMATICO)
+    let disco_livre = s.disco_full.is_none_or(|d| d < DISCO_SEM_DEVOLVER);
+    let intervalo = (INTERVALO_AUTOMATICO * 2u32.saturating_pow(s.falhas_seguidas.min(8))).min(INTERVALO_MAXIMO);
+    ligado && (pouca_memoria || muito_cache) && disco_livre && desde_a_ultima.is_none_or(|d| d >= intervalo)
 }
 
 fn agora_ms() -> u64 {
@@ -227,22 +245,39 @@ mod testes {
     #[test]
     fn sozinho_so_com_pressao_vm_ligada_e_intervalo_vencido() {
         let g = Gatilho::default();
-        assert!(pode_devolver_sozinho(true, 0.09, None, &g, None));
-        assert!(!pode_devolver_sozinho(false, 0.09, None, &g, None));
-        assert!(!pode_devolver_sozinho(true, 0.11, None, &g, None));
-        assert!(!pode_devolver_sozinho(true, 0.09, None, &g, Some(Duration::from_secs(9 * 60))));
-        assert!(pode_devolver_sozinho(true, 0.09, None, &g, Some(INTERVALO_AUTOMATICO)));
+        assert!(pode_devolver_sozinho(true, 0.09, None, &g, None, &NORMAL));
+        assert!(!pode_devolver_sozinho(false, 0.09, None, &g, None, &NORMAL));
+        assert!(!pode_devolver_sozinho(true, 0.11, None, &g, None, &NORMAL));
+        assert!(!pode_devolver_sozinho(true, 0.09, None, &g, Some(Duration::from_secs(9 * 60)), &NORMAL));
+        assert!(pode_devolver_sozinho(true, 0.09, None, &g, Some(INTERVALO_AUTOMATICO), &NORMAL));
+    }
+
+    const NORMAL: Situacao = Situacao { disco_full: Some(1.0), falhas_seguidas: 0 };
+
+    #[test]
+    fn disco_sob_pressao_adia_e_falhas_espacam() {
+        let g = Gatilho { minimo_livre_pct: 10, cache_maximo_bytes: None };
+        let disco = |d| Situacao { disco_full: Some(d), falhas_seguidas: 0 };
+        assert!(!pode_devolver_sozinho(true, 0.09, None, &g, None, &disco(5.0)));
+        assert!(pode_devolver_sozinho(true, 0.09, None, &g, None, &disco(4.9)));
+        assert!(pode_devolver_sozinho(true, 0.09, None, &g, None, &Situacao { disco_full: None, falhas_seguidas: 0 }));
+        let falhas = |n| Situacao { disco_full: Some(1.0), falhas_seguidas: n };
+        let min = |m: u64| Some(Duration::from_secs(m * 60));
+        assert!(!pode_devolver_sozinho(true, 0.09, None, &g, min(19), &falhas(1)));
+        assert!(pode_devolver_sozinho(true, 0.09, None, &g, min(20), &falhas(1)));
+        assert!(!pode_devolver_sozinho(true, 0.09, None, &g, min(79), &falhas(3)));
+        assert!(pode_devolver_sozinho(true, 0.09, None, &g, min(120), &falhas(30)));
     }
 
     #[test]
     fn gatilho_por_cache_vale_mesmo_com_memoria_sobrando() {
         let g = Gatilho { minimo_livre_pct: 10, cache_maximo_bytes: Some(4 * GIB) };
-        assert!(pode_devolver_sozinho(true, 0.40, Some(5 * GIB), &g, None));
-        assert!(!pode_devolver_sozinho(true, 0.40, Some(3 * GIB), &g, None));
+        assert!(pode_devolver_sozinho(true, 0.40, Some(5 * GIB), &g, None, &NORMAL));
+        assert!(!pode_devolver_sozinho(true, 0.40, Some(3 * GIB), &g, None, &NORMAL));
         // Sem leitura do cache, só o gatilho de memória conta.
-        assert!(!pode_devolver_sozinho(true, 0.40, None, &g, None));
+        assert!(!pode_devolver_sozinho(true, 0.40, None, &g, None, &NORMAL));
         let mais = Gatilho { minimo_livre_pct: 20, cache_maximo_bytes: None };
-        assert!(pode_devolver_sozinho(true, 0.15, None, &mais, None));
+        assert!(pode_devolver_sozinho(true, 0.15, None, &mais, None, &NORMAL));
     }
 
     #[test]

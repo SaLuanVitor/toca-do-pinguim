@@ -1,6 +1,7 @@
 <script lang="ts">
   // Só o que é processamento: uso de CPU da VM, o teto de processadores e quem gasta CPU.
   import ColunaOrdenavel from './ColunaOrdenavel.svelte';
+  import CpuConteineres from './CpuConteineres.svelte';
   import { estado } from './estado.svelte';
   import { duracao, pct } from './formato';
   import Grafico from './Grafico.svelte';
@@ -82,6 +83,8 @@
         </tbody>
       </table>
     </section>
+
+    <CpuConteineres cpus={vm.cpus} />
   </div>
 {/if}
 

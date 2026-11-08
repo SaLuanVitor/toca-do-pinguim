@@ -64,6 +64,19 @@ const MODELOS: Record<string, Modelo[]> = {
 };
 
 export function criarDemonstracao(): Api {
+  // `?travado` na URL abre a demonstração com o WSL e o Docker sem responder.
+  let travado = typeof location !== 'undefined' && new URLSearchParams(location.search).has('travado');
+  if (travado) estado.saude = { alvo: null, motivo: 'wsl.exe não respondeu em 30 s', desde_ms: Date.now() - 12 * 60_000 };
+  // `?pressao` abre com a VM sobrecarregada, antes de travar.
+  const pesadosDemo = [
+    { distro: 'docker-desktop', nome: 'postgres', quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0, disco_bps: 0 },
+    { distro: 'docker-desktop', nome: 'rsync', quantos: 1, cpu_nucleos: 0.2, rss: 0, esperando: 0, disco_bps: 38 * 1024 ** 2 },
+    { distro: 'docker-desktop', nome: 'php', quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6, disco_bps: 0 },
+    { distro: 'Ubuntu', nome: 'node', quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0, disco_bps: 0 },
+  ];
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('pressao')) {
+    estado.pressao = { desde_ms: Date.now() - 3 * 60_000, disco_full: 18.4, memoria_full: 0.6, cpu_some: 64.2, cpu_vm: 71, pesados: pesadosDemo };
+  }
   const distros: Distro[] = [
     { nome: 'Ubuntu', versao: 2, padrao: true, rodando: true },
     { nome: 'Debian', versao: 2, padrao: false, rodando: false },
@@ -87,6 +100,8 @@ export function criarDemonstracao(): Api {
       cmdline,
       cpu_pct: carga,
       rss: rssMb * 1024 * 1024,
+      nice: 0,
+      disco_bps: n === 'rsync' ? 38 * 1024 ** 2 : n === 'postgres' ? 1.2 * 1024 ** 2 : 0,
     }));
   }
 
@@ -166,6 +181,8 @@ export function criarDemonstracao(): Api {
     estado: 'running',
     memoria_bytes: mb * 1024 ** 2,
     limite_bytes: nome === 'loja-relatorios' ? 512 * 1024 ** 2 : 0,
+    cpu_nucleos: nome.includes('db') ? 1.4 : nome.includes('api') ? 0.6 : 0.05,
+    limite_cpus: nome === 'loja-relatorios' ? 1 : 0,
     reinicios: nome === 'bot-api-1' ? 20 : 0,
     em_ciclo: nome === 'bot-api-1',
     saude: nome === 'loja-api' ? 'unhealthy' : nome.includes('db') || nome.includes('mssql') ? 'healthy' : null,
@@ -183,7 +200,13 @@ export function criarDemonstracao(): Api {
       wsl_bytes: distros.some((d) => d.rodando) ? wsl : null,
       pressao: disponivel < 3.17 * GIB,
     };
-    estado.docker = { ligado: docker, conteineres: docker ? conteineres.map((c) => ({ ...c })) : [], erro: null };
+    estado.docker = {
+      ligado: docker,
+      conteineres: docker && !travado ? conteineres.map((c) => ({ ...c })) : [],
+      erro: travado ? 'docker ps não respondeu em 30 s' : null,
+      sem_resposta_desde_ms: travado ? Date.now() - 25 * 60_000 : null,
+      pesados: travado ? pesadosDemo : [],
+    };
   }
 
   async function agirEm(ids: string[], ligar: boolean, rotulo: string) {
@@ -388,11 +411,41 @@ export function criarDemonstracao(): Api {
       registrar('distro', nome, `O app excluiu a distro ${nome} e liberou 6,4 GB${exportarPara ? `; a cópia ficou em ${exportarPara}` : ''}`);
       return { liberado_bytes: liberado, exportado: exportarPara };
     },
-    desligarWsl: async () => {
+    limitarCpuConteiner: async (id, nome, nucleos) => {
+      await esperar(600);
+      const c = conteineres.find((x) => x.id === id);
+      if (!c) throw 'container inválido';
+      c.limite_cpus = nucleos ?? 0;
+      publicarRecursos();
+      registrar('docker', 'docker-desktop', nucleos === null ? `O app tirou o limite de CPU de ${nome}` : `O app limitou ${nome} a ${String(nucleos).replace('.', ',')} núcleo(s) de CPU`);
+    },
+    definirPrioridade: async (distro, pid, nome, baixa) => {
+      if (pid <= 1) throw `PID ${pid} é protegido`;
+      const p = processos[distro]?.find((x) => x.pid === pid);
+      if (p) p.nice = baixa ? 10 : 0;
+      registrar('processo', distro, baixa ? `O app baixou a prioridade de ${nome} (PID ${pid}) e dos filhos dele` : `O app devolveu a prioridade normal a ${nome} (PID ${pid}) e aos filhos dele`);
+    },
+    abrirDockerDesktop: async () => {
+      await esperar(1500);
+      achar('docker-desktop').rodando = true;
+      ligar('docker-desktop');
+      publicar();
+      publicarRecursos();
+    },
+    desligarWsl: async (forcar) => {
+      // Travado, o desligamento comum não volta; o forçado derruba a VM em seguida.
+      if (travado && !forcar) {
+        await esperar(2000);
+        return false;
+      }
       await esperar(500);
+      travado = false;
+      estado.saude = null;
       for (const d of distros) d.rodando = false;
       publicar();
-      registrar('wsl', null, 'O app desligou o WSL');
+      publicarRecursos();
+      registrar('wsl', null, forcar ? 'O app forçou o desligamento do WSL' : 'O app desligou o WSL');
+      return true;
     },
     enviarSinal: async (distro, pid, sinal, nome) => {
       if (pid <= 1) throw 'PID 1 é protegido';
@@ -407,7 +460,7 @@ export function criarDemonstracao(): Api {
     listarAtividade: async () => eventosIniciais,
     estadoRecursos: async () => {
       publicarRecursos();
-      return { memoria: estado.memoriaWindows!, docker: estado.docker, saude: null, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
+      return { memoria: estado.memoriaWindows!, docker: estado.docker, pressao: estado.pressao, saude: estado.saude, devolucao: null, devolver_cache_automatico: false, gatilho: estado.gatilho };
     },
     // Encurtado para a tela: no app real, as medidas saem 15 s e 2 min depois.
     devolverCache: async () => {

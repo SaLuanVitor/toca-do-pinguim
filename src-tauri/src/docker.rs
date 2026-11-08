@@ -36,6 +36,10 @@ pub struct Conteiner {
     pub memoria_bytes: u64,
     /// Limite de memória do container; 0 quando não tem, e ele pode usar a VM toda.
     pub limite_bytes: u64,
+    /// CPU em núcleos, como o `docker stats` mede: 1,0 é um núcleo inteiro.
+    pub cpu_nucleos: f32,
+    /// Limite de CPU em núcleos (`--cpus`); 0 quando não tem.
+    pub limite_cpus: f32,
     pub reinicios: u64,
     pub em_ciclo: bool,
     /// Resultado do healthcheck (`healthy`, `unhealthy`, `starting`), quando a imagem ou o
@@ -60,6 +64,7 @@ struct Inspecao {
     reinicios: u64,
     saude: Option<String>,
     limite_bytes: u64,
+    limite_cpus: f32,
 }
 
 /// Guarda, por container, a última contagem de reinícios e quando ela subiu, para
@@ -137,6 +142,33 @@ fn so_sumiu_objeto(erro: &str) -> bool {
 
 /// Projetos do Compose aparecem mesmo parados, para poderem ser ligados de volta; avulsos,
 /// só rodando. Parados e avulsos são, em geral, sobras de builds.
+/// Onde o Docker Desktop está instalado: a pasta que o desinstalador dele registra e, sem ela,
+/// a padrão em Arquivos de Programas.
+pub fn caminho_docker_desktop() -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    let largo = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let chave = largo(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop");
+    let valor = largo("InstallLocation");
+    let mut buffer = vec![0u16; 1024];
+    let mut tamanho = (buffer.len() * 2) as u32;
+    // SAFETY: textos terminados em zero e buffer do tamanho informado.
+    let ok = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, chave.as_ptr(), valor.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buffer.as_mut_ptr().cast(), &mut tamanho)
+    } == 0;
+    let registrada = ok.then(|| {
+        let fim = buffer.iter().position(|&c| c == 0).unwrap_or(0);
+        std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..fim]))
+    });
+    let padrao = std::env::var_os("ProgramFiles").map(|p| std::path::PathBuf::from(p).join("Docker").join("Docker"));
+    registrada.into_iter().chain(padrao).map(|pasta| pasta.join("Docker Desktop.exe")).find(|exe| exe.is_file())
+}
+
+/// Erro de prazo esgotado: o Docker está ligado e não responde. Erro rápido, como o do motor
+/// ainda subindo, não conta.
+pub fn sem_resposta(erro: &str) -> bool {
+    erro.contains(" não respondeu em ")
+}
+
 pub fn listar(vigia: &mut Vigia) -> Result<Vec<Conteiner>, String> {
     let formato = format!("{{{{.ID}}}}\t{{{{.Names}}}}\t{{{{.State}}}}\t{{{{.Label \"{ROTULO_PROJETO}\"}}}}");
     let mut lista: Vec<Conteiner> = ler_ps(&executar(&["ps", "-a", "--no-trunc", "--format", &formato], PRAZO_CONSULTA)?)
@@ -149,13 +181,13 @@ pub fn listar(vigia: &mut Vigia) -> Result<Vec<Conteiner>, String> {
         // `.State` chega ao template como mapa, e `.State.Health` num container sem
         // healthcheck derruba o `inspect` inteiro ("map has no entry for key"); o `index`
         // devolve vazio.
-        let formato = "{{.Id}}\t{{.RestartCount}}\t{{with index .State \"Health\"}}{{.Status}}{{end}}\t{{.HostConfig.Memory}}";
+        let formato = "{{.Id}}\t{{.RestartCount}}\t{{with index .State \"Health\"}}{{.Status}}{{end}}\t{{.HostConfig.Memory}}\t{{.HostConfig.NanoCpus}}";
         let mut args = vec!["inspect", "--format", formato];
         args.extend(&ativos);
         let inspecoes = ler_pares(&executar(&args, PRAZO_CONSULTA)?, ler_inspecao);
-        let memoria = ler_pares(
-            &executar(&["stats", "--no-stream", "--no-trunc", "--format", "{{.ID}}\t{{.MemUsage}}"], PRAZO_CONSULTA)?,
-            |v| tamanho(v.split(" / ").next().unwrap_or("")),
+        let uso = ler_pares(
+            &executar(&["stats", "--no-stream", "--no-trunc", "--format", "{{.ID}}\t{{.MemUsage}}\t{{.CPUPerc}}"], PRAZO_CONSULTA)?,
+            ler_uso,
         );
         let agora = Instant::now();
         for c in &mut lista {
@@ -163,8 +195,11 @@ pub fn listar(vigia: &mut Vigia) -> Result<Vec<Conteiner>, String> {
                 c.reinicios = i.reinicios;
                 c.saude = i.saude.clone();
                 c.limite_bytes = i.limite_bytes;
+                c.limite_cpus = i.limite_cpus;
             }
-            c.memoria_bytes = memoria.get(&c.id).copied().unwrap_or(0);
+            let (memoria, cpu) = uso.get(&c.id).copied().unwrap_or((0, 0.0));
+            c.memoria_bytes = memoria;
+            c.cpu_nucleos = cpu;
             c.em_ciclo = c.estado == "restarting" || vigia.observar(&c.id, c.reinicios, agora);
         }
     }
@@ -216,6 +251,8 @@ fn ler_ps(texto: &str) -> Vec<Conteiner> {
                 estado: estado.to_string(),
                 memoria_bytes: 0,
                 limite_bytes: 0,
+                cpu_nucleos: 0.0,
+                limite_cpus: 0.0,
                 reinicios: 0,
                 em_ciclo: false,
                 saude: None,
@@ -230,7 +267,30 @@ fn ler_inspecao(texto: &str) -> Option<Inspecao> {
     let reinicios = campos.next()?.trim().parse().ok()?;
     let saude = campos.next().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
     let limite_bytes = campos.next().and_then(|v| v.trim().parse().ok()).unwrap_or(0);
-    Some(Inspecao { reinicios, saude, limite_bytes })
+    let limite_cpus = campos.next().and_then(|v| v.trim().parse::<u64>().ok()).map_or(0.0, |n| n as f32 / 1e9);
+    Some(Inspecao { reinicios, saude, limite_bytes, limite_cpus })
+}
+
+/// "136.3MiB / 8.728GiB<TAB>51.52%" vira a memória usada e a CPU em núcleos.
+fn ler_uso(texto: &str) -> Option<(u64, f32)> {
+    let (memoria, cpu) = texto.split_once('\t').unwrap_or((texto, ""));
+    let memoria = tamanho(memoria.split(" / ").next().unwrap_or(""))?;
+    let cpu = cpu.trim().trim_end_matches('%').parse::<f32>().map_or(0.0, |v| v / 100.0);
+    Some((memoria, cpu))
+}
+
+/// Limita a CPU do container na hora, sem reiniciá-lo, e o limite fica na configuração dele:
+/// sobrevive a um `docker restart`, mas some se o Compose recriar o container. Medido em
+/// 08/11/2026: `--cpus 0` sai com sucesso e não tira o limite; tirar é dar todas as CPUs da
+/// VM, e o Docker recusa mais que isso.
+pub fn limitar_cpu(id: &str, nucleos: f32) -> Result<(), String> {
+    if !id_valido(id) {
+        return Err("container inválido".to_string());
+    }
+    if !(nucleos.is_finite() && (0.1..=256.0).contains(&nucleos)) {
+        return Err("o limite precisa ficar entre 0,1 e o total de núcleos da VM".to_string());
+    }
+    executar(&["update", "--cpus", &format!("{nucleos:.2}"), id], PRAZO_ACAO).map(|_| ())
 }
 
 /// Linhas `id<TAB>valor`. O `inspect` devolve o id completo; o `stats` também, com
@@ -294,12 +354,29 @@ mod testes {
 
     #[test]
     fn le_reinicios_saude_e_limite_do_inspect() {
-        let texto = format!("{ID_A}\t20\tunhealthy\t536870912\n{ID_B}\t0\t\t0\n");
+        let texto = format!("{ID_A}\t20\tunhealthy\t536870912\t1500000000\n{ID_B}\t0\t\t0\t0\n");
         let lido = ler_pares(&texto, ler_inspecao);
         let a = &lido[ID_A];
-        assert_eq!((a.reinicios, a.saude.as_deref(), a.limite_bytes), (20, Some("unhealthy"), 512 << 20));
+        assert_eq!((a.reinicios, a.saude.as_deref(), a.limite_bytes, a.limite_cpus), (20, Some("unhealthy"), 512 << 20, 1.5));
         let b = &lido[ID_B];
-        assert_eq!((b.reinicios, b.saude.as_deref(), b.limite_bytes), (0, None, 0));
+        assert_eq!((b.reinicios, b.saude.as_deref(), b.limite_bytes, b.limite_cpus), (0, None, 0, 0.0));
+    }
+
+    #[test]
+    fn le_memoria_e_cpu_do_stats() {
+        let texto = format!("{ID_A}\t175.5MiB / 8.728GiB\t51.52%\n{ID_B}\t2.62GiB / 8.728GiB\t--\n");
+        let lido = ler_pares(&texto, ler_uso);
+        let (mem, cpu) = lido[ID_A];
+        assert_eq!(mem, (175.5 * 1024.0 * 1024.0) as u64);
+        assert!((cpu - 0.5152).abs() < 1e-4);
+        assert_eq!(lido[ID_B].1, 0.0);
+    }
+
+    #[test]
+    fn limite_de_cpu_recusa_id_e_valor_fora_da_faixa() {
+        assert!(limitar_cpu("--all", 1.0).is_err());
+        assert!(limitar_cpu(ID_A, 0.0).is_err());
+        assert!(limitar_cpu(ID_A, f32::NAN).is_err());
     }
 
     #[test]

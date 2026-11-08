@@ -10,6 +10,7 @@ mod config;
 mod configuracao;
 mod docker;
 mod historico;
+mod pressao;
 mod recursos;
 mod registro;
 mod travados;
@@ -104,18 +105,63 @@ async fn reiniciar_distro(app: tauri::AppHandle, estado: Estado<'_>, nome: Strin
     .await
 }
 
+/// Devolve false quando o desligamento comum não voltou no prazo: o WSL está travado, e a tela
+/// oferece o forçado.
 #[tauri::command]
-async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>) -> Result<(), String> {
+async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>, forcar: bool) -> Result<bool, String> {
     let agentes = Arc::clone(&estado);
     bloqueante(move || {
-        info!("pedido: desligar o WSL");
-        let resultado = desligar_sem_religar(&agentes);
+        info!("pedido: desligar o WSL{}", if forcar { " à força" } else { "" });
+        let resultado = desligar_sem_religar(&agentes, forcar);
         soltar_depois(&agentes);
+        if resultado? {
+            let texto = if forcar { "O app forçou o desligamento do WSL" } else { "O app desligou o WSL" };
+            agentes.registrar(&app, "wsl", None, texto.to_string());
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+    .await
+}
+
+/// Com `nucleos` vazio, tira o limite: dá ao container todas as CPUs da VM.
+#[tauri::command]
+async fn limitar_cpu_conteiner(
+    app: tauri::AppHandle,
+    agentes: Estado<'_>,
+    recursos: State<'_, Arc<Recursos>>,
+    id: String,
+    nome: String,
+    nucleos: Option<f32>,
+) -> Result<(), String> {
+    recursos.conferir_ids(std::slice::from_ref(&id))?;
+    let total = agentes.cpus_vm().ok_or("ainda não há leitura da VM para saber quantos núcleos ela tem")? as f32;
+    if nucleos.is_some_and(|n| n > total) {
+        return Err(format!("a VM tem {total} núcleos; o limite não pode passar disso"));
+    }
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        info!("pedido: limitar a CPU de {nome} a {nucleos:?} núcleo(s)");
+        let resultado = docker::limitar_cpu(&id, nucleos.unwrap_or(total));
+        recursos.pedir_atualizacao();
         resultado?;
-        agentes.registrar(&app, "wsl", None, "O app desligou o WSL".to_string());
+        let texto = match nucleos {
+            Some(n) => format!("O app limitou {nome} a {} núcleo(s) de CPU", recursos::gb_texto(n)),
+            None => format!("O app tirou o limite de CPU de {nome}"),
+        };
+        agentes.registrar(&app, "docker", Some("docker-desktop"), texto);
         Ok(())
     })
     .await
+}
+
+/// Depois de o WSL cair à força, o Docker Desktop que estava fechado não volta sozinho.
+#[tauri::command]
+fn abrir_docker_desktop() -> Result<(), String> {
+    let exe = docker::caminho_docker_desktop().ok_or("o Docker Desktop não foi encontrado nesta máquina")?;
+    info!("pedido: abrir o Docker Desktop ({})", exe.display());
+    std::process::Command::new(&exe).spawn().map(|_| ()).map_err(|e| format!("não foi possível abrir o Docker Desktop: {e}"))
 }
 
 #[derive(Serialize)]
@@ -208,15 +254,25 @@ fn definir_segundo_plano(recursos: State<'_, Arc<Recursos>>, fechar_para_bandeja
 /// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
 /// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
 /// ficam segurados até `soltar_depois`.
-fn desligar_sem_religar(agentes: &Agentes) -> Result<(), String> {
+/// False: o desligamento comum não voltou no prazo e o WSL está em queda. Erro de outro tipo
+/// segue como erro.
+fn desligar_sem_religar(agentes: &Agentes, forcar: bool) -> Result<bool, String> {
     agentes.segurar(true);
     agentes.parar_todos();
-    wsl::desligar()?;
+    if forcar {
+        wsl::desligar_a_forca()?;
+    } else {
+        match wsl::desligar() {
+            Ok(()) => {}
+            Err(_) if wsl::saude::tem_queda(None) => return Ok(false),
+            Err(e) => return Err(e),
+        }
+    }
     // Desligado, o WSL recomeça do zero: a queda registrada e a espera crescente entre
     // tentativas de subir agente ficaram para trás, e a próxima distro ligada é lida na hora.
     wsl::saude::esquecer();
     agentes.esquecer_falhas();
-    Ok(())
+    Ok(true)
 }
 
 /// Solta os agentes quando o supervisor já leu a lista de depois do desligamento.
@@ -234,6 +290,18 @@ fn enviar_sinal(estado: Estado<'_>, distro: String, pid: i32, sinal: i32, nome: 
     estado.enviar_sinal(&distro, pid, sinal, nome)
 }
 
+/// `baixa` põe o processo e os filhos dele em prioridade baixa (nice 10); falso devolve a
+/// normal (0).
+#[tauri::command]
+fn definir_prioridade(estado: Estado<'_>, distro: String, pid: i32, nome: String, baixa: bool) -> Result<(), String> {
+    let nice = if baixa { PRIORIDADE_BAIXA } else { 0 };
+    info!("pedido: prioridade {nice} para {nome} (PID {pid}) em {distro}");
+    estado.definir_prioridade(&distro, pid, nice, nome)
+}
+
+/// Nice 10: o processo cede a vez a quem tem prioridade normal, sem parar quando a CPU sobra.
+const PRIORIDADE_BAIXA: i32 = 10;
+
 #[tauri::command]
 fn definir_intervalo(estado: Estado<'_>, ms: u64) {
     estado.definir_intervalo(ms.max(250));
@@ -243,6 +311,7 @@ fn definir_intervalo(estado: Estado<'_>, ms: u64) {
 struct EstadoRecursos {
     memoria: recursos::MemoriaWindows,
     docker: recursos::Docker,
+    pressao: Option<pressao::AvisoPressao>,
     saude: Option<wsl::saude::Situacao>,
     devolucao: Option<cache::Devolucao>,
     devolver_cache_automatico: bool,
@@ -258,6 +327,7 @@ fn estado_recursos(recursos: State<'_, Arc<Recursos>>) -> EstadoRecursos {
     EstadoRecursos {
         memoria: recursos.memoria.lock().unwrap().clone(),
         docker: recursos.docker.lock().unwrap().clone(),
+        pressao: recursos.pressao.lock().unwrap().clone(),
         saude: wsl::saude::atual(),
         devolucao: recursos.devolucao.lock().unwrap().clone(),
         devolver_cache_automatico: prefs.devolver_cache_automatico,
@@ -481,7 +551,9 @@ async fn compactar_disco(app: tauri::AppHandle, agentes: Estado<'_>, caminho: St
                     Err(e) => warn!("fstrim em {}: {e}", disco.nome),
                 }
             }
-            desligar_sem_religar(&agentes)?;
+            if !desligar_sem_religar(&agentes, false)? {
+                return Err("o WSL não desligou e está travado; force o desligamento na aba Distros e compacte de novo".to_string());
+            }
             agentes.registrar(&app, "wsl", None, format!("O app desligou o WSL para compactar o disco de {}", disco.nome));
             let (antes, depois) = compactar::compactar(Path::new(&disco.caminho))?;
             agentes.registrar(
@@ -808,6 +880,9 @@ pub fn run() {
             ultima_analise,
             pasta_de_documentos,
             excluir_distro,
+            abrir_docker_desktop,
+            limitar_cpu_conteiner,
+            definir_prioridade,
             apagar_pastas,
             compactar_disco,
             limpar_docker,
