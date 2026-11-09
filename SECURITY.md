@@ -5,7 +5,7 @@
 Não abra issue pública. Use o relato privado do GitHub: aba **Security** do repositório,
 **Report a vulnerability**. Só quem mantém o projeto vê o relato até a correção sair.
 
-Ajuda incluir: a versão do app (aparece em Configurações > Este app e no começo do log), a
+Ajuda incluir: a versão do app (aparece em Preferências e no começo do log), a
 versão do WSL (`wsl --version`), os passos para reproduzir e o que um atacante consegue com a
 falha.
 

@@ -7,9 +7,16 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ### Adicionado
 
-- **Tema claro, escuro ou igual ao Windows**, em Configurações, seção Aparência. A escolha vai
+- **Tema claro, escuro ou igual ao Windows**, em Preferências, seção Aparência. A escolha vai
   para a janela inteira, com a barra de título e o fundo Mica, e fica em `preferencias.json`:
   a janela já abre no tema escolhido. O padrão continua sendo acompanhar o Windows.
+
+### Mudado
+
+- As preferências do app saíram de Configurações > Este app e ganharam uma entrada própria no
+  menu, **Preferências**, no fim da lista. A página de antes passou a se chamar Configurações do
+  WSL, só com o `.wslconfig` e o `wsl.conf` de cada distro. Na busca (Ctrl+K), "tema",
+  "atualizações" e "atalho" levam a Preferências.
 
 ## [0.14.0] - 2026-11-09
 
