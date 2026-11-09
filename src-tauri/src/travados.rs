@@ -147,6 +147,7 @@ mod testes {
                     rss: 0,
                     nice: 0,
                     disco_bps: 0,
+                    conteiner: None,
                 })
                 .collect(),
             portas: None,

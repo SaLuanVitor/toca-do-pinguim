@@ -10,6 +10,7 @@ mod config;
 mod configuracao;
 mod docker;
 mod historico;
+mod ocorrencias;
 mod pressao;
 mod recursos;
 mod registro;
@@ -294,6 +295,11 @@ fn desligar_sem_religar(agentes: &Agentes, forcar: bool) -> Result<Desligamento,
     }
     // Desligado, o WSL recomeça do zero: a queda registrada e a espera crescente entre
     // tentativas de subir agente ficaram para trás, e a próxima distro ligada é lida na hora.
+    ocorrencias::anotar_saida_da_trava(match (&feito, forcar) {
+        (Desligamento::ComServicoReiniciado, _) => "o app reiniciou o serviço do WSL e desligou o WSL",
+        (_, true) => "desligamento forçado pelo app",
+        _ => "o app desligou o WSL",
+    });
     wsl::saude::esquecer();
     agentes.esquecer_falhas();
     Ok(feito)
@@ -689,6 +695,8 @@ enum AcaoDocker {
     Parar,
     Ligar,
     Reiniciar,
+    Pausar,
+    Retomar,
 }
 
 async fn agir_em_conteineres(
@@ -706,6 +714,8 @@ async fn agir_em_conteineres(
             AcaoDocker::Parar => ("parar", "parou", docker::parar),
             AcaoDocker::Ligar => ("ligar", "ligou", docker::iniciar),
             AcaoDocker::Reiniciar => ("reiniciar", "reiniciou", docker::reiniciar),
+            AcaoDocker::Pausar => ("pausar", "pausou", docker::pausar),
+            AcaoDocker::Retomar => ("retomar", "retomou", docker::retomar),
         };
         info!("pedido: {verbo} {rotulo} ({} container(s))", ids.len());
         let resultado = executar(&ids);
@@ -748,6 +758,24 @@ async fn reiniciar_conteineres(
     rotulo: String,
 ) -> Result<(), String> {
     agir_em_conteineres(app, agentes, recursos, ids, rotulo, AcaoDocker::Reiniciar).await
+}
+
+/// Congela o container: ele para de usar CPU e disco na hora, sem perder o estado, até ser
+/// retomado. É o alívio que vale para o disco: a prioridade de disco por processo não tem efeito
+/// no WSL, cujo agendador de I/O é `none` (medido em 08/11/2026).
+#[tauri::command]
+async fn pausar_conteiner(app: tauri::AppHandle, agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, id: String, nome: String) -> Result<(), String> {
+    agir_em_conteineres(app, agentes, recursos, vec![id], format!("o container {nome}"), AcaoDocker::Pausar).await
+}
+
+#[tauri::command]
+async fn retomar_conteiner(app: tauri::AppHandle, agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>, id: String, nome: String) -> Result<(), String> {
+    agir_em_conteineres(app, agentes, recursos, vec![id], format!("o container {nome}"), AcaoDocker::Retomar).await
+}
+
+#[tauri::command]
+fn listar_ocorrencias() -> Vec<ocorrencias::Ocorrencia> {
+    ocorrencias::listar()
 }
 
 #[tauri::command]
@@ -844,6 +872,7 @@ pub fn run() {
             trazer_dados_antigos(&dados);
             let agentes = Agentes::novo(&dados);
             app.manage(Arc::clone(&agentes));
+            ocorrencias::iniciar(&dados);
             let recursos = Arc::new(Recursos::novo(&dados));
             app.manage(Arc::clone(&recursos));
             antecipar_espaco_docker(Arc::clone(&agentes), Arc::clone(&recursos));
@@ -896,6 +925,9 @@ pub fn run() {
             parar_conteineres,
             iniciar_conteineres,
             reiniciar_conteineres,
+            pausar_conteiner,
+            retomar_conteiner,
+            listar_ocorrencias,
             devolver_cache,
             definir_devolucao,
             ler_discos,

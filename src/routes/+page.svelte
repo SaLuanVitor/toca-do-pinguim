@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { api, conectar, dentroDoApp } from '#lib/api.js';
   import Atividade from '#lib/Atividade.svelte';
+  import Ocorrencias from '#lib/Ocorrencias.svelte';
   import AvisoAtualizacao from '#lib/AvisoAtualizacao.svelte';
   import AvisoRecursos from '#lib/AvisoRecursos.svelte';
   import Configuracoes from '#lib/Configuracoes.svelte';
@@ -22,6 +23,7 @@
     { id: 'desempenho', titulo: 'Desempenho' },
     { id: 'portas', titulo: 'Portas' },
     { id: 'atividade', titulo: 'Atividade' },
+    { id: 'ocorrencias', titulo: 'Ocorrências' },
     { id: 'distros', titulo: 'Distros' },
     { id: 'configuracoes', titulo: 'Configurações' },
     { id: 'log', titulo: 'Log' },
@@ -131,6 +133,8 @@
         <Portas />
       {:else if estado.pagina === 'atividade'}
         <Atividade />
+      {:else if estado.pagina === 'ocorrencias'}
+        <Ocorrencias />
       {:else if estado.pagina === 'configuracoes'}
         <Configuracoes />
       {:else if estado.pagina === 'log'}

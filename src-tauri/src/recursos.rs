@@ -28,6 +28,8 @@ const SEMANA_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 const A_CADA_LIMPEZA: Duration = Duration::from_secs(30 * 60);
 const A_CADA_MEMORIA: Duration = Duration::from_secs(5);
 const A_CADA_DOCKER: Duration = Duration::from_secs(15);
+/// Uma leitura de carga para o registro de ocorrências a cada 30 s.
+const A_CADA_CARGA: Duration = Duration::from_secs(30);
 const DISTRO_DOCKER: &str = "docker-desktop";
 
 /// Abaixo disto de memória disponível o Windows entra em pressão, e sai acima do segundo
@@ -393,6 +395,7 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
         // Leituras seguidas do Docker sem resposta e quando a primeira aconteceu.
         let mut sem_resposta: (u32, u64) = (0, 0);
         let mut vigia_pressao = crate::pressao::Vigia::default();
+        let mut ultima_carga: Option<Instant> = None;
         loop {
             if conferiu_limpeza.is_none_or(|t| t.elapsed() >= A_CADA_LIMPEZA) {
                 conferiu_limpeza = Some(Instant::now());
@@ -414,6 +417,18 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 *recursos.memoria.lock().unwrap() = m.clone();
                 let _ = app.emit("memoria_windows", &m);
                 vigiar_pressao(&app, &agentes, &recursos, &mut vigia_pressao);
+                if ultima_carga.is_none_or(|t| t.elapsed() >= A_CADA_CARGA)
+                    && let Some((p, cpu_vm)) = agentes.pressao()
+                {
+                    ultima_carga = Some(Instant::now());
+                    crate::ocorrencias::observar(crate::ocorrencias::Carga {
+                        quando_ms: agora_ms(),
+                        disco_full: p.disco_full.avg60,
+                        memoria_full: p.memoria_full.avg60,
+                        cpu_vm,
+                        pesados: agentes.pesados().into_iter().take(3).collect(),
+                    });
+                }
                 let (automatico, gatilho) = {
                     let p = recursos.preferencias.lock().unwrap();
                     (p.devolver_cache_automatico, p.gatilho.clone())
@@ -422,9 +437,13 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 let livre = if m.total_bytes > 0 { m.disponivel_bytes as f64 / m.total_bytes as f64 } else { 1.0 };
                 // Com o WSL ou o Docker sem responder, devolver o cache abre mais uma chamada que
                 // trava. Medido em 08/11/2026: a devolução automática esgotou o prazo 25 min
-                // antes de o WSL parar de vez.
+                // antes de o WSL parar de vez. A saúde só sabe da queda depois que uma chamada
+                // esgota o prazo; até lá, só uma amostra recente de agente prova que o WSL
+                // responde. Medido em 08/11/2026: com o app aberto no meio de uma trava, a
+                // devolução começou 10 s depois do início, 21 s antes de a queda ser notada.
                 if automatico
                     && sem_resposta.0 == 0
+                    && agentes.amostra_recente()
                     && !crate::wsl::saude::alguma_queda()
                     && !recursos.devolvendo.load(Ordering::Relaxed)
                     && cache::pode_devolver_sozinho(
@@ -458,6 +477,7 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 let mut estado = match docker::listar(&mut vigia) {
                     Ok(conteineres) => {
                         if sem_resposta.0 >= SEM_RESPOSTA_PARA_AVISAR {
+                            crate::ocorrencias::fechar("docker", "o Docker voltou a responder", agora_ms());
                             let minutos = agora_ms().saturating_sub(sem_resposta.1) / 60_000;
                             info!("o Docker voltou a responder depois de {minutos} min");
                             agentes.registrar(&app, "docker", Some(DISTRO_DOCKER), format!("O Docker voltou a responder depois de {minutos} min"));
@@ -488,6 +508,9 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
                 let _ = app.emit("docker", &estado);
             } else if !ligado && recursos.docker.lock().unwrap().ligado {
                 ultima_docker = None;
+                if sem_resposta.0 >= SEM_RESPOSTA_PARA_AVISAR {
+                    crate::ocorrencias::fechar("docker", "o Docker foi desligado", agora_ms());
+                }
                 sem_resposta = (0, 0);
                 problemas_antes.clear();
                 *recursos.docker.lock().unwrap() = Docker::default();
@@ -498,7 +521,7 @@ pub fn vigiar(app: AppHandle, agentes: Arc<Agentes>, recursos: Arc<Recursos>) {
     });
 }
 
-fn agora_ms() -> u64 {
+pub(crate) fn agora_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
@@ -562,6 +585,7 @@ fn avisar_devolucao_falhou(app: &AppHandle, agentes: &Agentes, recursos: &Recurs
     if falhas > 1 || !erro.contains("não respondeu") {
         return;
     }
+    crate::ocorrencias::pontual("devolucao", "Devolver o cache não terminou: a sessão na distro não respondeu em 30 s".to_string(), agora_ms());
     let texto = "Devolver o cache não terminou: a sessão aberta na distro não respondeu em 30 s. Isso pode ser o começo de uma trava do WSL; se o Docker ou o app ficarem lentos, alivie o disco e a CPU agora. A próxima devolução automática fica para daqui a 20 min.".to_string();
     warn!("{texto}");
     agentes.registrar(app, "wsl", None, texto.clone());
@@ -576,6 +600,7 @@ fn vigiar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, vigia
     let mudanca = vigia.avaliar(&p, cpu_vm, Instant::now(), agora_ms());
     if let Mudanca::Voltou = mudanca {
         info!("pressão da VM voltou ao normal");
+        crate::ocorrencias::fechar("sobrecarga", "a carga voltou ao normal", agora_ms());
         agentes.registrar(app, "memoria", None, "A carga da VM do WSL voltou ao normal".to_string());
         *recursos.pressao.lock().unwrap() = None;
         let _ = app.emit("pressao_vm", None::<AvisoPressao>);
@@ -604,6 +629,7 @@ fn vigiar_pressao(app: &AppHandle, agentes: &Agentes, recursos: &Recursos, vigia
             "{carga}. Se continuar, o Docker e o WSL podem travar: limite a CPU do container que mais pesa, baixe a prioridade de um processo ou pare o que não precisa agora.{quem}"
         );
         warn!("{texto}");
+        crate::ocorrencias::abrir("sobrecarga", carga.clone(), vigia.desde_ms);
         agentes.registrar(app, "memoria", None, texto.clone());
         notificar(app, "A VM do WSL está sobrecarregada", &texto);
     }
@@ -621,6 +647,7 @@ fn avisar_docker_sem_resposta(app: &AppHandle, agentes: &Agentes, desde_ms: u64)
         "O Docker não responde há {minutos} min. O WSL pode travar em seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá.{quem}"
     );
     warn!("{texto}");
+    crate::ocorrencias::abrir("docker", format!("O Docker parou de responder há {minutos} min"), desde_ms);
     agentes.registrar(app, "docker", Some(DISTRO_DOCKER), texto.clone());
     notificar(app, "O Docker não está respondendo", &texto);
 }

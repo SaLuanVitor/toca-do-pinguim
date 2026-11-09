@@ -23,6 +23,7 @@ import type {
   ResumoMemoria,
   SituacaoWsl,
   Suspeito,
+  Ocorrencia,
 } from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
@@ -49,6 +50,9 @@ export interface Api {
   pararConteineres(ids: string[], rotulo: string): Promise<void>;
   iniciarConteineres(ids: string[], rotulo: string): Promise<void>;
   reiniciarConteineres(ids: string[], rotulo: string): Promise<void>;
+  pausarConteiner(id: string, nome: string): Promise<void>;
+  retomarConteiner(id: string, nome: string): Promise<void>;
+  listarOcorrencias(): Promise<Ocorrencia[]>;
   devolverCache(): Promise<void>;
   definirDevolucao(automatico: boolean, minimoLivrePct: number, cacheMaximoGb: number | null): Promise<void>;
   lerDiscos(forcar: boolean): Promise<Discos>;
@@ -125,6 +129,9 @@ async function conectarTauri(): Promise<Api> {
     pararConteineres: (ids, rotulo) => invoke('parar_conteineres', { ids, rotulo }),
     iniciarConteineres: (ids, rotulo) => invoke('iniciar_conteineres', { ids, rotulo }),
     reiniciarConteineres: (ids, rotulo) => invoke('reiniciar_conteineres', { ids, rotulo }),
+    pausarConteiner: (id, nome) => invoke('pausar_conteiner', { id, nome }),
+    retomarConteiner: (id, nome) => invoke('retomar_conteiner', { id, nome }),
+    listarOcorrencias: () => invoke('listar_ocorrencias'),
     devolverCache: () => invoke('devolver_cache'),
     definirDevolucao: (automatico, minimoLivrePct, cacheMaximoGb) =>
       invoke('definir_devolucao', { automatico, minimoLivrePct, cacheMaximoGb }),

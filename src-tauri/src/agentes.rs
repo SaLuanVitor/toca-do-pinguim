@@ -205,6 +205,12 @@ impl Agentes {
         Some(self.cache_vm.load(Ordering::Relaxed)).filter(|&b| b > 0)
     }
 
+    /// Algum agente mandou amostra nos últimos 30 s: prova de que o WSL abre sessões, que
+    /// a saúde só desmente depois que uma chamada esgota o prazo.
+    pub fn amostra_recente(&self) -> bool {
+        self.processos.lock().unwrap().values().any(|(quando, _, _)| quando.elapsed() < AMOSTRA_VALE)
+    }
+
     /// A pressão da VM, se alguma amostra a trouxe nos últimos 30 s. Agente que parou de
     /// mandar dados não deixa uma leitura velha valendo.
     pub fn pressao(&self) -> Option<(Pressao, f32)> {
@@ -256,6 +262,14 @@ impl Agentes {
         } else {
             self.intervalo_ms.load(Ordering::Relaxed)
         }
+    }
+
+    /// Distros ligadas com agente rodando: nelas a amostra esconde uma trava de sessão nova.
+    fn com_agente(&self) -> Vec<String> {
+        let slots = self.slots.lock().unwrap();
+        let mut v: Vec<String> = self.ligadas().into_iter().filter(|d| matches!(slots.get(d), Some(Slot::Vivo { .. }))).collect();
+        v.sort();
+        v
     }
 
     fn repassar_intervalo(&self, ms: u64) {
@@ -379,7 +393,7 @@ impl Agentes {
                     // A amostra prova que a distro responde. Sem isso, uma queda de uma
                     // distro que o app quase não chama por `wsl.exe -d`, como a do Docker,
                     // ficava no aviso para sempre.
-                    wsl::saude::respondeu(Some(&distro));
+                    wsl::saude::amostra(Some(&distro));
                     self.historico.lock().unwrap().registrar(&amostra);
                     // A VM é uma só: qualquer distro serve para medir o cache dela.
                     let partes = amostra.mem_blocos + amostra.mem_arquivos + amostra.mem_tabelas;
@@ -560,7 +574,23 @@ fn lancar(
 
 /// Laço de fundo: acompanha quais distros existem e quais estão rodando, sobe agente
 /// nas que ligaram, registra quem ligou e desligou, e avisa o front quando a lista muda.
+/// Uma sessão nova a cada 2 min em cada distro com agente, até a trava sair. Fica numa linha
+/// de execução própria porque cada sonda pode levar 40 s.
+const SONDA_A_CADA: Duration = Duration::from_secs(120);
+
+fn sondar(agentes: Arc<Agentes>) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(SONDA_A_CADA);
+            for distro in agentes.com_agente() {
+                wsl::sondar_sessao(&distro);
+            }
+        }
+    });
+}
+
 pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
+    sondar(Arc::clone(&agentes));
     thread::spawn(move || {
         let mut ultima: Option<Vec<Distro>> = None;
         let mut travado = false;
@@ -617,10 +647,16 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                 travado = situacao.is_some();
                 let _ = app.emit("saude_wsl", &situacao);
             }
+            // A trava acaba quando nenhuma queda sobra, venha a volta por resposta, por desligamento
+            // ou por a distro ter parado.
+            if !mudancas.is_empty() && !wsl::saude::alguma_queda() {
+                crate::ocorrencias::fechar("trava", "o WSL voltou a responder sozinho", crate::recursos::agora_ms());
+            }
             for mudanca in mudancas {
                 let (alvo, texto) = match mudanca {
                     wsl::saude::Mudanca::Caiu { alvo, motivo } => {
                         let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();
+                        crate::ocorrencias::abrir("trava", format!("O WSL deixou de responder{onde}: {motivo}"), crate::recursos::agora_ms());
                         (alvo, format!("O WSL deixou de responder{onde}: {motivo}"))
                     }
                     wsl::saude::Mudanca::Voltou { alvo, segundos, falhas } => {

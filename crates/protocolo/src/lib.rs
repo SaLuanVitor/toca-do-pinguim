@@ -103,6 +103,9 @@ pub struct Processo {
     /// `/proc/<pid>/io`, que só o root lê para processos de outros usuários.
     #[serde(default)]
     pub disco_bps: u64,
+    /// Id completo do container Docker dono do processo, lido do cgroup (`0::/docker/<id>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conteiner: Option<String>,
 }
 
 /// Socket em escuta. A rede é uma só para todas as distros, então o mesmo socket aparece

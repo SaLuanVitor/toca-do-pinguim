@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { AnalisePastas, Armazenamento, Conteiner, Discos, Distro, EspacoDocker, Evento, Porta, Processo } from './tipos';
+import type { AnalisePastas, Armazenamento, Carga, Conteiner, Discos, Distro, EspacoDocker, Evento, Ocorrencia, Porta, Processo } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -68,11 +68,13 @@ export function criarDemonstracao(): Api {
   let travado = typeof location !== 'undefined' && new URLSearchParams(location.search).has('travado');
   if (travado) estado.saude = { alvo: null, motivo: 'wsl.exe não respondeu em 30 s', desde_ms: Date.now() - 12 * 60_000 };
   // `?pressao` abre com a VM sobrecarregada, antes de travar.
+  // O id do container simulado é a posição dele em CONTEINERES, em hexadecimal, completada com "a".
+  const idDemo = (nome: string) => (CONTEINERES.findIndex(([n]) => n === nome) + 1).toString(16).padStart(64, 'a');
   const pesadosDemo = [
-    { distro: 'docker-desktop', nome: 'postgres', quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0, disco_bps: 0 },
-    { distro: 'docker-desktop', nome: 'rsync', quantos: 1, cpu_nucleos: 0.2, rss: 0, esperando: 0, disco_bps: 38 * 1024 ** 2 },
-    { distro: 'docker-desktop', nome: 'php', quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6, disco_bps: 0 },
-    { distro: 'Ubuntu', nome: 'node', quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0, disco_bps: 0 },
+    { distro: 'docker-desktop', nome: 'postgres', conteiner: idDemo('loja-db'), pids: [212, 215], quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0, disco_bps: 0 },
+    { distro: 'docker-desktop', nome: 'rsync', conteiner: idDemo('loja-relatorios'), pids: [388], quantos: 1, cpu_nucleos: 0.2, rss: 0, esperando: 0, disco_bps: 38 * 1024 ** 2 },
+    { distro: 'docker-desktop', nome: 'php', conteiner: idDemo('bot-api-1'), pids: [401, 402, 403, 404, 405, 406], quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6, disco_bps: 0 },
+    { distro: 'Ubuntu', nome: 'node', conteiner: null, pids: [1290], quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0, disco_bps: 0 },
   ];
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('pressao')) {
     estado.pressao = { desde_ms: Date.now() - 3 * 60_000, disco_full: 18.4, memoria_full: 0.6, cpu_some: 64.2, cpu_vm: 71, pesados: pesadosDemo };
@@ -207,6 +209,52 @@ export function criarDemonstracao(): Api {
       sem_resposta_desde_ms: travado ? Date.now() - 25 * 60_000 : null,
       pesados: travado ? pesadosDemo : [],
     };
+  }
+
+  function ocorrenciasDemo(): Ocorrencia[] {
+    const agora = Date.now();
+    const antes = (fim: number, disco: (i: number) => number, cpu: (i: number) => number): Carga[] =>
+      Array.from({ length: 20 }, (_, i) => ({
+        quando_ms: fim - (20 - i) * 30_000,
+        disco_full: disco(i),
+        memoria_full: 0.2,
+        cpu_vm: cpu(i),
+        pesados: i > 12 ? pesadosDemo.slice(0, 2) : pesadosDemo.slice(0, 1),
+      }));
+    const trava = agora - 2 * 3600_000;
+    const sobrecarga = agora - 26 * 3600_000;
+    return [
+      {
+        tipo: 'devolucao',
+        titulo: 'Devolver o cache não terminou: a sessão na distro não respondeu em 30 s',
+        inicio_ms: trava - 4 * 60_000,
+        fim_ms: trava - 4 * 60_000,
+        saida: 'registrada',
+        pico_disco: 12.8,
+        pico_cpu: 66,
+        antes: antes(trava - 4 * 60_000, (i) => 2 + i * 0.55, (i) => 40 + i),
+      },
+      {
+        tipo: 'trava',
+        titulo: 'O WSL deixou de responder em Ubuntu: wsl.exe não respondeu em 30 s',
+        inicio_ms: trava,
+        fim_ms: trava + 277_000,
+        saida: 'o app reiniciou o serviço do WSL e desligou o WSL',
+        pico_disco: 17.1,
+        pico_cpu: 94,
+        antes: antes(trava, (i) => 3 + i * 0.7, (i) => 52 + i * 2),
+      },
+      {
+        tipo: 'sobrecarga',
+        titulo: 'A VM está esperando disco: 11,2% do tempo com tudo parado esperando (média de 60 s)',
+        inicio_ms: sobrecarga,
+        fim_ms: sobrecarga + 9 * 60_000,
+        saida: 'a carga voltou ao normal',
+        pico_disco: 13.5,
+        pico_cpu: 71,
+        antes: antes(sobrecarga, (i) => 1 + i * 0.5, () => 48),
+      },
+    ].toSorted((a, b) => b.inicio_ms - a.inicio_ms) as Ocorrencia[];
   }
 
   async function agirEm(ids: string[], ligar: boolean, rotulo: string) {
@@ -559,6 +607,24 @@ export function criarDemonstracao(): Api {
     },
     pararConteineres: (ids, rotulo) => agirEm(ids, false, rotulo),
     iniciarConteineres: (ids, rotulo) => agirEm(ids, true, rotulo),
+    pausarConteiner: async (id, nome) => {
+      await esperar(500);
+      const c = conteineres.find((x) => x.id === id);
+      if (!c) throw 'container inválido';
+      c.estado = 'paused';
+      c.cpu_nucleos = 0;
+      publicarRecursos();
+      registrar('docker', 'docker-desktop', `O app pausou o container ${nome} (1 container(s))`);
+    },
+    retomarConteiner: async (id, nome) => {
+      await esperar(500);
+      const c = conteineres.find((x) => x.id === id);
+      if (!c) throw 'container inválido';
+      c.estado = 'running';
+      publicarRecursos();
+      registrar('docker', 'docker-desktop', `O app retomou o container ${nome} (1 container(s))`);
+    },
+    listarOcorrencias: async () => ocorrenciasDemo(),
     reiniciarConteineres: async (ids, rotulo) => {
       await esperar(900);
       for (const c of conteineres.filter((c) => ids.includes(c.id))) {

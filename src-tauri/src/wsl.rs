@@ -29,6 +29,9 @@ const PRAZO_EXPORTAR: Duration = Duration::from_secs(2 * 60 * 60);
 const PRAZO_EXCLUIR: Duration = Duration::from_secs(120);
 /// Acima disto a chamada vai ao log como lenta, mesmo dando certo.
 const LENTA: Duration = Duration::from_secs(5);
+/// O próprio `wsl.exe` desiste de abrir a sessão em 30 s e sai com `Wsl/Service/0x8007274c`
+/// (medido em 08/11/2026); o prazo da sonda fica acima disso para ler o código.
+const PRAZO_SONDA: Duration = Duration::from_secs(40);
 
 pub fn wsl() -> Command {
     let mut c = Command::new("wsl.exe");
@@ -148,6 +151,57 @@ pub fn com_prazo(comando: &mut Command, prazo: Duration) -> Result<Output, Strin
     esperar(filho, prazo, &rotulo, alvo.as_deref())
 }
 
+/// Abre uma sessão nova na distro só para ver se ela abre. O agente já aberto não serve de
+/// prova: medido em 08/11/2026, ele seguiu mandando amostras enquanto toda sessão nova esgotava
+/// os 30 s, e o app mostrava o WSL normal. A queda que a sonda registra só sai com outra
+/// sessão nova que abra, nunca com amostra de agente.
+pub fn sondar_sessao(distro: &str) -> bool {
+    let alvo = Some(distro);
+    let filho = wsl()
+        .args(["-d", distro, "--exec", "true"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut filho = match filho {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("sonda de sessão em {distro}: {e}");
+            return false;
+        }
+    };
+    let inicio = Instant::now();
+    loop {
+        match filho.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if inicio.elapsed() < PRAZO_SONDA => thread::sleep(Duration::from_millis(100)),
+            Ok(None) => {
+                let _ = filho.kill();
+                let _ = filho.wait();
+                saude::falhou_sessao(alvo, format!("uma sessão nova não abriu em {} s", PRAZO_SONDA.as_secs()));
+                return false;
+            }
+            Err(e) => {
+                warn!("sonda de sessão em {distro}: {e}");
+                return false;
+            }
+        }
+    }
+    let Ok(saida) = filho.wait_with_output() else { return false };
+    let texto = format!("{} {}", decodificar(&saida.stdout), decodificar(&saida.stderr));
+    if let Some(codigo) = codigo_de_erro(&texto).filter(|c| falha_de_funcionamento(c)) {
+        let ms = inicio.elapsed().as_millis();
+        error!("sonda de sessão em {distro}: falhou em {ms} ms com {codigo}");
+        saude::falhou_sessao(alvo, format!("uma sessão nova não abriu: {codigo}"));
+        return false;
+    }
+    if inicio.elapsed() > LENTA {
+        warn!("sonda de sessão em {distro}: lenta, {} ms", inicio.elapsed().as_millis());
+    }
+    saude::respondeu(alvo);
+    true
+}
+
 fn rotulo(args: &[String]) -> String {
     let mut r = format!("wsl.exe {}", args.join(" "));
     if r.len() > 160 {
@@ -205,6 +259,8 @@ pub mod saude {
         desde_ms: u64,
         motivo: String,
         falhas: u32,
+        /// Uma sessão nova não abriu: a amostra do agente já aberto não desmente isso.
+        sessao: bool,
     }
 
     /// A queda mais antiga em curso, para a tela que abre no meio dela.
@@ -231,12 +287,32 @@ pub mod saude {
     }
 
     pub fn falhou(alvo: Option<&str>, motivo: String) {
+        registrar_falha(alvo, motivo, false);
+    }
+
+    /// Falha da sonda de sessão nova, que só uma sessão nova que abra desfaz.
+    pub fn falhou_sessao(alvo: Option<&str>, motivo: String) {
+        registrar_falha(alvo, motivo, true);
+    }
+
+    /// A amostra de um agente prova que a distro responde, menos para sessão nova: o agente
+    /// abriu a dele antes da trava.
+    pub fn amostra(alvo: Option<&str>) {
+        let chave = alvo.map(str::to_string);
+        if QUEDAS.lock().unwrap().as_ref().and_then(|q| q.get(&chave)).is_some_and(|q| q.sessao) {
+            return;
+        }
+        respondeu(alvo);
+    }
+
+    fn registrar_falha(alvo: Option<&str>, motivo: String, sessao: bool) {
         let mut quedas = QUEDAS.lock().unwrap();
         let quedas = quedas.get_or_insert_with(HashMap::new);
         let chave = alvo.map(str::to_string);
         if let Some(q) = quedas.get_mut(&chave) {
             q.falhas += 1;
             q.motivo = motivo;
+            q.sessao |= sessao;
             return;
         }
         warn!("WSL deixou de responder ({}): {motivo}", nome(alvo));
@@ -244,7 +320,7 @@ pub mod saude {
         let desde_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        quedas.insert(chave, Queda { desde: Instant::now(), desde_ms, motivo, falhas: 1 });
+        quedas.insert(chave, Queda { desde: Instant::now(), desde_ms, motivo, falhas: 1, sessao });
     }
 
     pub fn respondeu(alvo: Option<&str>) {
@@ -495,6 +571,28 @@ mod testes {
         assert_eq!(minhas.len(), 2);
         assert!(matches!(&minhas[0], saude::Mudanca::Caiu { motivo, .. } if motivo == "primeira"));
         assert!(matches!(&minhas[1], saude::Mudanca::Voltou { falhas: 2, .. }));
+    }
+
+    #[test]
+    fn amostra_de_agente_nao_desfaz_queda_de_sessao_nova() {
+        let _vez = SAUDE.lock().unwrap_or_else(|e| e.into_inner());
+        let alvo = Some("distro-da-sonda-de-sessao");
+        saude::falhou_sessao(alvo, "uma sessão nova não abriu em 40 s".into());
+        saude::amostra(alvo);
+        assert!(saude::tem_queda(alvo));
+        saude::respondeu(alvo);
+        assert!(!saude::tem_queda(alvo));
+        // Queda comum, de chamada que esgotou o prazo, sai com a amostra.
+        saude::falhou(alvo, "wsl.exe não respondeu em 30 s".into());
+        saude::amostra(alvo);
+        assert!(!saude::tem_queda(alvo));
+        // Sonda que falha depois de uma queda comum a torna de sessão.
+        saude::falhou(alvo, "wsl.exe não respondeu em 30 s".into());
+        saude::falhou_sessao(alvo, "uma sessão nova não abriu em 40 s".into());
+        saude::amostra(alvo);
+        assert!(saude::tem_queda(alvo));
+        saude::respondeu(alvo);
+        let _ = saude::mudancas();
     }
 
     #[test]

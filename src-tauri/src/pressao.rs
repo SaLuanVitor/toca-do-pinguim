@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use protocolo::{Pressao, Processo};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Limiar inicial, uma decisão e não uma medição: a trava de 08/11 aconteceu antes de o app ler
 /// a pressão. Fora dela, no mesmo dia, o disco teve "full" de 5% na média de 60 s. O log
@@ -27,11 +27,17 @@ const MIB: u64 = 1 << 20;
 /// Abaixo disto, ler e gravar no disco não pesa: entra na lista quem passa de 5 MB/s.
 const DISCO_PESADO: u64 = 5 * MIB;
 
-/// Processos de mesmo nome numa distro, somados.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+/// Processos de mesmo nome num container (ou fora dele) de uma distro, somados.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Pesado {
     pub distro: String,
     pub nome: String,
+    /// Id do container dono dos processos, quando são de um.
+    #[serde(default)]
+    pub conteiner: Option<String>,
+    /// Os processos somados, para baixar a prioridade deles; no máximo 20.
+    #[serde(default)]
+    pub pids: Vec<i32>,
     pub quantos: u32,
     /// Em núcleos: 1,0 é um núcleo inteiro.
     pub cpu_nucleos: f32,
@@ -56,12 +62,14 @@ pub struct AvisoPressao {
 /// Agrupa os processos por distro e nome e escolhe os que mais pesam: os que mais usam CPU
 /// (meio núcleo ou mais), os que esperam disco e o maior em memória, quando passa de 1 GB.
 pub fn escolher(distros: &[(String, u32, Vec<Processo>)]) -> Vec<Pesado> {
-    let mut grupos: HashMap<(String, String), Pesado> = HashMap::new();
+    let mut grupos: HashMap<(String, Option<String>, String), Pesado> = HashMap::new();
     for (distro, cpus, processos) in distros {
         for p in processos {
-            let g = grupos.entry((distro.clone(), p.nome.clone())).or_insert_with(|| Pesado {
+            let g = grupos.entry((distro.clone(), p.conteiner.clone(), p.nome.clone())).or_insert_with(|| Pesado {
                 distro: distro.clone(),
                 nome: p.nome.clone(),
+                conteiner: p.conteiner.clone(),
+                pids: Vec::new(),
                 quantos: 0,
                 cpu_nucleos: 0.0,
                 rss: 0,
@@ -69,6 +77,9 @@ pub fn escolher(distros: &[(String, u32, Vec<Processo>)]) -> Vec<Pesado> {
                 disco_bps: 0,
             });
             g.quantos += 1;
+            if g.pids.len() < 20 {
+                g.pids.push(p.pid);
+            }
             g.cpu_nucleos += p.cpu_pct * *cpus as f32 / 100.0;
             g.rss += p.rss;
             g.disco_bps += p.disco_bps;
@@ -86,7 +97,7 @@ pub fn escolher(distros: &[(String, u32, Vec<Processo>)]) -> Vec<Pesado> {
     no_disco.sort_by_key(|g| std::cmp::Reverse(g.disco_bps));
     let mais_memoria = todos.iter().filter(|g| g.rss >= GIB).max_by_key(|g| g.rss);
     for g in no_disco.into_iter().take(2).chain(esperando.into_iter().take(2)).chain(mais_memoria) {
-        if !escolhidos.iter().any(|e| e.distro == g.distro && e.nome == g.nome) {
+        if !escolhidos.iter().any(|e| e.distro == g.distro && e.conteiner == g.conteiner && e.nome == g.nome) {
             escolhidos.push(g.clone());
         }
     }
@@ -192,7 +203,7 @@ mod testes {
     use protocolo::Espera;
 
     fn processo(nome: &str, estado: char, cpu_pct: f32, rss: u64) -> Processo {
-        Processo { pid: 1, ppid: 0, usuario: "root".into(), estado, nome: nome.into(), cmdline: String::new(), cpu_pct, rss, nice: 0, disco_bps: 0 }
+        Processo { pid: 1, ppid: 0, usuario: "root".into(), estado, nome: nome.into(), cmdline: String::new(), cpu_pct, rss, nice: 0, disco_bps: 0, conteiner: None }
     }
 
     #[test]
