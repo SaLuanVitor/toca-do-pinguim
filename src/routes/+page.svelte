@@ -15,6 +15,7 @@
   import Icone from '#lib/Icone.svelte';
   import Paleta from '#lib/Paleta.svelte';
   import Portas from '#lib/Portas.svelte';
+  import PreferenciasApp from '#lib/PreferenciasApp.svelte';
   import Processos from '#lib/Processos.svelte';
   import type { Pagina } from '#lib/tipos.js';
 
@@ -25,8 +26,9 @@
     { id: 'atividade', titulo: 'Atividade' },
     { id: 'ocorrencias', titulo: 'Ocorrências' },
     { id: 'distros', titulo: 'Distros' },
-    { id: 'configuracoes', titulo: 'Configurações' },
+    { id: 'configuracoes', titulo: 'Configurações do WSL' },
     { id: 'log', titulo: 'Log' },
+    { id: 'preferencias', titulo: 'Preferências' },
   ];
 
   const VELOCIDADES = [
@@ -137,6 +139,8 @@
         <Ocorrencias />
       {:else if estado.pagina === 'configuracoes'}
         <Configuracoes />
+      {:else if estado.pagina === 'preferencias'}
+        <PreferenciasApp />
       {:else if estado.pagina === 'log'}
         <Log />
       {:else}

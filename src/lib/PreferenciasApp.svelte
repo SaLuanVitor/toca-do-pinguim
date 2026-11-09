@@ -138,6 +138,10 @@
   });
 </script>
 
+<header class="barra">
+  <h1>Preferências</h1>
+</header>
+
 <div class="rolagem">
   <section aria-labelledby="sobre-titulo">
     <h2 id="sobre-titulo">Sobre</h2>

@@ -310,7 +310,16 @@ export interface Pedido {
 
 export type AbaDesempenho = 'processamento' | 'memoria' | 'disco';
 
-export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'ocorrencias' | 'distros' | 'configuracoes' | 'log';
+export type Pagina =
+  | 'processos'
+  | 'desempenho'
+  | 'portas'
+  | 'atividade'
+  | 'ocorrencias'
+  | 'distros'
+  | 'configuracoes'
+  | 'preferencias'
+  | 'log';
 
 export type TipoOcorrencia = 'trava' | 'sobrecarga' | 'docker' | 'devolucao';
 

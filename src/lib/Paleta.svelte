@@ -20,8 +20,9 @@
     ['desempenho', 'Desempenho', ''],
     ['portas', 'Portas', ''],
     ['atividade', 'Atividade', ''],
-    ['configuracoes', 'Configurações', ''],
+    ['configuracoes', 'Configurações do WSL', 'wslconfig wsl.conf'],
     ['log', 'Log', ''],
+    ['preferencias', 'Preferências', 'tema claro escuro aparência atualizações atalho bandeja versão'],
     ['distros', 'Distros', ''],
   ];
   const ABAS: [AbaDesempenho, string, string][] = [
