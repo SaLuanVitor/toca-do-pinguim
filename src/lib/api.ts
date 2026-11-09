@@ -5,6 +5,7 @@ import type {
   EspacoDocker,
   Compactacao,
   SegundoPlano,
+  Tema,
   AtalhoTeclado,
   AvisoPressao,
   Atualizacao,
@@ -76,6 +77,8 @@ export interface Api {
   definirAtalhoTeclado(tecla: string): Promise<void>;
   lerSegundoPlano(): Promise<SegundoPlano>;
   definirSegundoPlano(fecharParaBandeja: boolean, iniciarComWindows: boolean): Promise<void>;
+  lerTema(): Promise<Tema>;
+  definirTema(tema: Tema): Promise<void>;
   gravarWslconf(distro: string, mudancas: MudancaWslconfig[], reiniciar: boolean): Promise<void>;
   abrirPastaDeLogs(): Promise<void>;
   limitesDaMaquina(): Promise<Limites>;
@@ -157,6 +160,8 @@ async function conectarTauri(): Promise<Api> {
     lerSegundoPlano: () => invoke('ler_segundo_plano'),
     definirSegundoPlano: (fecharParaBandeja, iniciarComWindows) =>
       invoke('definir_segundo_plano', { fecharParaBandeja, iniciarComWindows }),
+    lerTema: () => invoke('ler_tema'),
+    definirTema: (tema) => invoke('definir_tema', { tema }),
     gravarWslconf: (distro, mudancas, reiniciar) => invoke('gravar_wslconf', { distro, mudancas, reiniciar }),
     abrirPastaDeLogs: () => invoke('abrir_pasta_de_logs'),
     limitesDaMaquina: () => invoke('limites_da_maquina'),

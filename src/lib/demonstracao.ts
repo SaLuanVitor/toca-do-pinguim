@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { AnalisePastas, Armazenamento, Carga, Conteiner, Discos, Distro, EspacoDocker, Evento, Ocorrencia, Porta, Processo } from './tipos';
+import type { AnalisePastas, Armazenamento, Carga, Conteiner, Discos, Distro, EspacoDocker, Evento, Ocorrencia, Porta, Processo, Tema } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -403,6 +403,8 @@ export function criarDemonstracao(): Api {
   let limiteGb = 12;
   let teclaAtalho = '';
   let segundoPlano = { fechar_para_bandeja: true, iniciar_com_windows: false };
+  // No navegador não há janela do Tauri para trocar o tema: a escolha só fica guardada.
+  let tema: Tema = 'sistema';
   const wslconfig: [string, string, string][] = [
     ['wsl2', 'memory', '12GB'],
     ['wsl2', 'networkingMode', 'mirrored'],
@@ -696,6 +698,10 @@ export function criarDemonstracao(): Api {
     lerSegundoPlano: async () => ({ ...segundoPlano }),
     definirSegundoPlano: async (fecharParaBandeja, iniciarComWindows) => {
       segundoPlano = { fechar_para_bandeja: fecharParaBandeja, iniciar_com_windows: iniciarComWindows };
+    },
+    lerTema: async () => tema,
+    definirTema: async (novo) => {
+      tema = novo;
     },
     definirAtalhoTeclado: async (tecla) => {
       await esperar(300);

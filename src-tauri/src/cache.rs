@@ -61,10 +61,29 @@ pub struct Preferencias {
     /// A notificação que explica onde o app ficou sai uma vez só.
     #[serde(default)]
     pub avisou_bandeja: bool,
+    #[serde(default, deserialize_with = "tema_ou_padrao")]
+    pub tema: Tema,
 }
 
 fn sim() -> bool {
     true
+}
+
+/// Tema da janela. `Sistema` acompanha o claro ou escuro do Windows.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Tema {
+    #[default]
+    Sistema,
+    Claro,
+    Escuro,
+}
+
+/// Um tema que esta versão não conhece volta ao do sistema, em vez de levar junto as outras
+/// preferências do arquivo, que um erro de leitura trocaria todas pelo padrão.
+fn tema_ou_padrao<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Tema, D::Error> {
+    let valor = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(valor).unwrap_or_default())
 }
 
 impl Default for Preferencias {
@@ -75,6 +94,7 @@ impl Default for Preferencias {
             limpeza: LimpezaProgramada::default(),
             fechar_para_bandeja: true,
             avisou_bandeja: false,
+            tema: Tema::Sistema,
         }
     }
 }
@@ -302,6 +322,26 @@ mod testes {
         assert!(antiga.devolver_cache_automatico);
         assert_eq!(antiga.gatilho, Gatilho::default());
         assert_eq!(antiga.gatilho.minimo_livre_pct, 10);
+        assert_eq!(antiga.tema, Tema::Sistema);
+    }
+
+    #[test]
+    fn tema_grava_em_minusculas_e_le_de_volta() {
+        let escuro = Preferencias { tema: Tema::Escuro, ..Default::default() };
+        let texto = serde_json::to_string(&escuro).unwrap();
+        assert!(texto.contains(r#""tema":"escuro""#), "{texto}");
+        assert_eq!(serde_json::from_str::<Preferencias>(&texto).unwrap(), escuro);
+    }
+
+    #[test]
+    fn tema_desconhecido_volta_ao_sistema_sem_perder_o_resto() {
+        for tema in [r#""azul""#, "3", "null", r#"{"x":1}"#] {
+            let texto = format!(r#"{{ "devolver_cache_automatico": true, "tema": {tema}, "fechar_para_bandeja": false }}"#);
+            let lida: Preferencias = serde_json::from_str(&texto).unwrap();
+            assert_eq!(lida.tema, Tema::Sistema, "{tema}");
+            assert!(lida.devolver_cache_automatico, "{tema}");
+            assert!(!lida.fechar_para_bandeja, "{tema}");
+        }
     }
 
     #[test]

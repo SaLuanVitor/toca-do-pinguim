@@ -257,6 +257,33 @@ fn definir_segundo_plano(recursos: State<'_, Arc<Recursos>>, fechar_para_bandeja
     Ok(())
 }
 
+#[tauri::command]
+fn ler_tema(recursos: State<'_, Arc<Recursos>>) -> cache::Tema {
+    recursos.preferencias.lock().unwrap().tema
+}
+
+#[tauri::command]
+fn definir_tema(app: tauri::AppHandle, recursos: State<'_, Arc<Recursos>>, tema: cache::Tema) -> Result<(), String> {
+    recursos.definir_tema(tema)?;
+    aplicar_tema(&app, tema);
+    info!("tema: {tema:?}");
+    Ok(())
+}
+
+/// O tema vai à janela, não ao CSS: a barra de título e o Mica seguem a janela, e o WebView2
+/// repassa o tema dela à página como `prefers-color-scheme`, que é o que o CSS lê.
+fn aplicar_tema(app: &tauri::AppHandle, tema: cache::Tema) {
+    let Some(janela) = app.get_webview_window("main") else { return };
+    let escolha = match tema {
+        cache::Tema::Sistema => None,
+        cache::Tema::Claro => Some(tauri::Theme::Light),
+        cache::Tema::Escuro => Some(tauri::Theme::Dark),
+    };
+    if let Err(e) = janela.set_theme(escolha) {
+        warn!("não foi possível aplicar o tema {tema:?}: {e}");
+    }
+}
+
 /// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
 /// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
 /// ficam segurados até `soltar_depois`.
@@ -875,6 +902,8 @@ pub fn run() {
             ocorrencias::iniciar(&dados);
             let recursos = Arc::new(Recursos::novo(&dados));
             app.manage(Arc::clone(&recursos));
+            // Antes de a janela aparecer, para ela não abrir no tema do Windows e trocar.
+            aplicar_tema(app.handle(), recursos.preferencias.lock().unwrap().tema);
             antecipar_espaco_docker(Arc::clone(&agentes), Arc::clone(&recursos));
             recursos::vigiar(app.handle().clone(), Arc::clone(&agentes), recursos);
             agentes::supervisionar(app.handle().clone(), agentes);
@@ -959,6 +988,8 @@ pub fn run() {
             atalho::definir_atalho_teclado,
             ler_segundo_plano,
             definir_segundo_plano,
+            ler_tema,
+            definir_tema,
         ])
         .build(tauri::generate_context!())
         .expect("falha ao montar o app")

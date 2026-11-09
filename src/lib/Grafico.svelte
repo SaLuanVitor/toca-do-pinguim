@@ -16,7 +16,18 @@
     return getComputedStyle(canvas).getPropertyValue(nome).trim() || '#888';
   }
 
+  // As cores saem do CSS só ao desenhar: com a leitura parada, trocar o tema deixaria o
+  // gráfico nas cores do anterior até a próxima amostra.
+  let esquema = $state(0);
   $effect(() => {
+    const consulta = window.matchMedia('(prefers-color-scheme: dark)');
+    const trocou = () => esquema++;
+    consulta.addEventListener('change', trocou);
+    return () => consulta.removeEventListener('change', trocou);
+  });
+
+  $effect(() => {
+    void esquema;
     const dpr = window.devicePixelRatio || 1;
     const w = largura;
     const h = altura;
