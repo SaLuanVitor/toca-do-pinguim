@@ -173,7 +173,7 @@ pub fn listar(vigia: &mut Vigia) -> Result<Vec<Conteiner>, String> {
     let formato = format!("{{{{.ID}}}}\t{{{{.Names}}}}\t{{{{.State}}}}\t{{{{.Label \"{ROTULO_PROJETO}\"}}}}");
     let mut lista: Vec<Conteiner> = ler_ps(&executar(&["ps", "-a", "--no-trunc", "--format", &formato], PRAZO_CONSULTA)?)
         .into_iter()
-        .filter(|c| c.projeto.is_some() || ativo(&c.estado))
+        .filter(|c| c.projeto.is_some() || ativo(&c.estado) || c.estado == "paused")
         .collect();
 
     let ativos: Vec<&str> = lista.iter().filter(|c| ativo(&c.estado)).map(|c| c.id.as_str()).collect();
@@ -221,6 +221,14 @@ pub fn iniciar(ids: &[String]) -> Result<(), String> {
 
 pub fn reiniciar(ids: &[String]) -> Result<(), String> {
     agir("restart", ids)
+}
+
+pub fn pausar(ids: &[String]) -> Result<(), String> {
+    agir("pause", ids)
+}
+
+pub fn retomar(ids: &[String]) -> Result<(), String> {
+    agir("unpause", ids)
 }
 
 /// Os ids vêm do front; conferir o formato impede que algo como `--help` vire opção.

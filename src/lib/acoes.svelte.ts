@@ -4,7 +4,7 @@
 import { api } from './api';
 import { estado } from './estado.svelte';
 import { ativo, comProblema, type Projeto } from './projetos';
-import type { Distro } from './tipos';
+import type { Conteiner, Distro, Pesado } from './tipos';
 
 export const ocupadas = $state<Record<string, string>>({});
 
@@ -82,6 +82,47 @@ export function desligarWsl() {
       if (!desligou) pedirForca('O WSL não desligou. Forçar?', 'O desligamento comum não voltou em 60 s: o WSL está travado.');
     },
   };
+}
+
+/** Chave de `ocupadas` de um grupo que pesa, para o botão dele mostrar o andamento. */
+export function chaveDeAlivio(p: Pesado): string {
+  return `alivio:${p.distro}/${p.conteiner ?? ''}/${p.nome}`;
+}
+
+/** Como `executar`, com o erro dito pelo nome do grupo e sem reler as distros. */
+async function aliviar(p: Pesado, rotulo: string, acao: () => Promise<void>) {
+  const chave = chaveDeAlivio(p);
+  ocupadas[chave] = rotulo;
+  try {
+    await acao();
+  } catch (e) {
+    estado.avisar(`${p.nome}: ${e}`);
+  } finally {
+    delete ocupadas[chave];
+  }
+}
+
+/** Baixa a prioridade de todos os processos de um grupo que pesa, cada um com os filhos. */
+export function baixarPrioridadeDe(p: Pesado) {
+  return aliviar(p, 'Baixando', async () => {
+    for (const pid of p.pids) await api.definirPrioridade(p.distro, pid, p.nome, true);
+  });
+}
+
+/** Congela o container dono de um grupo que pesa, depois de confirmar. */
+export function pausarConteinerDe(p: Pesado, nome: string) {
+  if (!p.conteiner) return;
+  const id = p.conteiner;
+  estado.pedido = {
+    titulo: `Pausar ${nome}?`,
+    texto: `Os processos de ${nome} ficam congelados: param de usar CPU e disco na hora, sem perder o que está na memória. Quem depende dele (uma API, uma página) fica esperando até você retomar, pela tabela de projetos do Docker em Desempenho.`,
+    acao: 'Pausar',
+    executar: () => aliviar(p, 'Pausando', () => api.pausarConteiner(id, nome)),
+  };
+}
+
+export function retomarConteiner(c: Conteiner, chave: string) {
+  executar(`docker:${chave}`, 'Retomando', () => api.retomarConteiner(c.id, c.nome));
 }
 
 /** Baixa (nice 10) ou devolve a prioridade normal ao processo, às threads e aos filhos dele. */

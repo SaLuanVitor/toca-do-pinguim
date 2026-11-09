@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ligarProjeto, ocupadas, pararProjeto, reiniciarComProblema } from './acoes.svelte';
+  import { ligarProjeto, ocupadas, pararProjeto, reiniciarComProblema, retomarConteiner } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import { bytes } from './formato';
   import { agrupar, comProblema, pertoDoLimite, semResposta } from './projetos';
@@ -40,6 +40,7 @@
           {@const ocupado = ocupadas[`docker:${p.chave}`]}
           {@const semResp = p.conteineres.filter(semResposta)}
           {@const perto = p.conteineres.filter(pertoDoLimite)}
+          {@const pausados = p.conteineres.filter((c) => c.estado === 'paused')}
           <tr class:parado={p.rodando === 0}>
             <th scope="row">
               {p.nome}
@@ -58,7 +59,12 @@
                   {perto.map((c) => `${c.nome} usa ${bytes(c.memoria_bytes)} de ${bytes(c.limite_bytes)}`).join(', ')}
                 </span>
               {/if}
-              {#if semResp.length || perto.length}{:else if p.emCiclo.length}
+              {#if pausados.length}
+                <span class="ciclo">
+                  {pausados.map((c) => c.nome).join(', ')} {pausados.length === 1 ? 'está pausado' : 'estão pausados'}
+                </span>
+              {/if}
+              {#if semResp.length || perto.length || pausados.length}{:else if p.emCiclo.length}
                 <span class="ciclo">
                   {#each p.emCiclo as c, i (c.id)}{i ? ', ' : ''}{c.nome}{/each}
                   {p.emCiclo.length === 1 ? 'reinicia' : 'reiniciam'} sem parar ({p.emCiclo
@@ -77,9 +83,14 @@
               {#if p.conteineres.some(comProblema)}
                 <button class="botao" disabled={!!ocupado} onclick={() => reiniciarComProblema(p)}>Reiniciar</button>
               {/if}
+              {#each pausados as c (c.id)}
+                <button class="botao" disabled={!!ocupado} onclick={() => retomarConteiner(c, p.chave)}>
+                  {ocupado ?? (pausados.length === 1 ? 'Retomar' : `Retomar ${c.nome}`)}
+                </button>
+              {/each}
               {#if p.rodando > 0}
                 <button class="botao" disabled={!!ocupado} onclick={() => pararProjeto(p)}>{ocupado ?? 'Parar'}</button>
-              {:else}
+              {:else if !pausados.length}
                 <button class="botao" disabled={!!ocupado} onclick={() => ligarProjeto(p)}>{ocupado ?? 'Ligar'}</button>
               {/if}
             </td>

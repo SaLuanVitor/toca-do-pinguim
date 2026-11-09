@@ -60,8 +60,9 @@ struct Coletor {
     /// Bytes de disco de cada processo na amostra anterior, para a taxa.
     anterior_io: HashMap<(i32, u64), u64>,
     /// A linha de comando só muda num `exec`, que troca o nome do processo; com o nome na
-    /// chave, cada processo tem o `cmdline` lido uma vez só.
-    cmdlines: HashMap<(i32, u64, String), String>,
+    /// chave, cada processo tem o `cmdline` lido uma vez só. O container vai junto: o processo
+    /// nasce no cgroup dele e não sai.
+    cmdlines: HashMap<(i32, u64, String), (String, Option<String>)>,
     anterior_self: Option<u64>,
     kmsg: Option<kernel::Kmsg>,
     seq: u64,
@@ -125,11 +126,11 @@ impl Coletor {
                 }
                 atual_proc.insert(chave, b.ticks);
                 let chave_cmd = (b.pid, b.inicio, b.nome.clone());
-                let cmdline = self
+                let (cmdline, conteiner) = self
                     .cmdlines
                     .remove(&chave_cmd)
-                    .unwrap_or_else(|| ler_cmdline(b.pid));
-                cmdlines.insert(chave_cmd, cmdline.clone());
+                    .unwrap_or_else(|| (ler_cmdline(b.pid), ler_conteiner(b.pid)));
+                cmdlines.insert(chave_cmd, (cmdline.clone(), conteiner.clone()));
                 Processo {
                     pid: b.pid,
                     ppid: b.ppid,
@@ -141,6 +142,7 @@ impl Coletor {
                     rss: b.rss_paginas * self.pagina,
                     nice: b.nice,
                     disco_bps,
+                    conteiner,
                 }
             })
             .collect();
@@ -348,6 +350,18 @@ fn ler_processo(pid: i32) -> Option<Bruto> {
     })
 }
 
+fn ler_conteiner(pid: i32) -> Option<String> {
+    conteiner_do_cgroup(&fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()?)
+}
+
+/// "0::/docker/f21aee4f…" vira o id do container; fora de container, `None`.
+fn conteiner_do_cgroup(texto: &str) -> Option<String> {
+    texto.lines().find_map(|l| {
+        let id = l.split("/docker/").nth(1)?.split('/').next()?;
+        (id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit())).then(|| id.to_string())
+    })
+}
+
 fn ler_cmdline(pid: i32) -> String {
     let bytes = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
     let mut s = String::from_utf8_lossy(&bytes).replace('\0', " ");
@@ -520,6 +534,7 @@ mod testes {
             rss: 0,
             nice: 0,
             disco_bps: 0,
+            conteiner: None,
         }
     }
 
@@ -566,6 +581,14 @@ mod testes {
             p.push(processo(219, 218, "sleep"));
         }
         p
+    }
+
+    #[test]
+    fn acha_o_container_no_cgroup() {
+        let id = "f21aee4f548c207fd816a9378a9aeff093acfc9c2f9b6c1d9d659c8150ba0dcf";
+        assert_eq!(conteiner_do_cgroup(&format!("0::/docker/{id}\n")).as_deref(), Some(id));
+        assert_eq!(conteiner_do_cgroup("0::/\n"), None);
+        assert_eq!(conteiner_do_cgroup("0::/docker/curto\n"), None);
     }
 
     #[test]

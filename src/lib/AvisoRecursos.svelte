@@ -3,7 +3,7 @@
   // entrada Desempenho no menu ganha um sinal enquanto ele estiver ativo. Um aviso por vez, do
   // mais grave ao mais cedo: WSL travado, Docker derrubado, Docker sem resposta, VM sob pressão.
   import { api } from './api';
-  import { desligarWsl, ocupadas } from './acoes.svelte';
+  import { baixarPrioridadeDe, chaveDeAlivio, desligarWsl, ocupadas, pausarConteinerDe } from './acoes.svelte';
   import { estado } from './estado.svelte';
   import type { Pesado } from './tipos';
 
@@ -27,6 +27,14 @@
     return `${p.quantos > 1 ? `${p.quantos} ` : ''}${p.nome} em ${p.distro}: ${partes.join(', ')}`;
   }
 
+  /** Nome do container dono do grupo, pela lista do Docker; vazio se ele não aparece lá. */
+  function nomeDoConteiner(p: Pesado): string {
+    return estado.docker.conteineres.find((c) => c.id === p.conteiner)?.nome ?? '';
+  }
+
+  /** CPU acima de meio núcleo justifica baixar a prioridade; disco e espera, não: o WSL não tem prioridade de disco. */
+  const pesaNaCpu = (p: Pesado) => p.cpu_nucleos >= 0.5 && p.pids.length > 0;
+
   async function abrirDocker() {
     abrindo = true;
     try {
@@ -39,10 +47,26 @@
   }
 </script>
 
-{#snippet pesados(lista: Pesado[])}
+{#snippet pesados(lista: Pesado[], aliviar: boolean)}
   {#if lista.length}
     <ul class="pesados" aria-label="Quem mais pesa">
-      {#each lista as p (`${p.distro}/${p.nome}`)}<li>{descrever(p)}</li>{/each}
+      {#each lista as p (`${p.distro}/${p.conteiner ?? ''}/${p.nome}`)}
+        {@const ocupado = ocupadas[chaveDeAlivio(p)]}
+        {@const conteiner = nomeDoConteiner(p)}
+        <li>
+          <span>{descrever(p)}{conteiner ? `, no container ${conteiner}` : ''}</span>
+          {#if aliviar && pesaNaCpu(p)}
+            <button class="botao pequeno" disabled={!!ocupado} onclick={() => baixarPrioridadeDe(p)}>
+              {ocupado === 'Baixando' ? 'Baixando' : 'Baixar prioridade'}
+            </button>
+          {/if}
+          {#if aliviar && conteiner}
+            <button class="botao pequeno" disabled={!!ocupado} onclick={() => pausarConteinerDe(p, conteiner)}>
+              {ocupado === 'Pausando' ? 'Pausando' : 'Pausar o container'}
+            </button>
+          {/if}
+        </li>
+      {/each}
     </ul>
   {/if}
 {/snippet}
@@ -72,7 +96,7 @@
       <strong>O Docker não responde</strong> desde {hora.format(estado.docker.sem_resposta_desde_ms)}. O WSL pode travar em
       seguida: pare os projetos mais pesados ou feche o Docker Desktop enquanto ainda dá. Se o WSL travar, o app oferece o
       desligamento forçado.
-      {@render pesados(estado.docker.pesados)}
+      {@render pesados(estado.docker.pesados, false)}
     </span>
     <button class="botao" onclick={() => (estado.pagina = 'processos')}>Ver processos</button>
   </div>
@@ -88,7 +112,7 @@
       {/if}
       Se continuar, o Docker e o WSL podem travar: limite a CPU do container que mais pesa, em Desempenho &gt; Processamento,
       baixe a prioridade de um processo ou pare o que não precisa agora.
-      {@render pesados(estado.pressao.pesados)}
+      {@render pesados(estado.pressao.pesados, true)}
     </span>
     <button class="botao" onclick={() => (estado.pagina = 'processos')}>Ver processos</button>
   </div>
@@ -122,5 +146,19 @@
   .pesados {
     margin: 6px 0 0;
     padding-left: 18px;
+  }
+
+  .pesados li {
+    margin-top: 4px;
+  }
+
+  .pesados li span {
+    margin-right: 8px;
+  }
+
+  .botao.pequeno {
+    height: 24px;
+    margin-right: 4px;
+    font-size: 12px;
   }
 </style>
