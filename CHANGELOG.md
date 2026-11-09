@@ -5,6 +5,31 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Página Ocorrências.** Cada trava do WSL, sobrecarga da VM, Docker sem resposta e devolução de
+  cache que falhou vira um registro com a carga dos 10 min antes (espera por disco, espera por
+  memória e CPU da VM, lidas a cada 30 s), quem mais pesava nesse tempo, os picos enquanto durou e
+  como terminou: voltou sozinha, desligamento forçado pelo app ou serviço do WSL reiniciado. O
+  topo da página conta em quantas travas a espera por disco passou de 5% antes, e "Copiar" põe o
+  registro em Markdown na área de transferência. Ficam as 200 mais recentes, em
+  `ocorrencias.json` na pasta de dados do app.
+- **Alívio com um clique no aviso de VM sobrecarregada.** Cada item da lista de quem pesa diz o
+  container dono dos processos e oferece "Baixar prioridade", quando o peso é de CPU, e "Pausar o
+  container", quando eles são de um container. Pausar congela o container (`docker pause`): ele
+  para de usar CPU e disco na hora, sem perder o que está na memória. É o alívio que vale para o
+  disco, porque o agendador de disco do WSL é `none` e a prioridade de disco por processo não tem
+  efeito (medido em 08/11). Nada muda sem o clique, e pausar pede confirmação.
+- Container pausado aparece na tabela de projetos do Docker como "está pausado", com o botão
+  "Retomar". Antes, um container avulso pausado sumia da lista.
+
+### Corrigido
+
+- Com o app aberto no meio de uma trava, a devolução automática do cache começava antes de o app
+  saber da trava, e deixava mais um `wsl.exe` preso por 50 s. Medido em 08/11: ela começou 10 s
+  depois de o app abrir, e a queda só foi notada 21 s depois. Agora a devolução automática só
+  roda com amostra de agente dos últimos 30 s, que prova que o WSL abre sessões.
+
 ## [0.13.1] - 2026-11-08
 
 ### Corrigido

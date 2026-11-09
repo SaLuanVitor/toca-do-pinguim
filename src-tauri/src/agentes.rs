@@ -205,6 +205,12 @@ impl Agentes {
         Some(self.cache_vm.load(Ordering::Relaxed)).filter(|&b| b > 0)
     }
 
+    /// Algum agente mandou amostra nos últimos 30 s: prova de que o WSL abre sessões, que
+    /// a saúde só desmente depois que uma chamada esgota o prazo.
+    pub fn amostra_recente(&self) -> bool {
+        self.processos.lock().unwrap().values().any(|(quando, _, _)| quando.elapsed() < AMOSTRA_VALE)
+    }
+
     /// A pressão da VM, se alguma amostra a trouxe nos últimos 30 s. Agente que parou de
     /// mandar dados não deixa uma leitura velha valendo.
     pub fn pressao(&self) -> Option<(Pressao, f32)> {
@@ -617,10 +623,16 @@ pub fn supervisionar(app: AppHandle, agentes: Arc<Agentes>) {
                 travado = situacao.is_some();
                 let _ = app.emit("saude_wsl", &situacao);
             }
+            // A trava acaba quando nenhuma queda sobra, venha a volta por resposta, por desligamento
+            // ou por a distro ter parado.
+            if !mudancas.is_empty() && !wsl::saude::alguma_queda() {
+                crate::ocorrencias::fechar("trava", "o WSL voltou a responder sozinho", crate::recursos::agora_ms());
+            }
             for mudanca in mudancas {
                 let (alvo, texto) = match mudanca {
                     wsl::saude::Mudanca::Caiu { alvo, motivo } => {
                         let onde = alvo.as_deref().map(|d| format!(" em {d}")).unwrap_or_default();
+                        crate::ocorrencias::abrir("trava", format!("O WSL deixou de responder{onde}: {motivo}"), crate::recursos::agora_ms());
                         (alvo, format!("O WSL deixou de responder{onde}: {motivo}"))
                     }
                     wsl::saude::Mudanca::Voltou { alvo, segundos, falhas } => {

@@ -115,10 +115,14 @@ export interface Docker {
   pesados: Pesado[];
 }
 
-/** Processos de mesmo nome numa distro, somados. */
+/** Processos de mesmo nome num container (ou fora dele) de uma distro, somados. */
 export interface Pesado {
   distro: string;
   nome: string;
+  /** Id do container dono dos processos, quando são de um. */
+  conteiner: string | null;
+  /** Os processos somados, no máximo 20. */
+  pids: number[];
   quantos: number;
   /** 1,0 é um núcleo inteiro. */
   cpu_nucleos: number;
@@ -303,7 +307,32 @@ export interface Pedido {
 
 export type AbaDesempenho = 'processamento' | 'memoria' | 'disco';
 
-export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'distros' | 'configuracoes' | 'log';
+export type Pagina = 'processos' | 'desempenho' | 'portas' | 'atividade' | 'ocorrencias' | 'distros' | 'configuracoes' | 'log';
+
+export type TipoOcorrencia = 'trava' | 'sobrecarga' | 'docker' | 'devolucao';
+
+/** A carga da VM num instante, lida a cada 30 s. Médias de 60 s, em %. */
+export interface Carga {
+  quando_ms: number;
+  disco_full: number;
+  memoria_full: number;
+  cpu_vm: number;
+  pesados: Pesado[];
+}
+
+export interface Ocorrencia {
+  tipo: TipoOcorrencia;
+  titulo: string;
+  inicio_ms: number;
+  /** null enquanto dura; nas pontuais, igual ao início. */
+  fim_ms: number | null;
+  /** Como terminou: voltou sozinha, desligamento forçado, serviço reiniciado. */
+  saida: string | null;
+  pico_disco: number;
+  pico_cpu: number;
+  /** A carga nos 10 min antes, da mais velha para a mais nova. */
+  antes: Carga[];
+}
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;
