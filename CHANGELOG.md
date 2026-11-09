@@ -5,6 +5,12 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Tema claro, escuro ou igual ao Windows**, em Configurações, seção Aparência. A escolha vai
+  para a janela inteira, com a barra de título e o fundo Mica, e fica em `preferencias.json`:
+  a janela já abre no tema escolhido. O padrão continua sendo acompanhar o Windows.
+
 ## [0.14.0] - 2026-11-09
 
 ### Adicionado

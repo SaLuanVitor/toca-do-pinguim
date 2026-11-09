@@ -195,6 +195,9 @@ export interface SegundoPlano {
   iniciar_com_windows: boolean;
 }
 
+/** `sistema` acompanha o claro ou escuro do Windows. */
+export type Tema = 'sistema' | 'claro' | 'escuro';
+
 export interface Exclusao {
   liberado_bytes: number;
   /** Caminho do .tar, quando a distro foi copiada antes de sair. */
