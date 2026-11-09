@@ -5,6 +5,18 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.13.1] - 2026-11-08
+
+### Corrigido
+
+- Quando o próprio serviço do WSL travava, o desligamento forçado não destravava: ele também
+  precisa do serviço, e ficava preso junto com `wsl --list` e `wsl --status`, mesmo sem VM de pé.
+  Agora, se o forçado não voltar em 20 s, o app encerra o `wslservice.exe` e sobe o serviço de
+  novo como administrador (o Windows pede a permissão), confere que ele responde e repete o
+  forçado. Medido na trava de 08/11 às 21:09: o serviço voltou 4 s depois de aceita a permissão, e
+  o `wsl -l -v` passou a responder em 49 ms. O prazo do forçado caiu de 60 para 20 s: sadio, ele
+  voltou em até 2,4 s.
+
 ## [0.13.0] - 2026-11-08
 
 ### Corrigido
@@ -405,7 +417,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.10.0...v0.11.0

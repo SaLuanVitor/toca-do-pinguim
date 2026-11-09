@@ -21,8 +21,9 @@ pub const PRAZO: Duration = Duration::from_secs(30);
 /// O desligamento comum espera o que estiver em andamento terminar. Com o WSL travado ele não
 /// volta: medido em 08/11/2026, 180 s sem resposta.
 const PRAZO_DESLIGAR: Duration = Duration::from_secs(60);
-/// Medido em 08/11/2026, no WSL 2.6.1 travado havia 25 min: o forçado voltou em 1 s.
-const PRAZO_FORCAR: Duration = Duration::from_secs(60);
+/// Medido em 08/11/2026, no WSL 2.6.1 travado: o forçado voltou em 1 s, 1,6 s e 2,4 s. Passado
+/// o prazo, quem travou é o serviço, e o app parte para reiniciá-lo.
+const PRAZO_FORCAR: Duration = Duration::from_secs(20);
 /// A cópia de uma distro grande passa de dezenas de GB.
 const PRAZO_EXPORTAR: Duration = Duration::from_secs(2 * 60 * 60);
 const PRAZO_EXCLUIR: Duration = Duration::from_secs(120);
@@ -398,6 +399,28 @@ pub fn desligar() -> Result<(), String> {
 /// `--shutdown --force` derruba a VM mesmo com operação presa, sem esperar o que roda nela.
 pub fn desligar_a_forca() -> Result<(), String> {
     executar_com_prazo(&["--shutdown", "--force"], PRAZO_FORCAR).map(|_| ())
+}
+
+/// Encerrar o serviço travado e subir de novo cabe em segundos; o prazo cobre o tempo de a pessoa
+/// aceitar o pedido de administrador.
+const PRAZO_SERVICO: Duration = Duration::from_secs(120);
+const PRAZO_SERVICO_NOVO: Duration = Duration::from_secs(20);
+
+/// Com o serviço do WSL travado, nem o forçado passa, porque também fala com ele. Medido em
+/// 08/11/2026: um forçado derrubou a VM, e logo depois `wsl --list`, `wsl --status` e um novo
+/// forçado ficaram presos, com o `wslservice.exe` vivo. Encerrá-lo e subir o serviço de novo
+/// pede administrador. O `net start` sai com erro se o Windows já tiver subido o serviço sozinho,
+/// então o que vale é o serviço novo responder.
+pub fn reiniciar_servico() -> Result<(), String> {
+    let codigo = crate::compactar::como_administrador(
+        "/c taskkill /F /IM wslservice.exe & net start WSLService",
+        PRAZO_SERVICO,
+        "o serviço do WSL não foi reiniciado",
+    )?;
+    info!("serviço do WSL reiniciado como administrador (saída {codigo})");
+    executar_com_prazo(&["--list", "--quiet"], PRAZO_SERVICO_NOVO)
+        .map(|_| ())
+        .map_err(|e| format!("o serviço do WSL foi reiniciado, mas ainda não responde: {e}"))
 }
 
 /// Copia a distro para um `.tar` que o `wsl --import` aceita de volta. Medido: com a distro
