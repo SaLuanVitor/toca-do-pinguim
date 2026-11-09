@@ -5,6 +5,16 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+
+- Quando o próprio serviço do WSL travava, o desligamento forçado não destravava: ele também
+  precisa do serviço, e ficava preso junto com `wsl --list` e `wsl --status`, mesmo sem VM de pé.
+  Agora, se o forçado não voltar em 20 s, o app encerra o `wslservice.exe` e sobe o serviço de
+  novo como administrador (o Windows pede a permissão), confere que ele responde e repete o
+  forçado. Medido na trava de 08/11 às 21:09: o serviço voltou 4 s depois de aceita a permissão, e
+  o `wsl -l -v` passou a responder em 49 ms. O prazo do forçado caiu de 60 para 20 s: sadio, ele
+  voltou em até 2,4 s.
+
 ## [0.13.0] - 2026-11-08
 
 ### Corrigido

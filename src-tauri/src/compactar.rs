@@ -46,7 +46,7 @@ pub fn compactar(caminho: &Path) -> Result<(u64, u64), String> {
     let registro = pasta.join("diskpart.log");
     std::fs::write(&roteiro, script(texto)).map_err(|e| e.to_string())?;
     let parametros = format!("/c diskpart < \"{}\" > \"{}\" 2>&1", roteiro.display(), registro.display());
-    let codigo = como_administrador(&parametros, PRAZO);
+    let codigo = como_administrador(&parametros, PRAZO, "o disco não foi compactado");
     let saida = std::fs::read(&registro).map(|b| decodificar_oem(&b)).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&pasta);
     let codigo = codigo?;
@@ -98,8 +98,9 @@ fn ultimas_linhas(texto: &str, n: usize) -> String {
     linhas[linhas.len().saturating_sub(n)..].join(" ")
 }
 
-/// Roda `cmd.exe` com os parâmetros como administrador, sem janela, e espera o fim.
-fn como_administrador(parametros: &str, prazo: Duration) -> Result<u32, String> {
+/// Roda `cmd.exe` com os parâmetros como administrador, sem janela, e espera o fim. `sem_efeito`
+/// completa a mensagem quando a permissão é recusada: o que deixou de acontecer.
+pub(crate) fn como_administrador(parametros: &str, prazo: Duration, sem_efeito: &str) -> Result<u32, String> {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, WAIT_OBJECT_0};
     use windows_sys::Win32::System::Threading::{GetExitCodeProcess, TerminateProcess, WaitForSingleObject};
     use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
@@ -120,19 +121,19 @@ fn como_administrador(parametros: &str, prazo: Duration) -> Result<u32, String> 
         if ShellExecuteExW(&mut info) == 0 {
             let erro = GetLastError();
             return Err(if erro == ERRO_CANCELADO {
-                "a permissão de administrador foi recusada; o disco não foi compactado".to_string()
+                format!("a permissão de administrador foi recusada; {sem_efeito}")
             } else {
                 format!("não foi possível pedir a permissão de administrador (erro {erro})")
             });
         }
         if info.hProcess.is_null() {
-            return Err("o Windows não devolveu o processo do diskpart".to_string());
+            return Err("o Windows não devolveu o processo pedido como administrador".to_string());
         }
         let espera = WaitForSingleObject(info.hProcess, prazo.as_millis().min(u32::MAX as u128 - 1) as u32);
         if espera != WAIT_OBJECT_0 {
             TerminateProcess(info.hProcess, 1);
             CloseHandle(info.hProcess);
-            return Err(format!("o diskpart não terminou em {} min", prazo.as_secs() / 60));
+            return Err(format!("o comando como administrador não terminou em {} s", prazo.as_secs()));
         }
         let mut codigo = 0u32;
         GetExitCodeProcess(info.hProcess, &mut codigo);

@@ -46,7 +46,7 @@ export function reiniciar(d: Distro) {
 // forçado derruba a VM na hora (medido: 1 s). Sem trava, vai o comum, e o forçado só é oferecido
 // se ele não voltar no prazo.
 const TEXTO_FORCAR =
-  'O desligamento forçado derruba a VM do WSL sem esperar nada terminar: todas as distros e todos os containers param na hora, e o que estava só na memória deles se perde. Se o Docker Desktop não voltar sozinho, abra-o de novo.';
+  'O desligamento forçado derruba a VM do WSL sem esperar nada terminar: todas as distros e todos os containers param na hora, e o que estava só na memória deles se perde. Se o próprio serviço do WSL estiver travado, o app o reinicia, e o Windows pede permissão de administrador.';
 
 function pedirForca(titulo: string, motivo: string) {
   estado.pedido = {

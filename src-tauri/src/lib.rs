@@ -114,12 +114,17 @@ async fn desligar_wsl(app: tauri::AppHandle, estado: Estado<'_>, forcar: bool) -
         info!("pedido: desligar o WSL{}", if forcar { " à força" } else { "" });
         let resultado = desligar_sem_religar(&agentes, forcar);
         soltar_depois(&agentes);
-        if resultado? {
-            let texto = if forcar { "O app forçou o desligamento do WSL" } else { "O app desligou o WSL" };
-            agentes.registrar(&app, "wsl", None, texto.to_string());
-            Ok(true)
-        } else {
-            Ok(false)
+        match resultado? {
+            Desligamento::Feito => {
+                let texto = if forcar { "O app forçou o desligamento do WSL" } else { "O app desligou o WSL" };
+                agentes.registrar(&app, "wsl", None, texto.to_string());
+                Ok(true)
+            }
+            Desligamento::ComServicoReiniciado => {
+                agentes.registrar(&app, "wsl", None, "O serviço do WSL estava travado: o app o reiniciou e desligou o WSL".to_string());
+                Ok(true)
+            }
+            Desligamento::NaoVoltou => Ok(false),
         }
     })
     .await
@@ -254,17 +259,36 @@ fn definir_segundo_plano(recursos: State<'_, Arc<Recursos>>, fechar_para_bandeja
 /// `parar` apaga a marca de agente que saiu por ociosidade, e o supervisor, com uma leitura
 /// da lista anterior ao `--shutdown`, subiria o agente de novo e religaria a VM. Os agentes
 /// ficam segurados até `soltar_depois`.
-/// False: o desligamento comum não voltou no prazo e o WSL está em queda. Erro de outro tipo
-/// segue como erro.
-fn desligar_sem_religar(agentes: &Agentes, forcar: bool) -> Result<bool, String> {
+enum Desligamento {
+    Feito,
+    /// O forçado não passou porque o serviço do WSL travou; o app o reiniciou e desligou.
+    ComServicoReiniciado,
+    /// O desligamento comum não voltou no prazo, e o WSL está em queda.
+    NaoVoltou,
+}
+
+/// Erro que não seja de prazo esgotado segue como erro.
+fn desligar_sem_religar(agentes: &Agentes, forcar: bool) -> Result<Desligamento, String> {
     agentes.segurar(true);
     agentes.parar_todos();
+    let mut feito = Desligamento::Feito;
     if forcar {
-        wsl::desligar_a_forca()?;
+        match wsl::desligar_a_forca() {
+            Ok(()) => {}
+            // O prazo esgotado marca o serviço em queda: é ele que travou, não a VM.
+            Err(_) if wsl::saude::tem_queda(None) => {
+                warn!("o desligamento forçado não voltou; reiniciando o serviço do WSL");
+                wsl::reiniciar_servico()?;
+                // Com o serviço novo, o forçado garante que nenhuma VM antiga ficou de pé.
+                wsl::desligar_a_forca()?;
+                feito = Desligamento::ComServicoReiniciado;
+            }
+            Err(e) => return Err(e),
+        }
     } else {
         match wsl::desligar() {
             Ok(()) => {}
-            Err(_) if wsl::saude::tem_queda(None) => return Ok(false),
+            Err(_) if wsl::saude::tem_queda(None) => return Ok(Desligamento::NaoVoltou),
             Err(e) => return Err(e),
         }
     }
@@ -272,7 +296,7 @@ fn desligar_sem_religar(agentes: &Agentes, forcar: bool) -> Result<bool, String>
     // tentativas de subir agente ficaram para trás, e a próxima distro ligada é lida na hora.
     wsl::saude::esquecer();
     agentes.esquecer_falhas();
-    Ok(true)
+    Ok(feito)
 }
 
 /// Solta os agentes quando o supervisor já leu a lista de depois do desligamento.
@@ -551,7 +575,7 @@ async fn compactar_disco(app: tauri::AppHandle, agentes: Estado<'_>, caminho: St
                     Err(e) => warn!("fstrim em {}: {e}", disco.nome),
                 }
             }
-            if !desligar_sem_religar(&agentes, false)? {
+            if let Desligamento::NaoVoltou = desligar_sem_religar(&agentes, false)? {
                 return Err("o WSL não desligou e está travado; force o desligamento na aba Distros e compacte de novo".to_string());
             }
             agentes.registrar(&app, "wsl", None, format!("O app desligou o WSL para compactar o disco de {}", disco.nome));
