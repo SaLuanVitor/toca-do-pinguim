@@ -25,6 +25,13 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ### Corrigido
 
+- O app não percebia quando o WSL parava de abrir sessões novas com os agentes já rodando: cada
+  amostra deles contava como "o WSL respondeu", e o `wsl.exe --list` que o app chama fala só com
+  o serviço, sem abrir sessão. Medido em 08/11: toda sessão nova esgotava 30 s com
+  `Wsl/Service/0x8007274c`, e o app mostrava o WSL normal. Agora, a cada 2 min, o app abre uma
+  sessão nova em cada distro com agente (`wsl.exe -d <distro> --exec true`). Se ela não abrir em
+  40 s ou sair com erro do serviço, entram o aviso de WSL travado e o registro da ocorrência. A
+  queda só sai quando outra sessão nova abre: a amostra do agente não desfaz.
 - Com o app aberto no meio de uma trava, a devolução automática do cache começava antes de o app
   saber da trava, e deixava mais um `wsl.exe` preso por 50 s. Medido em 08/11: ela começou 10 s
   depois de o app abrir, e a queda só foi notada 21 s depois. Agora a devolução automática só
