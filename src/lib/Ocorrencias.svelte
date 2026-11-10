@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { api } from './api';
   import { estado } from './estado.svelte';
+  import Otimizacao from './Otimizacao.svelte';
   import type { Carga, Ocorrencia, TipoOcorrencia } from './tipos';
 
   const ROTULOS: Record<TipoOcorrencia, string> = {
@@ -12,7 +13,19 @@
     sobrecarga: 'VM sobrecarregada',
     docker: 'Docker sem resposta',
     devolucao: 'Devolução de cache falhou',
+    otimizacao: 'Otimização aplicada',
   };
+  const DIA_MS = 24 * 3600_000;
+
+  let otimizando = $state(false);
+
+  // A busca (Ctrl+K) pede o plano de fora da página.
+  $effect(() => {
+    if (estado.sugerirOtimizacao) {
+      estado.sugerirOtimizacao = false;
+      otimizando = true;
+    }
+  });
   /** O mesmo limiar em que o app deixa de devolver o cache sozinho. */
   const DISCO_CHEIO = 5;
 
@@ -74,7 +87,18 @@
   const travas = $derived(lista.filter((o) => o.tipo === 'trava'));
   const travasComDisco = $derived(travas.filter((o) => o.antes.some((c) => c.disco_full >= DISCO_CHEIO)).length);
 
+  /** Travas desde o último plano aplicado contra as do mesmo número de dias antes dele. */
+  const comparacao = $derived.by(() => {
+    const marco = lista.find((o) => o.tipo === 'otimizacao');
+    if (!marco) return null;
+    const dias = Math.max(1, Math.ceil((Date.now() - marco.inicio_ms) / DIA_MS));
+    const depois = travas.filter((o) => o.inicio_ms >= marco.inicio_ms).length;
+    const antes = travas.filter((o) => o.inicio_ms < marco.inicio_ms && o.inicio_ms >= marco.inicio_ms - dias * DIA_MS).length;
+    return { quando: marco.inicio_ms, dias, depois, antes };
+  });
+
   function relatorio(o: Ocorrencia): string {
+    if (o.tipo === 'otimizacao') return `### ${ROTULOS.otimizacao}: ${data.format(o.inicio_ms)}\n\n${o.titulo}`;
     const linhas = [
       `### ${ROTULOS[o.tipo] ?? o.tipo}: ${data.format(o.inicio_ms)}`,
       '',
@@ -116,10 +140,13 @@
 
 <header class="barra">
   <h1>Ocorrências</h1>
+  <button class="botao primario" onclick={() => (otimizando = true)}>Sugerir otimização</button>
   {#if lista.length}
     <button class="botao" onclick={copiarTudo}>Copiar tudo</button>
   {/if}
 </header>
+
+<Otimizacao bind:aberto={otimizando} onaplicou={ler} />
 
 <div class="rolagem">
   {#if erro}
@@ -137,6 +164,12 @@
       Travas com espera por disco acima de {DISCO_CHEIO}% nos 10 min antes: {travasComDisco} de {travas.length}.
     </p>
   {/if}
+  {#if comparacao}
+    <p class="resumo">
+      Desde a última otimização ({data.format(comparacao.quando)}): {comparacao.depois} trava(s) em {comparacao.dias} dia(s). No mesmo número de dias antes dela:
+      {comparacao.antes}.
+    </p>
+  {/if}
 
   <ol>
     {#each lista as o (`${o.tipo}|${o.inicio_ms}`)}
@@ -149,6 +182,7 @@
           <button class="botao copiar" onclick={() => copiar(relatorio(o))}>Copiar</button>
         </div>
         <p class="titulo">{o.titulo}</p>
+        {#if o.tipo !== 'otimizacao'}
         <dl>
           <div><dt>Saída</dt><dd>{o.saida ?? 'ainda aberta'}</dd></div>
           <div><dt>Pico de espera por disco</dt><dd>{numero(o.pico_disco)}%</dd></div>
@@ -166,6 +200,7 @@
               <span class="legenda disco">espera por disco</span> e <span class="legenda cpu">CPU da VM</span>, de 0 a 100%
             </figcaption>
           </figure>
+        {/if}
         {/if}
       </li>
     {/each}

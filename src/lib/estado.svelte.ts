@@ -55,6 +55,8 @@ class Estado {
   /** Filtro da aba Portas e abertura do ajuste de limite, pedidos pela busca. */
   buscaPortas = $state('');
   ajustarLimite = $state(false);
+  /** Abertura do plano de otimização, pedida pela busca. */
+  sugerirOtimizacao = $state(false);
   /** A busca de versão nova é o único acesso do app à rede, e pode ser desligada. */
   procurarAtualizacoes = $state(lerPreferencia('procurar-atualizacoes', true));
   #proximoAviso = 1;

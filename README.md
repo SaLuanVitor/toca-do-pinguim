@@ -72,6 +72,7 @@ o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
 | Desempenho | três abas. **Processamento:** gráfico de CPU da VM, limite de processadores, CPU por distro. **Memória:** gráfico de RAM da VM, para onde vai a RAM do Windows, teto de memória da VM e gatilhos da devolução automática do cache de arquivos, RAM dos projetos do Docker (com parar, ligar e reiniciar o que está com problema) e RAM por distro. **Disco:** discos virtuais com o tamanho no Windows e o ocupado dentro, compactação, pastas maiores de qualquer distro instalada, espaço do Docker por categoria e por projeto do Compose, e limpeza semanal opcional |
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
 | Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
+| Ocorrências | cada trava do WSL, sobrecarga da VM, Docker sem resposta e devolução de cache que falhou, com a carga dos 10 min antes e quem pesava; **Sugerir otimização** monta um plano a partir delas e do espaço do Docker, com itens para marcar antes de executar |
 | Distros | iniciar, terminar, reiniciar, excluir (parada, com cópia opcional) e desligar o WSL |
 | Configurações do WSL | as 42 chaves do `.wslconfig` e as 19 do `/etc/wsl.conf` de cada distro, em grupos, com o padrão de cada uma e validação |
 | Log | o log técnico, por padrão só avisos e erros |

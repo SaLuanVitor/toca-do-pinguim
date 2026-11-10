@@ -541,7 +541,7 @@ pub fn resumo_docker() -> Result<(ResumoDocker, Vec<(String, String, String)>), 
     ))
 }
 
-#[derive(Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LimpezaDocker {
     /// Containers parados sem projeto do Compose.

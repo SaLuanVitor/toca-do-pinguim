@@ -11,6 +11,7 @@ mod configuracao;
 mod docker;
 mod historico;
 mod ocorrencias;
+mod otimizacao;
 mod pressao;
 mod recursos;
 mod registro;
@@ -805,6 +806,39 @@ fn listar_ocorrencias() -> Vec<ocorrencias::Ocorrencia> {
     ocorrencias::listar()
 }
 
+/// Monta o plano de otimização. O espaço do Docker é lido de novo: a limpeza de volumes só
+/// aceita os volumes da última leitura, e uma leitura velha recusaria os que o plano listou.
+#[tauri::command]
+async fn sugerir_otimizacao(agentes: Estado<'_>, recursos: State<'_, Arc<Recursos>>) -> Result<otimizacao::Plano, String> {
+    let (agentes, recursos) = (Arc::clone(&agentes), Arc::clone(&recursos));
+    bloqueante(move || {
+        let espaco = recursos.ler_espaco_docker(agentes.rodando(DISTRO_DOCKER));
+        let conteineres = recursos.docker.lock().unwrap().conteineres.clone();
+        let lista = ocorrencias::listar();
+        let plano = otimizacao::montar(&otimizacao::Entrada {
+            ocorrencias: &lista,
+            docker: espaco.docker.as_ref(),
+            conteineres: &conteineres,
+            cpus_vm: agentes.cpus_vm(),
+            agora_ms: agora_ms(),
+        });
+        info!("plano de otimização: {} item(ns)", plano.itens.len());
+        Ok(plano)
+    })
+    .await
+}
+
+/// Marca nas ocorrências quando um plano foi aplicado, para comparar as travas antes e depois.
+#[tauri::command]
+fn registrar_otimizacao(resumo: String) -> Result<(), String> {
+    let resumo: String = resumo.chars().take(500).collect();
+    if resumo.trim().is_empty() {
+        return Err("resumo vazio".to_string());
+    }
+    ocorrencias::pontual("otimizacao", resumo, agora_ms());
+    Ok(())
+}
+
 #[tauri::command]
 fn listar_atividade(estado: Estado<'_>) -> Vec<Evento> {
     estado.atividade.lock().unwrap().listar()
@@ -957,6 +991,8 @@ pub fn run() {
             pausar_conteiner,
             retomar_conteiner,
             listar_ocorrencias,
+            sugerir_otimizacao,
+            registrar_otimizacao,
             devolver_cache,
             definir_devolucao,
             ler_discos,

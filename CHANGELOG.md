@@ -5,6 +5,19 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Sugerir otimização**, em Ocorrências e na busca (Ctrl+K). O app monta um plano a partir do que
+  mediu nos últimos 7 dias: o que mais pesou antes das travas e sobrecargas, o espaço que o Docker
+  pode liberar e os containers que pesaram de forma repetida sem limite de CPU. Cada item diz por
+  que está no plano, com o número, e o que muda. Só o que é seguro vem marcado: apagar sobras de
+  build e o cache de build. Apagar volumes ou imagens e limitar a CPU de um container ficam
+  desmarcados, e o que não tem volta aparece em destaque antes de confirmar. O que o app não
+  executa, como limitar um GitLab Runner, entra como passo a passo. Os caches do runner ficam fora
+  da limpeza de volumes, porque apagá-los deixa os jobs mais lentos. Ao aplicar, o app executa um
+  item de cada vez, mostra o resultado de cada um e registra o plano em Ocorrências, que passa a
+  comparar as travas desde então com as do mesmo número de dias antes.
+
 ## [0.15.0] - 2026-11-10
 
 ### Adicionado

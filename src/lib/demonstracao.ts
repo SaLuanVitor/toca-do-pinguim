@@ -2,7 +2,7 @@
 
 import type { Api } from './api';
 import { estado } from './estado.svelte';
-import type { AnalisePastas, Armazenamento, Carga, Conteiner, Discos, Distro, EspacoDocker, Evento, Ocorrencia, Porta, Processo, Tema } from './tipos';
+import type { AnalisePastas, Armazenamento, Carga, Conteiner, Discos, Distro, EspacoDocker, Evento, ItemOtimizacao, Ocorrencia, Porta, Processo, Tema } from './tipos';
 
 const GIB = 1024 ** 3;
 
@@ -211,6 +211,9 @@ export function criarDemonstracao(): Api {
     };
   }
 
+  /** Planos aplicados no modo demonstração, só em memória. */
+  const otimizacoesDemo: Ocorrencia[] = [];
+
   function ocorrenciasDemo(): Ocorrencia[] {
     const agora = Date.now();
     const antes = (fim: number, disco: (i: number) => number, cpu: (i: number) => number): Carga[] =>
@@ -224,6 +227,7 @@ export function criarDemonstracao(): Api {
     const trava = agora - 2 * 3600_000;
     const sobrecarga = agora - 26 * 3600_000;
     return [
+      ...otimizacoesDemo,
       {
         tipo: 'devolucao',
         titulo: 'Devolver o cache não terminou: a sessão na distro não respondeu em 30 s',
@@ -312,7 +316,7 @@ export function criarDemonstracao(): Api {
         { nome: 'loja-online_db-antigo', bytes: 3.2 * GIB },
         { nome: 'chat-bot_kafka', bytes: 1.4 * GIB },
         { nome: 'blog_uploads', bytes: 0.6 * GIB },
-        { nome: '4f2a91c0d7e3b8a6f5e4d3c2b1a09876', bytes: 0.2 * GIB },
+        { nome: '4f2a91c0d7e3b8a6f5e4d3c2b1a098764f2a91c0d7e3b8a6f5e4d3c2b1a09876', bytes: 0.2 * GIB },
       ],
       sobras: 104,
       sobras_bytes: 13.8 * GIB,
@@ -559,8 +563,16 @@ export function criarDemonstracao(): Api {
       registrar('armazenamento', distro, `O app apagou ${(liberado / GIB).toFixed(1).replace('.', ',')} GB em ${distro}`);
       return liberado;
     },
-    limparDocker: async (qual) => {
+    limparDocker: async (qual, volumes) => {
       await esperar(800);
+      if (qual === 'volumes') {
+        const d = armazenamento.docker!;
+        const apagados = d.volumes_sem_uso.filter((v) => volumes.includes(v.nome));
+        const liberado = apagados.reduce((s, v) => s + v.bytes, 0);
+        d.volumes_sem_uso = d.volumes_sem_uso.filter((v) => !volumes.includes(v.nome));
+        registrar('armazenamento', 'docker-desktop', `O app apagou ${apagados.length} volume(s) do Docker: ${(liberado / GIB).toFixed(1).replace('.', ',')} GB liberados`);
+        return liberado;
+      }
       const tipo = { sobras: 'Containers', parados: 'Containers', imagens_sem_uso: 'Images', cache_de_build: 'Build Cache', volumes: 'Local Volumes' }[qual];
       const cat = armazenamento.docker!.categorias.find((x) => x.tipo === tipo)!;
       const liberado = cat.recuperavel_bytes;
@@ -627,6 +639,122 @@ export function criarDemonstracao(): Api {
       registrar('docker', 'docker-desktop', `O app retomou o container ${nome} (1 container(s))`);
     },
     listarOcorrencias: async () => ocorrenciasDemo(),
+    sugerirOtimizacao: async () => {
+      await esperar(1500);
+      const d = armazenamento.docker!;
+      const gb = (b: number) => (b / GIB).toFixed(1).replace('.', ',');
+      const recuperavel = (tipo: string) => d.categorias.find((c) => c.tipo === tipo)?.recuperavel_bytes ?? 0;
+      const anonimos = d.volumes_sem_uso.filter((v) => /^[0-9a-f]{64}$/.test(v.nome));
+      const nomeados = d.volumes_sem_uso.filter((v) => !anonimos.includes(v));
+      const soma = (l: { bytes: number }[]) => l.reduce((s, v) => s + v.bytes, 0);
+      const itens: ItemOtimizacao[] = [];
+      if (d.sobras) {
+        itens.push({
+          id: 'sobras',
+          titulo: 'Apagar containers parados de builds e jobs',
+          motivo: `${d.sobras} container(s) parado(s) fora de projetos do Compose, com ${gb(d.sobras_bytes)} GB.`,
+          efeito: `Libera cerca de ${gb(d.sobras_bytes)} GB. São sobras de build e de jobs de CI que já terminaram.`,
+          risco: 'seguro',
+          marcado: true,
+          detalhes: [],
+          acao: { tipo: 'limpar_docker', qual: 'sobras', volumes: [] },
+        });
+      }
+      if (recuperavel('Build Cache')) {
+        itens.push({
+          id: 'cache',
+          titulo: 'Apagar o cache de build',
+          motivo: `O cache de build do Docker tem ${gb(recuperavel('Build Cache'))} GB que nenhuma imagem usa.`,
+          efeito: 'Libera o espaço. O próximo build refaz as camadas que precisar, e por isso demora mais uma vez.',
+          risco: 'seguro',
+          marcado: true,
+          detalhes: [],
+          acao: { tipo: 'limpar_docker', qual: 'cache_de_build', volumes: [] },
+        });
+      }
+      if (anonimos.length) {
+        itens.push({
+          id: 'volumes-anonimos',
+          titulo: 'Apagar volumes sem nome que nenhum container usa',
+          motivo: `${anonimos.length} volume(s) sem nome e sem container, com ${gb(soma(anonimos))} GB. Em geral sobram de containers que já foram apagados.`,
+          efeito: `Libera cerca de ${gb(soma(anonimos))} GB. O que estava dentro deles não volta.`,
+          risco: 'irreversivel',
+          marcado: false,
+          detalhes: [],
+          acao: { tipo: 'limpar_docker', qual: 'volumes', volumes: anonimos.map((v) => v.nome) },
+        });
+      }
+      if (nomeados.length) {
+        itens.push({
+          id: 'volumes-nomeados',
+          titulo: 'Apagar volumes com nome que nenhum container usa',
+          motivo: `${nomeados.length} volume(s) com nome e sem container, com ${gb(soma(nomeados))} GB.`,
+          efeito: 'Libera o espaço, mas o que estava dentro não volta: confira a lista. Volume sem container pode ser um banco ou uma cópia de trabalho que você ainda vai usar.',
+          risco: 'irreversivel',
+          marcado: false,
+          detalhes: nomeados.map((v) => `${v.nome} (${gb(v.bytes)} GB)`),
+          acao: { tipo: 'limpar_docker', qual: 'volumes', volumes: nomeados.map((v) => v.nome) },
+        });
+      }
+      if (recuperavel('Images')) {
+        itens.push({
+          id: 'imagens',
+          titulo: 'Apagar imagens que nenhum container usa',
+          motivo: `O Docker conta ${gb(recuperavel('Images'))} GB em imagens sem container.`,
+          efeito: 'Libera o espaço. Quem precisar de uma delas baixa de novo, o que exige rede; imagem de registro com login, ou usada só como serviço de CI, pode não voltar sozinha.',
+          risco: 'irreversivel',
+          marcado: false,
+          detalhes: [],
+          acao: { tipo: 'limpar_docker', qual: 'imagens_sem_uso', volumes: [] },
+        });
+      }
+      const db = conteineres.find((c) => c.nome === 'loja-db')!;
+      if (db.limite_cpus === 0) {
+        itens.push({
+          id: `cpu:${db.id}`,
+          titulo: 'Limitar loja-db a 4 núcleos',
+          motivo: 'Ele pesava antes de 2 das 2 travas e sobrecargas dos últimos 7 dias, com até 1,9 núcleos, e hoje não tem limite de CPU.',
+          efeito: 'Fica com no máximo metade dos 8 núcleos da VM, e o resto sobra para as outras distros. O limite vale até o container ser recriado; para fixar, ponha cpus: 4 no docker-compose dele.',
+          risco: 'muda_comportamento',
+          marcado: false,
+          detalhes: [],
+          acao: { tipo: 'limitar_cpu', id: db.id, nome: db.nome, nucleos: 4 },
+        });
+      }
+      itens.push({
+        id: 'runner',
+        titulo: 'Limitar o GitLab Runner desta máquina',
+        motivo: 'Há um GitLab Runner rodando aqui, e containers de jobs, que somem ao terminar, pesavam antes das travas. Limite posto pelo app num container de job não dura: o próximo job nasce sem ele.',
+        efeito: 'Um job por vez e com teto de CPU e memória deixa folga para o resto da VM. Os jobs desta máquina ficam mais lentos; se houver outro runner no projeto, ele pega a vaga.',
+        risco: 'muda_comportamento',
+        marcado: false,
+        detalhes: [],
+        acao: {
+          tipo: 'voce_faz',
+          passos: [
+            'Abra o config.toml do runner: docker exec -it gitlab-runner vi /etc/gitlab-runner/config.toml (guarde uma cópia antes).',
+            'Na primeira linha, deixe concurrent = 1.',
+            'Logo abaixo de [runners.docker], acrescente cpus = "4" e memory = "4g". Ajuste se algum job precisar de mais memória.',
+            'Salve: o runner relê o arquivo sozinho, e o próximo job já nasce com o limite.',
+          ],
+        },
+      });
+      return {
+        desde_ms: Date.now() - 7 * 24 * 3600_000,
+        travas: 1,
+        sobrecargas: 1,
+        quem_pesou: [
+          { nome: 'postgres (loja-db)', ocorrencias: 2 },
+          { nome: 'rsync (loja-relatorios)', ocorrencias: 2 },
+        ],
+        itens,
+        avisos: [],
+      };
+    },
+    registrarOtimizacao: async (resumo) => {
+      const agora = Date.now();
+      otimizacoesDemo.push({ tipo: 'otimizacao', titulo: resumo, inicio_ms: agora, fim_ms: agora, saida: 'registrada', pico_disco: 0, pico_cpu: 0, antes: [] });
+    },
     reiniciarConteineres: async (ids, rotulo) => {
       await esperar(900);
       for (const c of conteineres.filter((c) => ids.includes(c.id))) {
