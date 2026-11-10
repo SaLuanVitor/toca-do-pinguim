@@ -73,8 +73,9 @@ o que faltou ou o que deu errado. PRs são bem-vindos; o caminho está no
 | Portas | sockets em escuta na VM, o processo e a distro de cada um |
 | Atividade | distros que ligaram e desligaram, quedas do WSL, processos encerrados, falta de memória, containers em ciclo de reinício, configuração |
 | Distros | iniciar, terminar, reiniciar, excluir (parada, com cópia opcional) e desligar o WSL |
-| Configurações | as 42 chaves do `.wslconfig` e as 19 do `/etc/wsl.conf` de cada distro, em grupos, com o padrão de cada uma e validação |
+| Configurações do WSL | as 42 chaves do `.wslconfig` e as 19 do `/etc/wsl.conf` de cada distro, em grupos, com o padrão de cada uma e validação |
 | Log | o log técnico, por padrão só avisos e erros |
+| Preferências | tema claro, escuro ou igual ao Windows, busca de atualizações, segundo plano na área de notificação e tecla de atalho |
 
 Ctrl+K abre uma busca única por processo, porta, distro ou ação.
 
@@ -289,7 +290,7 @@ Medições únicas, numa máquina; não são dado de campo.
 
 O único acesso do app à internet é a busca de versão nova, ao abrir, a cada hora e ao voltar
 para a janela: ele consulta as versões publicadas em github.com, e o GitHub recebe o endereço
-IP do computador, como em qualquer visita a um site. A busca se desliga em Configurações > Este app. Nada mais
+IP do computador, como em qualquer visita a um site. A busca se desliga em Preferências. Nada mais
 sai da máquina: o log, o histórico de memória e a atividade ficam só nela. O instalador mostra
 este aviso antes de instalar.
 

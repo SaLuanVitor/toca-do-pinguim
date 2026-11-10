@@ -162,6 +162,10 @@ impl Recursos {
         self.mudar_preferencias(|p| p.fechar_para_bandeja = sim)
     }
 
+    pub fn definir_tema(&self, tema: crate::cache::Tema) -> Result<(), String> {
+        self.mudar_preferencias(|p| p.tema = tema)
+    }
+
     /// Devolve true só na primeira vez, para a notificação de onde o app ficou sair uma vez.
     pub fn primeira_vez_na_bandeja(&self) -> bool {
         let ja = self.preferencias.lock().unwrap().avisou_bandeja;

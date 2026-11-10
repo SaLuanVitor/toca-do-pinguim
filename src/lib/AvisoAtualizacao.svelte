@@ -1,6 +1,6 @@
 <script lang="ts">
   // Procura versão nova ao abrir, a cada hora e quando a pessoa volta para a janela, se não
-  // desligou a busca em Configurações > Este app. Com o app aberto o dia todo, a busca de 6
+  // desligou a busca em Preferências. Com o app aberto o dia todo, a busca de 6
   // em 6 horas deixava a versão nova escondida até reabrir. Só baixa quando ela clica: o app
   // gerencia o WSL e não deve fazer nada pesado por conta própria.
   import { onMount } from 'svelte';

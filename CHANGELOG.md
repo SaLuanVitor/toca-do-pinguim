@@ -5,6 +5,21 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.15.0] - 2026-11-10
+
+### Adicionado
+
+- **Tema claro, escuro ou igual ao Windows**, em Preferências, seção Aparência. A escolha vai
+  para a janela inteira, com a barra de título e o fundo Mica, e fica em `preferencias.json`:
+  a janela já abre no tema escolhido. O padrão continua sendo acompanhar o Windows.
+
+### Mudado
+
+- As preferências do app saíram de Configurações > Este app e ganharam uma entrada própria no
+  menu, **Preferências**, no fim da lista. A página de antes passou a se chamar Configurações do
+  WSL, só com o `.wslconfig` e o `wsl.conf` de cada distro. Na busca (Ctrl+K), "tema",
+  "atualizações" e "atalho" levam a Preferências.
+
 ## [0.14.0] - 2026-11-09
 
 ### Adicionado
@@ -451,7 +466,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.14.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...v0.13.0

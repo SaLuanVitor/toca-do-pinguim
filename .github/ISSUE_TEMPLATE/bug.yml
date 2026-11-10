@@ -20,7 +20,7 @@ body:
     id: versao
     attributes:
       label: Versão do app
-      description: Em Configurações > Este app.
+      description: Em Preferências.
       placeholder: 0.5.1
     validations:
       required: true

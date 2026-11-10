@@ -1,10 +1,29 @@
 <script lang="ts">
-  // Preferências do próprio app: a busca de atualizações e a tecla de atalho do Windows que
-  // abre a Toca do Pinguim, gravada no atalho do menu Iniciar.
+  // Preferências do próprio app: o tema, a busca de atualizações e a tecla de atalho do Windows
+  // que abre a Toca do Pinguim, gravada no atalho do menu Iniciar.
   import { onMount } from 'svelte';
   import { api } from './api';
   import { estado } from './estado.svelte';
-  import type { SegundoPlano } from './tipos';
+  import type { SegundoPlano, Tema } from './tipos';
+
+  const TEMAS: { valor: Tema; rotulo: string }[] = [
+    { valor: 'sistema', rotulo: 'Igual ao Windows' },
+    { valor: 'claro', rotulo: 'Claro' },
+    { valor: 'escuro', rotulo: 'Escuro' },
+  ];
+
+  let tema = $state<Tema | null>(null);
+
+  async function mudarTema(novo: Tema) {
+    const antes = tema;
+    tema = novo;
+    try {
+      await api.definirTema(novo);
+    } catch (e) {
+      estado.avisar(String(e));
+      tema = antes;
+    }
+  }
 
   // O Windows aceita a tecla de um atalho com pelo menos dois modificadores.
   const MODIFICADORES = ['Ctrl', 'Alt', 'Shift'] as const;
@@ -115,8 +134,13 @@
     carregar();
     api.versaoApp().then((v) => (versao = v), () => (versao = 'desconhecida'));
     api.lerSegundoPlano().then((s) => (segundoPlano = s), (e) => estado.avisar(String(e)));
+    api.lerTema().then((t) => (tema = t), (e) => estado.avisar(String(e)));
   });
 </script>
+
+<header class="barra">
+  <h1>Preferências</h1>
+</header>
 
 <div class="rolagem">
   <section aria-labelledby="sobre-titulo">
@@ -130,6 +154,21 @@
       <code>github.com/SaLuanVitor/toca-do-pinguim</code>. Licença MIT; as licenças das bibliotecas
       de terceiros incluídas estão no <code>THIRD-PARTY-NOTICES.md</code> de cada versão.
     </p>
+  </section>
+
+  <section aria-labelledby="aparencia-titulo">
+    <h2 id="aparencia-titulo">Aparência</h2>
+    {#if tema}
+      <fieldset class="temas">
+        <legend class="rotulo">Tema</legend>
+        {#each TEMAS as t (t.valor)}
+          <label class="opcao">
+            <input type="radio" name="tema" value={t.valor} checked={tema === t.valor} onchange={() => mudarTema(t.valor)} />
+            {t.rotulo}
+          </label>
+        {/each}
+      </fieldset>
+    {/if}
   </section>
 
   <section aria-labelledby="privacidade-titulo">
@@ -262,6 +301,16 @@
     gap: 8px;
     padding: 6px 0;
     font-size: 13px;
+  }
+
+  .temas {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .temas legend {
+    padding: 0;
   }
 
   .captura {
