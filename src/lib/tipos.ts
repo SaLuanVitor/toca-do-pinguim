@@ -321,7 +321,38 @@ export type Pagina =
   | 'preferencias'
   | 'log';
 
-export type TipoOcorrencia = 'trava' | 'sobrecarga' | 'docker' | 'devolucao';
+export type TipoOcorrencia = 'trava' | 'sobrecarga' | 'docker' | 'devolucao' | 'otimizacao';
+
+/** Seguro: nada se perde. Muda o comportamento: reversível. Irreversível: o que sai não volta. */
+export type RiscoOtimizacao = 'seguro' | 'muda_comportamento' | 'irreversivel';
+
+export type AcaoOtimizacao =
+  | { tipo: 'limpar_docker'; qual: LimpezaDocker; volumes: string[] }
+  | { tipo: 'limitar_cpu'; id: string; nome: string; nucleos: number }
+  /** O app não executa: mostra os passos. */
+  | { tipo: 'voce_faz'; passos: string[] };
+
+export interface ItemOtimizacao {
+  id: string;
+  titulo: string;
+  /** Por que está no plano, com o número que o justifica. */
+  motivo: string;
+  efeito: string;
+  risco: RiscoOtimizacao;
+  marcado: boolean;
+  /** Lista para conferir antes, como os volumes que serão apagados. */
+  detalhes: string[];
+  acao: AcaoOtimizacao;
+}
+
+export interface PlanoOtimizacao {
+  desde_ms: number;
+  travas: number;
+  sobrecargas: number;
+  quem_pesou: { nome: string; ocorrencias: number }[];
+  itens: ItemOtimizacao[];
+  avisos: string[];
+}
 
 /** A carga da VM num instante, lida a cada 30 s. Médias de 60 s, em %. */
 export interface Carga {

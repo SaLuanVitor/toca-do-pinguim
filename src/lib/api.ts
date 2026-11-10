@@ -25,6 +25,7 @@ import type {
   SituacaoWsl,
   Suspeito,
   Ocorrencia,
+  PlanoOtimizacao,
 } from './tipos';
 import { estado } from './estado.svelte';
 import { criarDemonstracao } from './demonstracao';
@@ -54,6 +55,8 @@ export interface Api {
   pausarConteiner(id: string, nome: string): Promise<void>;
   retomarConteiner(id: string, nome: string): Promise<void>;
   listarOcorrencias(): Promise<Ocorrencia[]>;
+  sugerirOtimizacao(): Promise<PlanoOtimizacao>;
+  registrarOtimizacao(resumo: string): Promise<void>;
   devolverCache(): Promise<void>;
   definirDevolucao(automatico: boolean, minimoLivrePct: number, cacheMaximoGb: number | null): Promise<void>;
   lerDiscos(forcar: boolean): Promise<Discos>;
@@ -135,6 +138,8 @@ async function conectarTauri(): Promise<Api> {
     pausarConteiner: (id, nome) => invoke('pausar_conteiner', { id, nome }),
     retomarConteiner: (id, nome) => invoke('retomar_conteiner', { id, nome }),
     listarOcorrencias: () => invoke('listar_ocorrencias'),
+    sugerirOtimizacao: () => invoke('sugerir_otimizacao'),
+    registrarOtimizacao: (resumo) => invoke('registrar_otimizacao', { resumo }),
     devolverCache: () => invoke('devolver_cache'),
     definirDevolucao: (automatico, minimoLivrePct, cacheMaximoGb) =>
       invoke('definir_devolucao', { automatico, minimoLivrePct, cacheMaximoGb }),
