@@ -97,6 +97,19 @@
     );
     add(
       {
+        id: 'a:otimizar',
+        titulo: 'Sugerir otimização',
+        detalhe: 'Plano a partir das travas e do espaço do Docker',
+        categoria: 'Ação',
+        executar: () => {
+          estado.pagina = 'ocorrencias';
+          estado.sugerirOtimizacao = true;
+        },
+      },
+      casar('sugerir otimização otimizar plano limpar docker travas lentidão', t),
+    );
+    add(
+      {
         id: 'a:cache',
         titulo: 'Devolver o cache de arquivos sozinho',
         detalhe: 'RAM da VM que volta ao Windows quando falta',
