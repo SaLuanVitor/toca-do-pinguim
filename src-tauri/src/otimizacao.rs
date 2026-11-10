@@ -18,8 +18,6 @@ use crate::ocorrencias::Ocorrencia;
 pub const JANELA_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 /// Um container entra na sugestão de limite quando pesou antes de pelo menos tantas ocorrências.
 const MINIMO_DE_OCORRENCIAS: usize = 2;
-/// Abaixo disso, o container não pesou de verdade em nenhuma.
-const NUCLEOS_QUE_PESAM: f32 = 1.0;
 /// Uma sobrecarga que começou até tanto antes da trava conta como aviso dela.
 const AVISO_ANTES_MS: u64 = 10 * 60 * 1000;
 
@@ -84,7 +82,30 @@ pub struct Entrada<'a> {
     pub docker: Option<&'a ResumoDocker>,
     pub conteineres: &'a [Conteiner],
     pub cpus_vm: Option<u32>,
+    /// O config.toml do runner já tem um job por vez e teto de CPU e de memória.
+    pub runner_limitado: bool,
     pub agora_ms: u64,
+}
+
+const CONFIG_DO_RUNNER: &str = "/etc/gitlab-runner/config.toml";
+
+/// Só as linhas de limite do config.toml do runner: o resto do arquivo tem o token de registro,
+/// que não sai do container. Sem leitura, volta vazio, e o item do runner continua no plano.
+pub fn ler_limites_do_runner(id: &str) -> String {
+    let padrao = "^[[:space:]]*(concurrent|cpus|memory)[[:space:]]*=";
+    crate::docker::executar(&["exec", id, "grep", "-E", padrao, CONFIG_DO_RUNNER], std::time::Duration::from_secs(15)).unwrap_or_default()
+}
+
+/// Limitado é o que o item do runner pede: `concurrent = 1`, com `cpus` e `memory` definidos.
+pub fn runner_limitado(linhas: &str) -> bool {
+    let valor = |chave: &str| {
+        linhas.lines().find_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            (k.trim() == chave).then(|| v.trim().trim_matches('"').to_string())
+        })
+    };
+    let definido = |chave: &str| valor(chave).is_some_and(|v| !v.is_empty());
+    valor("concurrent").as_deref() == Some("1") && definido("cpus") && definido("memory")
 }
 
 fn gb(bytes: u64) -> String {
@@ -157,13 +178,15 @@ pub fn montar(e: &Entrada) -> Plano {
         None => avisos.push("O Docker não estava ligado ou não respondeu: a limpeza dele ficou fora do plano.".to_string()),
     }
 
-    // Limite de CPU: só em container que existe, roda sem limite e pesou de verdade em mais de uma.
+    // Limite de CPU: só em container que existe, roda sem limite, pesou em mais de uma e passou do
+    // teto proposto. Abaixo do teto, o limite não mudaria nada: o peso dele era de disco ou de
+    // memória, e CPU não resolve.
     match e.cpus_vm {
         Some(cpus) if cpus >= 2 => {
             let nucleos = (cpus / 2) as f32;
             for c in e.conteineres.iter().filter(|c| c.estado == "running" && c.limite_cpus == 0.0 && !job_de_ci(&c.nome)) {
                 let Some(&(n, pico)) = por_conteiner.get(&c.id) else { continue };
-                if n < MINIMO_DE_OCORRENCIAS || pico < NUCLEOS_QUE_PESAM {
+                if n < MINIMO_DE_OCORRENCIAS || pico <= nucleos {
                     continue;
                 }
                 itens.push(Item {
@@ -190,7 +213,7 @@ pub fn montar(e: &Entrada) -> Plano {
 
     let runner_rodando = e.conteineres.iter().any(|c| c.estado == "running" && c.nome.contains("gitlab-runner"));
     let jobs_pesaram = quem_pesou.iter().any(|p| p.nome.contains("container que já não existe"));
-    if runner_rodando && (runner_visto || jobs_pesaram) {
+    if runner_rodando && !e.runner_limitado && (runner_visto || jobs_pesaram) {
         itens.push(Item {
             id: "runner".to_string(),
             titulo: "Limitar o GitLab Runner desta máquina".to_string(),
@@ -367,7 +390,7 @@ mod testes {
     }
 
     fn entrada<'a>(ocorrencias: &'a [Ocorrencia], docker: Option<&'a ResumoDocker>, conteineres: &'a [Conteiner]) -> Entrada<'a> {
-        Entrada { ocorrencias, docker, conteineres, cpus_vm: Some(10), agora_ms: AGORA }
+        Entrada { ocorrencias, docker, conteineres, cpus_vm: Some(10), runner_limitado: false, agora_ms: AGORA }
     }
 
     #[test]
@@ -387,13 +410,15 @@ mod testes {
     }
 
     #[test]
-    fn sugere_limite_so_a_quem_pesou_de_verdade_mais_de_uma_vez_e_nao_tem_limite() {
-        let leve = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    fn sugere_limite_so_a_quem_passou_do_teto_mais_de_uma_vez_e_nao_tem_limite() {
+        let abaixo = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
         let limitado = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
         let job = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-        let todos = |cpu| vec![pesado("sqlservr", Some(BANCO), cpu), pesado("php", Some(leve), 0.3), pesado("x", Some(limitado), 3.0), pesado("php", Some(job), 3.0)];
-        let o = [ocorrencia("trava", AGORA - 60 * MIN, todos(1.7)), ocorrencia("sobrecarga", AGORA - 30 * MIN, todos(0.4))];
-        let c = [conteiner(BANCO, "sigc-mssql", 0.0), conteiner(leve, "leve", 0.0), conteiner(limitado, "limitado", 2.0), conteiner(job, "runner-x-build", 0.0)];
+        // Com 10 núcleos, o teto é 5. O que pesou 1,7 núcleo, como o sqlservr medido em 10/11,
+        // fica de fora: limitar a 5 não mudaria nada nele.
+        let todos = |cpu| vec![pesado("build", Some(BANCO), cpu), pesado("sqlservr", Some(abaixo), 1.7), pesado("x", Some(limitado), 8.0), pesado("php", Some(job), 8.0)];
+        let o = [ocorrencia("trava", AGORA - 60 * MIN, todos(6.5)), ocorrencia("sobrecarga", AGORA - 30 * MIN, todos(0.4))];
+        let c = [conteiner(BANCO, "sigc-mssql", 0.0), conteiner(abaixo, "abaixo", 0.0), conteiner(limitado, "limitado", 2.0), conteiner(job, "runner-x-build", 0.0)];
         let p = montar(&entrada(&o, None, &c));
         let limites: Vec<&Item> = p.itens.iter().filter(|i| matches!(i.acao, Acao::LimitarCpu { .. })).collect();
         assert_eq!(limites.len(), 1);
@@ -446,5 +471,19 @@ mod testes {
         assert!(sem.itens.iter().all(|i| i.id != "runner"));
         let calmo = montar(&entrada(&[], None, &c));
         assert!(calmo.itens.iter().all(|i| i.id != "runner" && i.id != "aviso"));
+        // Runner já limitado: o item sai, o aviso fica.
+        let feito = montar(&Entrada { runner_limitado: true, ..entrada(&o, None, &c) });
+        assert!(feito.itens.iter().all(|i| i.id != "runner"));
+        assert!(feito.itens.iter().any(|i| i.id == "aviso"));
+    }
+
+    #[test]
+    fn runner_limitado_exige_um_job_por_vez_e_os_dois_tetos() {
+        assert!(runner_limitado("concurrent = 1\n    cpus = \"4\"\n    memory = \"4g\"\n"));
+        assert!(runner_limitado("concurrent = 1\r\n  cpus = \"2.5\"\r\n  memory = \"6g\"\r\n"));
+        assert!(!runner_limitado("concurrent = 2\n    cpus = \"4\"\n    memory = \"4g\"\n"));
+        assert!(!runner_limitado("concurrent = 1\n    cpus = \"4\"\n"));
+        assert!(!runner_limitado("concurrent = 1\n    memory = \"\"\n    cpus = \"4\"\n"));
+        assert!(!runner_limitado(""));
     }
 }

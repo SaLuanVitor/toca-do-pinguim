@@ -71,7 +71,7 @@ export function criarDemonstracao(): Api {
   // O id do container simulado é a posição dele em CONTEINERES, em hexadecimal, completada com "a".
   const idDemo = (nome: string) => (CONTEINERES.findIndex(([n]) => n === nome) + 1).toString(16).padStart(64, 'a');
   const pesadosDemo = [
-    { distro: 'docker-desktop', nome: 'postgres', conteiner: idDemo('loja-db'), pids: [212, 215], quantos: 2, cpu_nucleos: 1.9, rss: 3.4 * 1024 ** 3, esperando: 0, disco_bps: 0 },
+    { distro: 'docker-desktop', nome: 'postgres', conteiner: idDemo('loja-db'), pids: [212, 215], quantos: 2, cpu_nucleos: 4.6, rss: 3.4 * 1024 ** 3, esperando: 0, disco_bps: 0 },
     { distro: 'docker-desktop', nome: 'rsync', conteiner: idDemo('loja-relatorios'), pids: [388], quantos: 1, cpu_nucleos: 0.2, rss: 0, esperando: 0, disco_bps: 38 * 1024 ** 2 },
     { distro: 'docker-desktop', nome: 'php', conteiner: idDemo('bot-api-1'), pids: [401, 402, 403, 404, 405, 406], quantos: 6, cpu_nucleos: 0.1, rss: 0, esperando: 6, disco_bps: 0 },
     { distro: 'Ubuntu', nome: 'node', conteiner: null, pids: [1290], quantos: 1, cpu_nucleos: 0.8, rss: 1.2 * 1024 ** 3, esperando: 0, disco_bps: 0 },
@@ -713,7 +713,7 @@ export function criarDemonstracao(): Api {
         itens.push({
           id: `cpu:${db.id}`,
           titulo: 'Limitar loja-db a 4 núcleos',
-          motivo: 'Ele pesava antes de 2 das 2 travas e sobrecargas dos últimos 7 dias, com até 1,9 núcleos, e hoje não tem limite de CPU.',
+          motivo: 'Ele pesava antes de 2 das 2 travas e sobrecargas dos últimos 7 dias, com até 4,6 núcleos, e hoje não tem limite de CPU.',
           efeito: 'Fica com no máximo metade dos 8 núcleos da VM, e o resto sobra para as outras distros. O limite vale até o container ser recriado; para fixar, ponha cpus: 4 no docker-compose dele.',
           risco: 'muda_comportamento',
           marcado: false,

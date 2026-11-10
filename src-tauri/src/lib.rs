@@ -815,11 +815,16 @@ async fn sugerir_otimizacao(agentes: Estado<'_>, recursos: State<'_, Arc<Recurso
         let espaco = recursos.ler_espaco_docker(agentes.rodando(DISTRO_DOCKER));
         let conteineres = recursos.docker.lock().unwrap().conteineres.clone();
         let lista = ocorrencias::listar();
+        let runner_limitado = conteineres
+            .iter()
+            .find(|c| c.estado == "running" && c.nome.contains("gitlab-runner"))
+            .is_some_and(|c| otimizacao::runner_limitado(&otimizacao::ler_limites_do_runner(&c.id)));
         let plano = otimizacao::montar(&otimizacao::Entrada {
             ocorrencias: &lista,
             docker: espaco.docker.as_ref(),
             conteineres: &conteineres,
             cpus_vm: agentes.cpus_vm(),
+            runner_limitado,
             agora_ms: agora_ms(),
         });
         info!("plano de otimização: {} item(ns)", plano.itens.len());
