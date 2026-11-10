@@ -5,6 +5,8 @@ e a numeração segue o [versionamento semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.15.0] - 2026-11-10
+
 ### Adicionado
 
 - **Tema claro, escuro ou igual ao Windows**, em Preferências, seção Aparência. A escolha vai
@@ -464,7 +466,8 @@ Primeira versão pública.
   WSL desliga a distro no tempo normal.
 - Instalador para Windows 10 e 11 e versão portátil em `.zip`.
 
-[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.14.0...HEAD
+[Não lançado]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/SaLuanVitor/toca-do-pinguim/compare/v0.12.0...v0.13.0
